@@ -33,7 +33,6 @@ import ServerCompare from './pages/admin/ServerCompare';
 import AICenter from './pages/admin/AICenter';
 
 import { getConfig, getUserData, saveUserData, getAllUsers, clearLocalUserData } from './services/mockDb';
-import { addLogEntry } from './services/activityLogger';
 import { pullUserDataFromCloud, pushUserDataToCloud } from './services/cloudSync';
 import { connectWebSocket, disconnectWebSocket, onMessage } from './services/socket'; 
 import { CheckCircle2, X, Cloud, CloudOff, RefreshCw, Zap, AlertTriangle, Loader2 } from 'lucide-react';
@@ -61,17 +60,12 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'pulling' | 'pushing' | 'error' | 'offline'>('idle');
   const [lastFailedPayload, setLastFailedPayload] = useState<string | null>(null);
   const [syncErrorMsg, setSyncErrorMsg] = useState<string | null>(null); 
-  const [realtimeEvent, setRealtimeEvent] = useState<string | null>(null); 
-  const [hasCompletedWizard, setHasCompletedWizard] = useState(false); 
-  const [initError, setInitError] = useState<string | null>(null);
-
-  // NEW: Progressive Loading State
+  const [wizardDismissed, setWizardDismissed] = useState(false); // FIX: Wizard Skip Logic
+  
   const [syncProgressMsg, setSyncProgressMsg] = useState<string | null>(null);
-
-  // NEW: State to track unsaved local changes
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  // NEW: Ref to prevent the initial load from triggering a "local save" and showing the button
   const ignoreNextSave = useRef(false);
+  const autoSyncTimer = useRef<any>(null); // Debounce Timer
 
   const [aiResult, setAiResult] = useState<{ show: boolean; type: 'success' | 'error'; title: string; message: string; }>({ show: false, type: 'success', title: '', message: '' });
 
@@ -86,59 +80,30 @@ export default function App() {
     setUserRole('user');
     setCurrentUserId(null);
     setIsDataLoaded(false);
-    
-    // CLEANUP TOKENS TO FORCE FRESH SYNC ON NEXT LOGIN
-    localStorage.removeItem('paydone_last_sync_time');
-    localStorage.removeItem('paydone_last_pull_time'); // CRITICAL: Reset pull timestamp to force full sync next time
+    setWizardDismissed(false);
     localStorage.removeItem('paydone_active_user'); 
     localStorage.removeItem('paydone_session_token');
-    
-    // CLEANUP AI CACHE (Executive Summary)
     sessionStorage.removeItem('paydone_ai_summary');
   };
 
-  // --- WEBSOCKET & SINGLE LOGIN ENFORCEMENT ---
   useEffect(() => {
     if (!currentUserId || userRole !== 'user') return;
     connectWebSocket(currentUserId);
-    
-    const unsubscribe = onMessage((event) => {
-        setRealtimeEvent(event.type);
-        if (event.type === 'SYNC_COMPLETE') {
-            console.log("[WS] Cloud sync notification received. (Auto-pull disabled)");
-        }
-    });
-    return () => {
-        unsubscribe();
-    };
   }, [currentUserId, userRole]);
 
-  // --- INITIAL PULL ON LOAD (FORCE FULL SYNC WITH LOADER) ---
+  // INITIAL LOAD FROM CLOUD
   useEffect(() => {
     const initApp = async () => {
         if (!currentUserId || userRole !== 'user') {
-            if (!currentUserId) { 
-                setDebts([]); setTasks([]); setDailyExpenses([]); setPaymentRecords([]); setIncomes([]); setMonthlyExpenses({}); setSinkingFunds([]);
-            }
             setIsDataLoaded(true);
             return;
         }
         setSyncStatus('pulling');
-        setInitError(null);
         try {
-            // CRITICAL FIX: Force Full Sync on initial load/login to ensure complete dataset
-            // Updated to pass callback for progress updates
             const cloudData = await pullUserDataFromCloud(currentUserId, true, (msg) => setSyncProgressMsg(msg));
+            const finalData = cloudData || getUserData(currentUserId);
             
-            setSyncProgressMsg("Finalizing..."); // Final UI update
-            
-            const localData = getUserData(currentUserId);
-            const finalData = cloudData || localData;
-            
-            // Mark next update as clean (from source)
             ignoreNextSave.current = true;
-
-            // Hydrate State
             setDebts(finalData.debts || []);
             setDebtInstallments(finalData.debtInstallments || []); 
             setTasks(finalData.tasks || []);
@@ -148,112 +113,67 @@ export default function App() {
             setMonthlyExpenses(finalData.allocations || {});
             setSinkingFunds(finalData.sinkingFunds || []);
             
-            // Reset unsaved changes flag on initial load
             setHasUnsavedChanges(false); 
             setSyncStatus('idle');
-            setSyncProgressMsg(null); // Clear Loader
+            setSyncProgressMsg(null);
             setIsDataLoaded(true); 
         } catch (e: any) {
-            if (e.message === 'SESSION_EXPIRED') {
-                alert("Sesi berakhir atau tidak valid. Silakan login kembali.");
-                handleLogout();
-            } else {
-                setSyncStatus('error');
-                setInitError(e.message);
-                setSyncProgressMsg(null);
-                // Fallback to local if cloud fails
-                const localData = getUserData(currentUserId);
-                if (localData) {
-                    ignoreNextSave.current = true;
-                    setDebts(localData.debts || []);
-                    setDebtInstallments(localData.debtInstallments || []);
-                    setTasks(localData.tasks || []);
-                    setDailyExpenses(localData.dailyExpenses || []);
-                    setPaymentRecords(localData.paymentRecords || []);
-                    setIncomes(localData.incomes || []); // Ensure complete fallback
-                    setMonthlyExpenses(localData.allocations || {});
-                    setSinkingFunds(localData.sinkingFunds || []);
-                    
-                    // If we fall back to local, it means we ARE "Unsaved" relative to cloud (since cloud failed)
-                    setHasUnsavedChanges(true); 
-                }
-                setIsDataLoaded(true);
-            }
+            setSyncStatus('error');
+            setSyncProgressMsg(null);
+            setIsDataLoaded(true);
         }
     };
     initApp();
   }, [currentUserId, userRole]);
 
-  // --- CRITICAL: AUTO-SAVE & DIRTY CHECK ---
+  // AUTO-SYNC LOGIC (DEBOUNCED CLOUD PUSH)
   useEffect(() => {
     if (!currentUserId || userRole !== 'user' || !isDataLoaded) return;
     
-    // If this update was triggered by a Pull or Init, skip marking as dirty
     if (ignoreNextSave.current) {
         ignoreNextSave.current = false;
         return;
     }
 
-    // Persist to local MockDB
+    // Local Save
     saveUserData(currentUserId, {
-        debts,
-        debtInstallments,
-        tasks,
-        dailyExpenses,
-        paymentRecords,
-        incomes,
-        allocations: monthlyExpenses,
-        sinkingFunds
+        debts, debtInstallments, tasks, dailyExpenses, paymentRecords, incomes,
+        allocations: monthlyExpenses, sinkingFunds
     });
     
-    // Mark as dirty (Show "Save to Cloud" button)
     setHasUnsavedChanges(true);
 
-  }, [debts, debtInstallments, tasks, dailyExpenses, paymentRecords, incomes, monthlyExpenses, sinkingFunds, currentUserId, userRole, isDataLoaded]);
+    // AUTO-PUSH TO CLOUD
+    if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
+    autoSyncTimer.current = setTimeout(() => {
+        handleManualSync(true); // Silent push
+    }, 3000); // 3 seconds after last change
 
-  // --- MANUAL SYNC HANDLER ---
-  const handleManualSync = async () => {
+  }, [debts, debtInstallments, tasks, dailyExpenses, paymentRecords, incomes, monthlyExpenses, sinkingFunds]);
+
+  const handleManualSync = async (silent: boolean = false) => {
       if (!currentUserId || !isDataLoaded) return;
-      
-      setSyncStatus('pushing');
-      setLastFailedPayload(null);
-      setSyncErrorMsg(null);
+      if (!silent) setSyncStatus('pushing');
       
       const fullPayload = {
           users: getAllUsers(), 
-          debts,
-          debtInstallments,
-          incomes, 
-          tasks,
-          dailyExpenses,
-          paymentRecords,
-          allocations: monthlyExpenses,
-          sinkingFunds
+          debts, debtInstallments, incomes, tasks, dailyExpenses, paymentRecords,
+          allocations: monthlyExpenses, sinkingFunds
       };
 
       try {
           const success = await pushUserDataToCloud(currentUserId, fullPayload as any);
           if (success) {
-              // 1. Clear Local Data (as requested)
-              clearLocalUserData(currentUserId);
-              
-              // 2. Hide Button
               setHasUnsavedChanges(false);
-              
-              // 3. Mark next state update as clean
               ignoreNextSave.current = true; 
-
-              setSyncStatus('idle');
-              setAiResult({ show: true, type: 'success', title: 'Berhasil!', message: 'Data tersimpan di cloud & memori lokal dibersihkan.' });
+              if (!silent) {
+                  setSyncStatus('idle');
+                  setAiResult({ show: true, type: 'success', title: 'Sinkronisasi Cloud', message: 'Data berhasil diamankan di database cloud.' });
+              }
           }
       } catch (e: any) {
-          if (e.message === 'SESSION_EXPIRED') {
-              handleLogout();
-          } else {
-              setSyncStatus('error');
-              setLastFailedPayload(JSON.stringify(fullPayload, null, 2));
-              setSyncErrorMsg(e.message);
-          }
+          setSyncStatus('error');
+          setSyncErrorMsg(e.message);
       }
   };
 
@@ -263,45 +183,16 @@ export default function App() {
     setCurrentUserId(userId);
     localStorage.setItem('paydone_active_user', userId); 
     setIsDataLoaded(false);
-    setHasCompletedWizard(false); 
-  };
-
-  const addTasks = (newTasks: TaskItem[]) => {
-    const enriched = newTasks.map(t => ({ ...t, userId: currentUserId || '' }));
-    setTasks(prev => [...prev, ...enriched]);
-  };
-
-  const toggleTask = (id: string) => {
-    setTasks(prev => prev.map(t => 
-      t.id === id ? { ...t, status: t.status === 'pending' ? 'completed' : 'pending' } : t
-    ));
-  };
-
-  const handleToggleAllocation = (id: string) => {
-    setMonthlyExpenses(prev => {
-      const list = prev[currentMonthKey] || [];
-      const updatedList = list.map(e => {
-           if (e.id === id) {
-             return { ...e, isTransferred: !e.isTransferred };
-           }
-           return e;
-      });
-      return { ...prev, [currentMonthKey]: updatedList };
-    });
-  };
-
-  const handleAddDailyExpense = (expense: DailyExpense) => {
-    setDailyExpenses(prev => [expense, ...prev]);
+    setWizardDismissed(false);
   };
 
   const handleWizardComplete = (newIncomes: IncomeItem[], newDebts: DebtItem[]) => {
       if (!currentUserId) return;
-      setIncomes(newIncomes.map(i => ({...i, userId: currentUserId})));
-      setDebts(newDebts.map(d => ({...d, userId: currentUserId})));
-      setHasCompletedWizard(true);
+      if (newIncomes.length > 0) setIncomes(newIncomes.map(i => ({...i, userId: currentUserId})));
+      if (newDebts.length > 0) setDebts(newDebts.map(d => ({...d, userId: currentUserId})));
+      setWizardDismissed(true);
   };
 
-  // --- SMART OMNI-ACTION HANDLER ---
   const handleAIAction = (action: any) => {
     if (!currentUserId) return;
     const { intent, data } = action;
@@ -320,7 +211,6 @@ export default function App() {
         };
         setDailyExpenses(prev => [newExpense, ...prev]);
         setAiResult({show: true, type: 'success', title: 'Dicatat', message: 'Pengeluaran berhasil disimpan.'});
-    
     } else if (intent === 'ADD_INCOME') {
         const newIncome: IncomeItem = {
             id: `ai-inc-${Date.now()}`,
@@ -334,63 +224,23 @@ export default function App() {
             _deleted: false
         };
         setIncomes(prev => [...prev, newIncome]);
-        setAiResult({show: true, type: 'success', title: 'Dicatat', message: 'Pemasukan berhasil ditambahkan.'});
-
-    } else if (intent === 'ADD_ALLOCATION') {
-        const newItem: ExpenseItem = {
-            id: `ai-alloc-${Date.now()}`,
-            userId: currentUserId,
-            name: data.title || 'Budget Baru',
-            amount: Number(data.amount) || 0,
-            category: 'needs',
-            priority: 1,
-            isTransferred: false,
-            assignedAccountId: null,
-            updatedAt: now,
-            _deleted: false
-        };
-        setMonthlyExpenses(prev => ({
-            ...prev,
-            [currentMonthKey]: [...(prev[currentMonthKey] || []), newItem]
-        }));
-        setAiResult({show: true, type: 'success', title: 'Budget Dibuat', message: `Pos ${newItem.name} ditambahkan.`});
-
-    } else if (intent === 'PAY_DEBT') {
-        const debtId = data.debtId;
-        if (debtId) {
-            const newPayment: PaymentRecord = {
-                id: `ai-pay-${Date.now()}`,
-                debtId: debtId,
-                userId: currentUserId,
-                amount: Number(data.amount) || 0,
-                paidDate: new Date().toISOString().split('T')[0],
-                sourceBank: 'AI Command',
-                status: 'paid',
-                updatedAt: now
-            };
-            setPaymentRecords(prev => [...prev, newPayment]);
-            setAiResult({show: true, type: 'success', title: 'Lunas!', message: 'Pembayaran cicilan dicatat.'});
-        }
     }
   };
 
   const totalMonthlyIncome = incomes
-    .filter(i => i.dateReceived?.startsWith(currentMonthKey))
+    .filter(i => i.dateReceived?.startsWith(currentMonthKey) && !i._deleted)
     .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
   return (
     <I18nProvider>
       <Router>
-        {/* FULL SCREEN PROGRESS LOADER */}
         {syncProgressMsg && (
             <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/90 backdrop-blur-md animate-fade-in text-white">
                 <div className="relative">
                     <div className="h-16 w-16 rounded-full border-4 border-slate-700 border-t-brand-500 animate-spin mb-4"></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <Cloud className="text-white" size={24}/>
-                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center"><Cloud className="text-white" size={24}/></div>
                 </div>
-                <h2 className="text-xl font-bold mb-2">Syncing Data...</h2>
+                <h2 className="text-xl font-bold mb-2">Mengambil Data Cloud...</h2>
                 <p className="text-slate-400 text-sm font-mono animate-pulse">{syncProgressMsg}</p>
             </div>
         )}
@@ -410,51 +260,34 @@ export default function App() {
                           onLogout={handleLogout} 
                           userId={currentUserId || ''} 
                           syncStatus={syncStatus} 
-                          onManualSync={handleManualSync}
+                          onManualSync={() => handleManualSync(false)}
                           lastFailedPayload={lastFailedPayload}
                           lastSyncError={syncErrorMsg}
-                          hasUnsavedChanges={hasUnsavedChanges} // Pass dirty state prop
+                          hasUnsavedChanges={hasUnsavedChanges}
                       />
-                      {!hasCompletedWizard && debts.length === 0 && incomes.length === 0 && (
+                      {!wizardDismissed && debts.length === 0 && incomes.length === 0 && (
                           <OnboardingWizard onComplete={handleWizardComplete} />
                       )}
                   </>
               ) : (
-                  <div className="flex h-screen w-full flex-col items-center justify-center bg-white p-6 text-center">
-                      {!syncProgressMsg && (
-                          <>
-                              <Cloud size={48} className="text-brand-600 animate-bounce mb-4" />
-                              <h2 className="text-xl font-bold text-slate-900">V42 Security Initialization...</h2>
-                              <p className="text-sm text-slate-500">Checking cloud identity for your account.</p>
-                          </>
-                      )}
+                  <div className="flex h-screen w-full flex-col items-center justify-center bg-white p-6">
+                      <Cloud size={48} className="text-brand-600 animate-bounce mb-4" />
+                      <h2 className="text-xl font-bold">Inisialisasi Keamanan V42...</h2>
                   </div>
               )
             ) : (
               <Navigate to="/login" replace />
             )}
           >
-            <Route index element={
-                <Dashboard 
-                    debts={debts} 
-                    debtInstallments={debtInstallments} 
-                    allocations={monthlyExpenses[currentMonthKey] || []} 
-                    tasks={tasks} 
-                    onAIAction={handleAIAction} 
-                    income={totalMonthlyIncome} 
-                    userId={currentUserId || ''}
-                    dailyExpenses={dailyExpenses} 
-                    sinkingFunds={sinkingFunds}
-                />
-            } />
+            <Route index element={<Dashboard debts={debts} debtInstallments={debtInstallments} allocations={monthlyExpenses[currentMonthKey] || []} tasks={tasks} onAIAction={handleAIAction} income={totalMonthlyIncome} userId={currentUserId || ''} dailyExpenses={dailyExpenses} sinkingFunds={sinkingFunds} />} />
             <Route path="my-debts" element={<MyDebts debts={debts} setDebts={setDebts} paymentRecords={paymentRecords} setPaymentRecords={setPaymentRecords} userId={currentUserId || ''} debtInstallments={debtInstallments} setDebtInstallments={setDebtInstallments} />} />
             <Route path="income" element={<IncomeManager incomes={incomes} setIncomes={setIncomes} userId={currentUserId || ''} />} />
             <Route path="expenses" element={<DailyExpenses expenses={dailyExpenses} setExpenses={setDailyExpenses} allocations={monthlyExpenses[currentMonthKey] || []} userId={currentUserId || ''} />} />
-            <Route path="ai-strategist" element={<AIStrategist debts={debts} onAddTasks={addTasks} />} />
-            <Route path="allocation" element={<Allocation monthlyExpenses={monthlyExpenses} setMonthlyExpenses={setMonthlyExpenses} onAddToDailyLog={handleAddDailyExpense} dailyExpenses={dailyExpenses} onToggleAllocation={handleToggleAllocation} sinkingFunds={sinkingFunds} setSinkingFunds={setSinkingFunds} userId={currentUserId || ''} />} />
+            <Route path="ai-strategist" element={<AIStrategist debts={debts} onAddTasks={tasks => setTasks(prev => [...prev, ...tasks])} />} />
+            <Route path="allocation" element={<Allocation monthlyExpenses={monthlyExpenses} setMonthlyExpenses={setMonthlyExpenses} onAddToDailyLog={handleAIAction} dailyExpenses={dailyExpenses} onToggleAllocation={id => setMonthlyExpenses(prev => { const list = prev[currentMonthKey] || []; return { ...prev, [currentMonthKey]: list.map(e => e.id === id ? { ...e, isTransferred: !e.isTransferred } : e) }; })} sinkingFunds={sinkingFunds} setSinkingFunds={setSinkingFunds} userId={currentUserId || ''} />} />
             <Route path="calendar" element={<CalendarPage debts={debts} debtInstallments={debtInstallments} setDebtInstallments={setDebtInstallments} paymentRecords={paymentRecords} setPaymentRecords={setPaymentRecords} />} />
-            <Route path="financial-freedom" element={<FinancialFreedom debts={debts} onAddTasks={addTasks} />} />
-            <Route path="planning" element={<Planning tasks={tasks} debts={debts} allocations={monthlyExpenses[currentMonthKey] || []} onToggleTask={toggleTask} onToggleAllocation={handleToggleAllocation} />} />
+            <Route path="financial-freedom" element={<FinancialFreedom debts={debts} onAddTasks={tasks => setTasks(prev => [...prev, ...tasks])} />} />
+            <Route path="planning" element={<Planning tasks={tasks} debts={debts} allocations={monthlyExpenses[currentMonthKey] || []} onToggleTask={id => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: t.status === 'pending' ? 'completed' : 'pending' } : t))} />} />
             <Route path="team" element={<FamilyManager />} /> 
             <Route path="logs" element={<ActivityLogs userType="user" />} />
             <Route path="profile" element={<Profile currentUserId={currentUserId} />} />
@@ -483,17 +316,13 @@ export default function App() {
 
         {aiResult.show && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-              <div className="bg-white rounded-2xl w-full max-sm p-6 shadow-2xl relative overflow-hidden transform transition-all scale-100">
-                  <div className="relative z-10 text-center">
-                      <div className={`mx-auto h-16 w-16 rounded-full flex items-center justify-center mb-4 ${aiResult.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                        {aiResult.type === 'success' ? <CheckCircle2 size={32} /> : <X size={32} />}
-                      </div>
-                      <h3 className="text-xl font-bold text-slate-900 mb-2">{aiResult.title}</h3>
-                      <p className="text-sm text-slate-500 mb-6">{aiResult.message}</p>
-                      <button onClick={() => setAiResult(prev => ({ ...prev, show: false }))} className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition">
-                        Selesai
-                      </button>
+              <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl text-center">
+                  <div className={`mx-auto h-16 w-16 rounded-full flex items-center justify-center mb-4 ${aiResult.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                    {aiResult.type === 'success' ? <CheckCircle2 size={32} /> : <X size={32} />}
                   </div>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">{aiResult.title}</h3>
+                  <p className="text-sm text-slate-500 mb-6">{aiResult.message}</p>
+                  <button onClick={() => setAiResult(prev => ({ ...prev, show: false }))} className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition">Selesai</button>
               </div>
           </div>
         )}

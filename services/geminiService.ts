@@ -18,7 +18,7 @@ const getBackendUrl = () => {
     return config.backendUrl?.replace(/\/$/, '') || '';
 };
 
-// Helper: Raw Fetch Wrapper with V42 Auth
+// Helper: Raw Fetch Wrapper with V42 Auth and 429 awareness
 const makeProxyRequest = async (baseUrl: string, prompt: string, model: string, systemInstruction?: string) => {
     const userId = getAuthIdentifier();
     
@@ -40,6 +40,12 @@ const makeProxyRequest = async (baseUrl: string, prompt: string, model: string, 
             },
             body: JSON.stringify(bodyPayload)
         });
+
+        // QUOTA / RATE LIMIT HANDLER (429)
+        if (response.status === 429) {
+            console.warn("[GeminiService] 429 Rate Limit - Quota Exceeded");
+            throw new Error("AI sedang istirahat sejenak (Quota Limit). Silakan coba lagi dalam 1 menit.");
+        }
 
         // V42 AUTH HANDLER
         if (response.status === 401) {
@@ -126,7 +132,8 @@ export const generateDashboardSummary = async (metrics: any) => {
         const context = JSON.stringify(metrics, null, 2);
         const text = await callAgent('dashboard_summary', "Generate my financial summary for today.", context);
         return text;
-    } catch (e) {
+    } catch (e: any) {
+        if (e.message.includes("istirahat")) return e.message; // Friendly quota error
         return "AI sedang istirahat. Cek data manual ya.";
     }
 };

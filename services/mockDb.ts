@@ -185,6 +185,7 @@ const INITIAL_DB: DBSchema = {
     aiLibrary: '@google/genai',
     currentThemePreset: 'trust',
     language: 'id',
+    enablePayloadPreview: true, // NEW: Enabled by default
     dashboardWidgets: [
       { id: 'w_health', type: 'health_score', visible: true },
       { id: 'w_summary', type: 'summary_cards', visible: true },
@@ -423,7 +424,6 @@ export const saveAgentConfig = (config: AIAgent) => {
     
     const idx = db.aiAgents.findIndex(a => a.id === config.id);
     if (idx !== -1) {
-        // Only update if current updatedAt is older or missing
         db.aiAgents[idx] = configWithStamp;
     } else {
         db.aiAgents.push(configWithStamp);

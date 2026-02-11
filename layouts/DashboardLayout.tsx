@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NavLink, useLocation, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BrainCircuit, Wallet, Menu, X, Bell, LogOut, PieChart, CalendarDays, ClipboardList, List, TrendingUp, DollarSign, Receipt, History, Users, UserCog, Search, ChevronDown, Globe, AlertCircle, CheckCircle2, PiggyBank, AlarmClock, Copy, Sparkles, Zap, ChevronRight, Wifi, RefreshCw, AlertTriangle, CloudUpload, Bug, CloudDownload, Code, Database } from 'lucide-react';
+import { LayoutDashboard, BrainCircuit, Wallet, Menu, X, Bell, LogOut, PieChart, CalendarDays, ClipboardList, List, TrendingUp, DollarSign, Receipt, History, Users, UserCog, Search, ChevronDown, Globe, AlertCircle, CheckCircle2, PiggyBank, AlarmClock, Copy, Sparkles, Zap, ChevronRight, Wifi, RefreshCw, AlertTriangle, CloudUpload, Bug, CloudDownload, Code, Database, Eye, Terminal, Send } from 'lucide-react';
 import { useTranslation } from '../services/translationService';
-import { getUserData, getAllUsers } from '../services/mockDb';
+import { getUserData, getAllUsers, getConfig } from '../services/mockDb';
 import { DebtItem, SinkingFund, TaskItem, User } from '../types';
 import { formatCurrency } from '../services/financeUtils';
 import { pullUserDataFromCloud } from '../services/cloudSync';
@@ -71,6 +71,11 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
   const [showDebugModal, setShowDebugModal] = useState(false);
+  
+  // Payload Preview States
+  const [showPayloadModal, setShowPayloadModal] = useState(false);
+  const [currentPayload, setCurrentPayload] = useState<any>(null);
+
   const navigate = useNavigate();
   
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -130,9 +135,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const handleManualPull = async () => {
       setIsPulling(true);
       try {
-          // MODIFIED: Force Full Sync (true) when manually requested by user button
           const data = await pullUserDataFromCloud(userId, true);
-          // If null (e.g. 404 handled gracefully inside), show distinct message
           setPullResult({ 
               status: 'success', 
               data: data || { message: "No Data returned (Possible 404 or Empty DB)" } 
@@ -146,6 +149,28 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
           setIsPulling(false);
           setShowPullModal(true);
       }
+  };
+
+  // SMART SYNC WITH INSPECTOR
+  const initiateSync = () => {
+      const config = getConfig();
+      const userData = getUserData(userId);
+      const fullPayload = {
+          users: getAllUsers(), 
+          ...userData
+      };
+
+      if (config.enablePayloadPreview) {
+          setCurrentPayload(fullPayload);
+          setShowPayloadModal(true);
+      } else {
+          onManualSync?.();
+      }
+  };
+
+  const handleConfirmedPush = () => {
+      setShowPayloadModal(false);
+      onManualSync?.();
   };
 
   const menuStructure = useMemo(() => [
@@ -207,6 +232,58 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
             </div>
         </div>
       </aside>
+
+      {/* --- PRE-SYNC PAYLOAD INSPECTOR MODAL --- */}
+      {showPayloadModal && currentPayload && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-fade-in">
+              <div className="bg-white rounded-[2.5rem] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-[85vh] border border-white/20">
+                  <div className="bg-slate-950 p-8 flex justify-between items-start text-white relative">
+                      <div className="absolute top-0 right-0 p-8 opacity-5"><Eye size={150}/></div>
+                      <div className="relative z-10">
+                          <h3 className="text-2xl font-black tracking-tight flex items-center gap-3">
+                              <Terminal size={24} className="text-brand-400"/> Data Payload Inspector
+                          </h3>
+                          <p className="text-slate-400 text-sm mt-2">Pratinjau data transaksi yang akan dikirim ke <strong>api.cosger.online</strong></p>
+                      </div>
+                      <button onClick={() => setShowPayloadModal(false)} className="p-2 bg-white/10 hover:bg-white/20 text-slate-400 hover:text-white rounded-full transition-all"><X size={24}/></button>
+                  </div>
+                  
+                  <div className="flex-1 overflow-hidden flex flex-col bg-black">
+                      <div className="p-3 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest">
+                          <span>payload_buffer (~/outgoing/sync.json)</span>
+                          <div className="flex gap-1.5">
+                              <div className="w-2 h-2 rounded-full bg-red-500/20"></div>
+                              <div className="w-2 h-2 rounded-full bg-green-500/20"></div>
+                          </div>
+                      </div>
+                      <div className="flex-1 overflow-auto p-6 custom-scrollbar font-mono text-[11px] text-green-400 bg-black leading-relaxed">
+                          <pre>{JSON.stringify(currentPayload, null, 2)}</pre>
+                      </div>
+                  </div>
+
+                  <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
+                      <div className="flex items-center gap-2 text-slate-500">
+                          <AlertTriangle size={16} className="text-amber-500" />
+                          <span className="text-xs font-medium">Pastikan data di atas sudah benar sebelum sinkronisasi.</span>
+                      </div>
+                      <div className="flex gap-3">
+                          <button 
+                              onClick={() => setShowPayloadModal(false)}
+                              className="px-6 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-white transition"
+                          >
+                              Batal
+                          </button>
+                          <button 
+                              onClick={handleConfirmedPush}
+                              className="px-8 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-black uppercase tracking-widest hover:bg-brand-700 shadow-xl flex items-center gap-2 transform active:scale-95 transition"
+                          >
+                              <Send size={16}/> Kirim ke Cloud
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* DEBUG PAYLOAD & ERROR MODAL */}
       {showDebugModal && (
@@ -341,12 +418,12 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
                 {/* EXISTING: MANUAL PUSH BUTTON */}
                 {hasUnsavedChanges && (
                     <button 
-                        onClick={onManualSync}
+                        onClick={initiateSync}
                         disabled={syncStatus === 'pushing' || isPulling}
-                        className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border ${
+                        className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-lg border ${
                             syncStatus === 'pushing' ? 'bg-slate-50 text-slate-400 border-slate-200' : 
                             syncStatus === 'error' ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' :
-                            'bg-brand-600 text-white border-brand-600 hover:bg-brand-700'
+                            'bg-brand-600 text-white border-brand-600 hover:bg-brand-700 shadow-brand-500/20'
                         }`}
                     >
                         {syncStatus === 'pushing' ? <RefreshCw size={14} className="animate-spin" /> : <CloudUpload size={14} />}

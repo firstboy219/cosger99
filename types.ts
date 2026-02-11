@@ -44,6 +44,7 @@ export interface AppConfig extends SyncMetadata {
     // Database Tools Config (NEW)
     diagnosticUrl?: string; // Link to API Diagnostic
     apiCaseConvention?: 'snake_case' | 'camelCase'; // API Communication Style
+    enablePayloadPreview?: boolean; // NEW: Feature toggle for users to see data before sync
     
     gcpProjectId?: string;
     gcpRegion?: string;

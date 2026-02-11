@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Wallet, Loader2, Lock, User, AlertCircle, X, CheckCircle2, RefreshCw, Database, AlertTriangle, Mail, Send, Globe, ShieldCheck } from 'lucide-react';
+import { Wallet, Loader2, Lock, User, AlertCircle, X, CheckCircle2, RefreshCw, Database, AlertTriangle, Mail, Send, Globe, ShieldCheck, Eye, EyeOff, ChevronRight, Fingerprint, KeyRound } from 'lucide-react';
 import { getConfig, getAllUsers, updateUser, addUser, migrateUserData } from '../services/mockDb';
 import { addLogEntry } from '../services/activityLogger';
 import { decodeJwt, GoogleJwtPayload } from '../services/authUtils';
@@ -22,6 +22,7 @@ export default function Login({ onLogin }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   
   // Auth Troubleshooting State
@@ -221,100 +222,209 @@ export default function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-8 animate-fade-in">
+    <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-6 relative overflow-hidden">
+      
+      {/* Dynamic Animated Background Elements */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-500/10 rounded-full blur-[120px] animate-pulse-slow"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[120px] animate-pulse-slow" style={{ animationDelay: '2s' }}></div>
+
+      <div className="w-full max-w-[1000px] flex bg-white rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden relative z-10 scale-95 md:scale-100 transition-all duration-500">
         
-        <div className="text-center">
-          <Link to="/" className="inline-flex items-center gap-2 text-brand-700 mb-4">
-            <Wallet className="h-10 w-10" />
-            <span className="font-bold text-2xl tracking-tight text-slate-900">Paydone.id</span>
-          </Link>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Login Portal</h2>
-          <p className="mt-2 text-slate-500 font-medium italic">"Bayar, Selesai."</p>
+        {/* LEFT PANEL: Branding & Visual */}
+        <div className="hidden lg:flex w-1/2 bg-slate-900 p-12 flex-col justify-between relative overflow-hidden">
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+            <div className="absolute top-[-100px] right-[-100px] w-64 h-64 bg-brand-600/20 rounded-full blur-[80px]"></div>
+            
+            <div className="relative z-10">
+                <Link to="/" className="flex items-center gap-3 text-white mb-12">
+                    <div className="bg-brand-600 p-2 rounded-xl shadow-lg shadow-brand-500/30">
+                        <Wallet className="h-6 w-6" />
+                    </div>
+                    <span className="font-black text-2xl tracking-tighter">Paydone<span className="text-brand-500">.id</span></span>
+                </Link>
+                <h1 className="text-4xl font-black text-white leading-tight mb-4">
+                    Sistem Pelunasan <br/>
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-indigo-400">Paling Cerdas.</span>
+                </h1>
+                <p className="text-slate-400 text-sm leading-relaxed max-w-xs font-medium">
+                    Ambil kendali finansial Anda dengan bantuan AI. Pantau, hitung, dan selesaikan semua beban secara otomatis.
+                </p>
+            </div>
+
+            <div className="relative z-10">
+                <div className="bg-white/5 border border-white/10 backdrop-blur-md rounded-2xl p-5">
+                    <div className="flex items-center gap-3 mb-3">
+                        <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Network Status</span>
+                    </div>
+                    <div className="flex justify-between items-end">
+                        <div>
+                            <p className="text-white font-bold text-sm">Mainnet Node Singapore</p>
+                            <p className="text-slate-500 text-[10px] font-mono mt-1 uppercase">v42.22 Secure Protocol</p>
+                        </div>
+                        <Globe size={24} className="text-slate-700"/>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        {googleSyncStatus !== 'idle' && (
-           <div className="fixed inset-0 bg-white/95 backdrop-blur-md z-50 flex flex-col items-center justify-center animate-fade-in">
-              <div className="text-center p-8 max-w-sm w-full bg-white rounded-3xl shadow-2xl border border-slate-100">
-                 <div className="relative mb-6 mx-auto w-fit">
+        {/* RIGHT PANEL: Form */}
+        <div className="w-full lg:w-1/2 p-8 md:p-12 bg-white flex flex-col justify-center">
+            <div className="mb-10 lg:hidden text-center">
+                 <Link to="/" className="inline-flex items-center gap-2 text-slate-900">
+                    <Wallet className="h-8 w-8 text-brand-600" />
+                    <span className="font-black text-xl tracking-tighter">Paydone.id</span>
+                </Link>
+            </div>
+
+            <div className="max-w-sm mx-auto w-full">
+                <div className="mb-8">
+                    <h2 className="text-3xl font-black text-slate-900 tracking-tight">Selamat Datang</h2>
+                    <p className="text-slate-500 text-sm mt-2 font-medium">Lanjutkan ke cockpit keuangan Anda.</p>
+                </div>
+
+                {/* GOOGLE SOCIAL LOGIN - HIGHLIGHTED */}
+                <div className="mb-8">
+                    <button 
+                        onClick={triggerGoogleLogin}
+                        disabled={!isGsiInitialized || loading}
+                        className="w-full group flex items-center justify-center gap-4 py-3.5 border-2 border-slate-100 rounded-2xl bg-white text-xs font-black uppercase tracking-widest text-slate-700 hover:border-brand-500 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md disabled:opacity-50"
+                    >
+                        <img className="h-5 w-5 group-hover:scale-110 transition-transform" src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" />
+                        Masuk dengan Google
+                    </button>
+                    
+                    <div className="mt-8 relative">
+                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100" /></div>
+                        <div className="relative flex justify-center text-[10px] font-black uppercase tracking-widest text-slate-400"><span className="px-4 bg-white">Atau Gunakan Akun</span></div>
+                    </div>
+                </div>
+
+                <form className="space-y-5" onSubmit={handleManualSubmit}>
+                    {error && (
+                        <div className="p-4 bg-red-50 border-2 border-red-100 rounded-2xl animate-shake">
+                            <div className="flex items-center gap-3 text-red-600 mb-2">
+                                <AlertCircle size={18} />
+                                <span className="text-xs font-black uppercase tracking-tight">{error}</span>
+                            </div>
+                            <button type="button" onClick={() => setShowDebug(!showDebug)} className="text-[10px] text-red-400 underline font-bold">
+                                {showDebug ? 'Sembunyikan Log Teknis' : 'Lihat Detail Masalah'}
+                            </button>
+                            {showDebug && (
+                                <div className="mt-3 p-3 bg-black/5 rounded-xl font-mono text-[9px] text-slate-500 overflow-auto max-h-24 custom-scrollbar leading-relaxed">
+                                    {authDebug.map((log, i) => <div key={i} className="mb-1">{log}</div>)}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Username / Email</label>
+                        <div className="group relative">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-brand-600 transition-colors"><User size={18} /></div>
+                            <input 
+                                type="text" 
+                                required 
+                                value={username} 
+                                onChange={(e) => setUsername(e.target.value)} 
+                                className="block w-full pl-11 pr-4 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 focus:bg-white transition-all outline-none text-sm font-bold placeholder:text-slate-300" 
+                                placeholder="Email atau username..." 
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <div className="flex items-center justify-between px-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sandi Rahasia</label>
+                            <button type="button" className="text-[10px] font-black text-brand-600 hover:text-brand-700 uppercase tracking-widest">Lupa?</button>
+                        </div>
+                        <div className="group relative">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-brand-600 transition-colors"><Lock size={18} /></div>
+                            <input 
+                                type={showPassword ? 'text' : 'password'} 
+                                required 
+                                value={password} 
+                                onChange={(e) => setPassword(e.target.value)} 
+                                className="block w-full pl-11 pr-12 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 focus:bg-white transition-all outline-none text-sm font-bold placeholder:text-slate-300" 
+                                placeholder="••••••••" 
+                            />
+                            <button 
+                                type="button" 
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600"
+                            >
+                                {showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="pt-2">
+                        <button 
+                            type="submit" 
+                            disabled={loading} 
+                            className="w-full group flex justify-center items-center gap-3 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-slate-800 transition transform active:scale-[0.98] shadow-xl hover:shadow-slate-200 disabled:opacity-50"
+                        >
+                            {loading ? <RefreshCw className="animate-spin" size={16} /> : (
+                                <>
+                                    Autentikasi Aman 
+                                    <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </form>
+
+                <div className="mt-10 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
+                    <div className="flex items-center gap-2">
+                        <ShieldCheck size={14} className="text-green-500"/>
+                        Data Terenkripsi
+                    </div>
+                    <Link to="/register" className="text-brand-600 hover:underline">Buat Akun Baru</Link>
+                </div>
+            </div>
+        </div>
+      </div>
+
+      {/* SYNC OVERLAY: SMART & PRETTY */}
+      {googleSyncStatus !== 'idle' && (
+           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl z-[100] flex flex-col items-center justify-center animate-fade-in">
+              <div className="text-center p-12 max-w-md w-full relative">
+                 
+                 {/* Visual Background Glow for Loader */}
+                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-brand-500/20 rounded-full blur-[60px] animate-pulse"></div>
+
+                 <div className="relative mb-10 mx-auto w-fit">
                     {googleSyncStatus === 'success' ? (
-                       <div className="h-20 w-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center animate-bounce shadow-lg">
-                          <CheckCircle2 size={40} />
+                       <div className="h-24 w-24 bg-green-500 text-white rounded-[2rem] flex items-center justify-center animate-bounce shadow-2xl shadow-green-500/50">
+                          <CheckCircle2 size={48} />
                        </div>
                     ) : (
-                       <div className="h-20 w-20 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center relative z-10 shadow-lg">
-                          <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="h-10 w-10 animate-pulse" alt="Google" />
-                          <div className="absolute inset-0 rounded-full border-4 border-t-brand-600 border-transparent animate-spin"></div>
+                       <div className="h-24 w-24 bg-white/10 border-2 border-white/20 rounded-[2rem] flex items-center justify-center relative z-10 shadow-2xl backdrop-blur-md">
+                          {googleSyncStatus === 'verifying' && <Fingerprint size={48} className="text-brand-400 animate-pulse" />}
+                          {googleSyncStatus === 'checking_db' && <Database size={40} className="text-indigo-400 animate-bounce" />}
+                          <div className="absolute inset-[-8px] rounded-[2.5rem] border-4 border-t-brand-500 border-white/5 animate-spin"></div>
                        </div>
                     )}
                  </div>
-                 <h3 className="text-xl font-bold text-slate-900 mb-2">{syncMessage}</h3>
-                 <p className="text-slate-400 text-xs font-mono uppercase tracking-widest animate-pulse">V42 Protocol Active</p>
+
+                 <h3 className="text-2xl font-black text-white mb-3 tracking-tight">{syncMessage}</h3>
+                 <div className="flex flex-col items-center gap-3">
+                    <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">V42 Secure Handshake Active</p>
+                    <div className="flex gap-1.5">
+                        <div className={`h-1.5 w-1.5 rounded-full ${googleSyncStatus === 'verifying' ? 'bg-brand-500' : 'bg-white/20'}`}></div>
+                        <div className={`h-1.5 w-1.5 rounded-full ${googleSyncStatus === 'checking_db' ? 'bg-brand-500' : 'bg-white/20'}`}></div>
+                        <div className={`h-1.5 w-1.5 rounded-full ${googleSyncStatus === 'success' ? 'bg-brand-500' : 'bg-white/20'}`}></div>
+                    </div>
+                 </div>
               </div>
            </div>
-        )}
+      )}
 
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-2xl shadow-slate-200/60 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><ShieldCheck size={120}/></div>
-          
-          <form className="space-y-6 relative z-10" onSubmit={handleManualSubmit}>
-            {error && (
-              <div className="p-4 text-xs font-bold text-red-600 bg-red-50 border-2 border-red-100 rounded-2xl flex flex-col gap-2">
-                <div className="flex items-center gap-2"><AlertCircle size={14} /> <span>{error}</span></div>
-                <button type="button" onClick={() => setShowDebug(!showDebug)} className="text-[10px] text-red-400 underline text-left">
-                  {showDebug ? 'Hide Technical Logs' : 'Show Technical Logs'}
-                </button>
-                {showDebug && (
-                    <div className="mt-2 p-2 bg-black/5 rounded-lg font-mono text-[9px] text-slate-500 overflow-auto max-h-32">
-                        {authDebug.map((log, i) => <div key={i}>{log}</div>)}
-                    </div>
-                )}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-black text-slate-500 uppercase mb-1.5 tracking-widest">Username / Email</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400"><User size={18} /></div>
-                <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="block w-full pl-11 pr-4 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all outline-none text-sm font-bold" placeholder="admin atau user" />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5"><label className="block text-xs font-black text-slate-500 uppercase tracking-widest">Password</label></div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400"><Lock size={18} /></div>
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="block w-full pl-11 pr-4 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all outline-none text-sm font-bold" placeholder="••••••••" />
-              </div>
-            </div>
-
-            <button type="submit" disabled={loading} className="w-full flex justify-center items-center gap-2 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-slate-800 transition transform active:scale-95 shadow-xl disabled:opacity-50">
-              {loading ? <RefreshCw className="animate-spin" size={16} /> : 'Authenticate Access'}
-            </button>
-          </form>
-
-          <div className="mt-8 relative">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100" /></div>
-            <div className="relative flex justify-center text-[10px] font-black uppercase tracking-widest text-slate-400"><span className="px-3 bg-white">Trusted Identity</span></div>
-          </div>
-
-          <div className="mt-6">
-            <button 
-                type="button" 
-                onClick={triggerGoogleLogin}
-                disabled={!isGsiInitialized}
-                className="w-full flex items-center justify-center gap-3 py-3.5 border-2 border-slate-100 rounded-2xl bg-white text-xs font-black uppercase tracking-widest text-slate-700 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md disabled:opacity-50"
-            >
-              <img className="h-5 w-5" src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" />
-              Continue with Google
-            </button>
-          </div>
-        </div>
-
-        <p className="text-center text-xs font-bold text-slate-400 uppercase tracking-widest">
-          No account? <Link to="/register" className="text-brand-600 hover:text-brand-700 underline">Register Free</Link>
-        </p>
+      {/* Footer Branding for Public View */}
+      <div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none opacity-40">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em]">Paydone Personal Finance &copy; 2024</p>
       </div>
+
     </div>
   );
 }

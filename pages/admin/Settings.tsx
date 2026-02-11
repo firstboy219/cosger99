@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { getConfig, saveConfig } from '../../services/mockDb';
 import { saveGlobalConfigToCloud } from '../../services/cloudSync';
-import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode } from 'lucide-react';
+import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye } from 'lucide-react';
 import { themePresets, ThemeConfig } from '../../services/themeService';
 import { useTranslation } from '../../services/translationService';
 import { SystemRules, AdvancedConfig } from '../../types';
@@ -53,7 +53,8 @@ export default function AdminSettings() {
         // Legacy/Direct sync mapping
         geminiApiKey: config.geminiApiKey,
         backendUrl: config.backendUrl,
-        sourceCodeUrl: config.sourceCodeUrl
+        sourceCodeUrl: config.sourceCodeUrl,
+        enablePayloadPreview: config.enablePayloadPreview
     };
     
     // 1. Local Save
@@ -112,7 +113,7 @@ export default function AdminSettings() {
 
       <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm min-h-[500px]">
             
-            {/* TAB: SYSTEM & CONNECTION (CONSOLIDATED FROM MASTERDATA) */}
+            {/* TAB: SYSTEM & CONNECTION */}
             {activeTab === 'system' && (
                 <div className="space-y-8 animate-fade-in">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -253,6 +254,25 @@ export default function AdminSettings() {
                             <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Application Name</label>
                             <input type="text" className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold focus:border-brand-500 transition outline-none" value={config.appName || 'Paydone.id'} onChange={e => setConfig({...config, appName: e.target.value})} />
                         </div>
+                        
+                        {/* NEW: PAYLOAD PREVIEW TOGGLE */}
+                        <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 flex items-center justify-between group hover:border-brand-300 transition-all">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-brand-100 text-brand-600 rounded-2xl group-hover:bg-brand-600 group-hover:text-white transition-colors"><Eye size={24}/></div>
+                                <div>
+                                    <h4 className="font-black text-slate-800 text-sm uppercase">Enable Payload Inspector</h4>
+                                    <p className="text-xs text-slate-500 mt-1">User dapat mengintip data JSON sebelum klik 'Simpan ke Cloud'.</p>
+                                </div>
+                            </div>
+                            <button 
+                                type="button" 
+                                onClick={() => setConfig({...config, enablePayloadPreview: !config.enablePayloadPreview})}
+                                className={`p-1 rounded-full transition-colors ${config.enablePayloadPreview ? 'text-brand-600' : 'text-slate-300'}`}
+                            >
+                                {config.enablePayloadPreview ? <ToggleRight size={48}/> : <ToggleLeft size={48}/>}
+                            </button>
+                        </div>
+
                         <div>
                             <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Global Announcement Message</label>
                             <textarea className="w-full border-2 border-slate-100 p-4 rounded-2xl h-32 focus:border-brand-500 transition outline-none text-sm leading-relaxed" value={config.globalAnnouncement || ''} onChange={e => setConfig({...config, globalAnnouncement: e.target.value})} placeholder="Pesan penting yang akan muncul di dashboard seluruh user..." />

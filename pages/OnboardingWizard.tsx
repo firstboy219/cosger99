@@ -53,15 +53,14 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   };
 
   const handleSkip = () => {
-      if(confirm("Yakin mau skip setup awal? Data bisa diisi manual nanti.")) {
+      // FIX: Skip immediately should call onComplete
+      if(confirm("Yakin mau skip setup awal? Kamu bisa mengisinya manual nanti di dashboard.")) {
           onComplete([], []);
       }
   };
 
   const handleQuickReply = (text: string) => {
       setInputText(text);
-      // Optional: Auto submit after small delay or just populate input
-      // handleIncomeSubmit(text); // If we want auto submit
   };
 
   const handleIncomeSubmit = async (overrideText?: string) => {
@@ -94,7 +93,6 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
         }, 1000);
     } else {
         addMessage('ai', "Hmm, AI lagi penuh. Ketik angkanya saja, misal '5000000'.", 'error');
-        // Manual fallback logic
         const numb = input.replace(/\D/g,'');
         if (numb.length > 4) {
              const newIncome: IncomeItem = {
@@ -148,7 +146,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
             endDate: new Date().toISOString().split('T')[0],
             dueDate: 5,
             bankName: result.bank || 'Lending',
-            createdAt: new Date().toISOString() // Set createdAt for history logic
+            createdAt: new Date().toISOString()
         };
 
         setTempDebts(prev => [...prev, newDebt]);
@@ -169,7 +167,6 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
     <div className="fixed inset-0 z-[60] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col h-[650px] overflow-hidden relative animate-fade-in-up border border-slate-800">
         
-        {/* Header with Progress Steps */}
         <div className="bg-slate-900 p-6 text-white flex flex-col shadow-md z-10 relative overflow-hidden">
            <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={100} /></div>
            
@@ -186,36 +183,31 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                </button>
            </div>
 
-           {/* Stepper */}
            <div className="flex items-center justify-between relative z-10 px-2">
                {steps.map((s, idx) => {
                    const isActive = s.id === step;
                    const isCompleted = getCurrentStepIndex() > idx;
                    return (
                        <div key={s.id} className="flex flex-col items-center gap-2 relative z-10">
-                           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500 ${isActive ? 'bg-brand-500 text-white scale-110 shadow-lg shadow-brand-500/50' : isCompleted ? 'bg-green-500 text-white' : 'bg-slate-800 text-slate-500'}`}>
+                           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500 ${isActive ? 'bg-brand-500 text-white scale-110 shadow-lg shadow-brand-500/50' : isCompleted ? 'bg-green-50 text-white' : 'bg-slate-800 text-slate-500'}`}>
                                {isCompleted ? <CheckCircle2 size={14}/> : idx + 1}
                            </div>
                            <span className={`text-[10px] font-medium ${isActive ? 'text-white' : 'text-slate-500'}`}>{s.label}</span>
                        </div>
                    );
                })}
-               {/* Progress Line */}
                <div className="absolute top-4 left-4 right-4 h-0.5 bg-slate-800 -z-0">
                    <div className="h-full bg-brand-500 transition-all duration-500" style={{ width: `${(getCurrentStepIndex() / (steps.length - 1)) * 100}%` }}></div>
                </div>
            </div>
         </div>
 
-        {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 custom-scrollbar">
            {messages.map((msg) => (
              <div key={msg.id} className={`flex ${msg.role === 'ai' ? 'justify-start' : 'justify-end'} animate-fade-in`}>
                 {msg.role === 'ai' && <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center mr-2 mt-1 flex-shrink-0 shadow-sm text-brand-600"><Bot size={16} /></div>}
-                
                 <div className={`max-w-[85%] p-3.5 rounded-2xl text-sm leading-relaxed shadow-sm transition-all ${msg.role === 'ai' ? (msg.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200 rounded-tl-none' : 'bg-white text-slate-700 rounded-tl-none border border-slate-200') : 'bg-brand-600 text-white rounded-tr-none shadow-md shadow-brand-200'}`}>
                     {msg.text}
-                    {/* Summary Card Logic */}
                     {msg.type === 'summary' && (
                         <div className="mt-3 bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-600">
                             <div className="flex justify-between border-b border-slate-200 pb-2 mb-2">
@@ -245,9 +237,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
            <div ref={scrollRef} />
         </div>
 
-        {/* Input Area */}
         <div className="p-4 bg-white border-t border-slate-200">
-           {/* Quick Chips */}
            <div className="flex gap-2 mb-3 overflow-x-auto pb-1 no-scrollbar">
                {step === 'INCOME' && !isProcessing && (
                    <>
@@ -260,7 +250,6 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                    <>
                        <button onClick={() => handleQuickReply('KPR 3jt 15thn')} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full text-slate-600 whitespace-nowrap transition border border-slate-200">🏠 KPR Rumah</button>
                        <button onClick={() => handleQuickReply('Cicilan Mobil 2.5jt')} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full text-slate-600 whitespace-nowrap transition border border-slate-200">🚗 Kredit Mobil</button>
-                       <button onClick={() => handleQuickReply('Gak ada hutang, aman!')} className="text-xs bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-full text-green-700 whitespace-nowrap transition border border-green-200">✅ Tidak Ada</button>
                    </>
                )}
            </div>

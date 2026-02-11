@@ -1,6 +1,5 @@
 
-import { getConfig, getDB, saveDB, getUserData, saveConfig } from './mockDb';
-import { AppConfig, AIAgent } from '../types';
+import { getConfig, getDB, saveDB, getUserData } from './mockDb';
 import { convertKeysToSnakeCase, convertKeysToCamelCase } from './formatUtils';
 
 const getBackend = () => getConfig().backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
@@ -14,168 +13,120 @@ export const getHeaders = (userId: string) => {
     };
 };
 
-/**
- * Helper to transform data based on "API Case Convention" setting
- */
 const transformPayload = (data: any, direction: 'outgoing' | 'incoming') => {
     if (!data) return data;
     const config = getConfig();
-    const convention = config.apiCaseConvention || 'snake_case'; // Default to snake_case per requirement
+    const convention = config.apiCaseConvention || 'snake_case';
 
     if (convention === 'snake_case') {
         if (direction === 'outgoing') return convertKeysToSnakeCase(data);
         if (direction === 'incoming') return convertKeysToCamelCase(data);
     }
-    return data; // Pass through if camelCase selected
+    return data;
 };
 
 /**
- * Mengambil konfigurasi global (App Settings atau AI Agents) langsung dari tabel sync_data di Cloud
+ * FULL PULL: Digunakan saat login atau inisialisasi awal.
+ * Mengembalikan objek detail hasil sync.
  */
-export const fetchGlobalConfigFromCloud = async (collectionName: 'app_settings' | 'ai_agents' | 'ba_rules'): Promise<any> => {
+export interface SyncResult {
+    success: boolean;
+    data?: any;
+    error?: string;
+    status?: number;
+}
+
+export const pullUserDataFromCloud = async (userId: string, onProgress?: (msg: string) => void): Promise<SyncResult> => {
     const baseUrl = getBackend();
     try {
-        const res = await fetch(`${baseUrl}/api/sync/global?collection=${collectionName}`, {
-            headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (res.status === 404) {
-            // Graceful fallback for older backends
-            console.warn(`[CloudSync] Global endpoint not found (Server outdated). Skipping ${collectionName} fetch.`);
-            return null;
-        }
-
-        if (!res.ok) {
-            // Attempt to parse error text for better logging
-            const errText = await res.text().catch(() => res.statusText);
-            console.warn(`[CloudSync] Failed to fetch ${collectionName}: ${res.status} ${errText}`);
-            return null;
-        }
-
-        const json = await res.json();
-        const rawData = json.data || json.config; // Support both data and config keys
-        return transformPayload(rawData, 'incoming');
-    } catch (e: any) {
-        console.error(`[CloudSync] Network/Logic error fetching ${collectionName}:`, e.message);
-        return null;
-    }
-};
-
-/**
- * Menyimpan konfigurasi global langsung ke Cloud
- */
-export const saveGlobalConfigToCloud = async (collectionName: 'app_settings' | 'ai_agents' | 'ba_rules', payload: any): Promise<boolean> => {
-    const baseUrl = getBackend();
-    try {
-        // V46 Fix: Transform payload to match SQL convention (googleClientId -> google_client_id)
-        const transformedData = transformPayload(payload, 'outgoing');
-
-        const res = await fetch(`${baseUrl}/api/sync/global`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                collection: collectionName,
-                config: transformedData // CHANGED FROM 'data' TO 'config' to fix "No config provided" 400 error
-            })
-        });
-        
-        if (res.status === 404) {
-            console.warn(`[CloudSync] Global endpoint not found. Cannot save ${collectionName} to cloud.`);
-            return false;
-        }
-
-        if (!res.ok) {
-             const errText = await res.text().catch(() => res.statusText);
-             console.error(`[CloudSync] Save failed ${res.status}: ${errText}`);
-             return false;
-        }
-
-        // Also update local cache if success and it's app_settings
-        if (res.ok && collectionName === 'app_settings') {
-            saveConfig(payload);
-        }
-        
-        return res.ok;
-    } catch (e: any) {
-        console.error(`[CloudSync] Error saving ${collectionName}:`, e.message);
-        return false;
-    }
-};
-
-export const pullUserDataFromCloud = async (userId: string, forceFullSync: boolean = false, onProgress?: (msg: string) => void): Promise<any> => {
-    const baseUrl = getBackend();
-    try {
-        if (onProgress) onProgress("Syncing with Cloud SQL...");
+        if (onProgress) onProgress("Menghubungi Cloud SQL...");
         const res = await fetch(`${baseUrl}/api/sync?userId=${userId}`, {
             headers: getHeaders(userId),
         });
 
         if (!res.ok) {
-            const errText = await res.text().catch(() => res.statusText);
-            throw new Error(`Cloud Error ${res.status}: ${errText}`);
+            let errorMsg = `Server Error (${res.status})`;
+            try {
+                const errData = await res.json();
+                errorMsg = errData.error || errorMsg;
+            } catch(e) {}
+            return { success: false, error: errorMsg, status: res.status };
         }
         
         let data = await res.json();
-        
-        // TRANSFORM INCOMING DATA (Snake -> Camel) if configured
         data = transformPayload(data, 'incoming');
 
         const db = getDB();
-
-        // Update local mock DB with cloud data
+        // Fix: Expand pullUserDataFromCloud to handle all syncable entities
         if (data.debts) db.debts = data.debts;
         if (data.incomes) db.incomes = data.incomes;
-        if (data.dailyExpenses || data.daily_expenses) db.dailyExpenses = data.dailyExpenses || data.daily_expenses;
-        if (data.paymentRecords || data.payment_records) db.paymentRecords = data.paymentRecords || data.payment_records;
+        if (data.dailyExpenses) db.dailyExpenses = data.dailyExpenses;
+        if (data.debtInstallments) db.debtInstallments = data.debtInstallments;
         if (data.tasks) db.tasks = data.tasks;
-        if (data.users) db.users = data.users;
-        if (data.sinkingFunds || data.sinking_funds) db.sinkingFunds = data.sinkingFunds || data.sinking_funds;
-        if (data.debtInstallments || data.debt_installments) db.debtInstallments = data.debtInstallments || data.debt_installments;
-        
-        // V45: Sync Tickets if available
         if (data.tickets) db.tickets = data.tickets;
-
+        if (data.sinkingFunds) db.sinkingFunds = data.sinkingFunds;
+        if (data.paymentRecords) db.paymentRecords = data.paymentRecords;
+        
         saveDB(db);
-        return getUserData(userId);
+        return { success: true, data: getUserData(userId) };
     } catch (e: any) {
-        console.warn("Pull Failed:", e.message);
-        return null;
+        return { success: false, error: e.message === 'Failed to fetch' ? "Gagal terhubung ke Backend (CORS atau Offline)" : e.message };
     }
 };
 
-export const pushUserDataToCloud = async (userId: string, data: any): Promise<boolean> => {
+/**
+ * PARTIAL PUSH: Mengirimkan HANYA item yang berubah.
+ */
+export const pushPartialUpdate = async (userId: string, data: any): Promise<boolean> => {
     const baseUrl = getBackend();
     try {
-        // TRANSFORM OUTGOING DATA (Camel -> Snake) if configured
         const payload = transformPayload({ ...data, userId }, 'outgoing');
-
         const res = await fetch(`${baseUrl}/api/sync`, {
             method: 'POST',
             headers: getHeaders(userId),
             body: JSON.stringify(payload)
         });
-        
-        if (!res.ok) {
-             const errText = await res.text().catch(() => res.statusText);
-             console.error(`Push Failed ${res.status}: ${errText}`);
-             return false;
-        }
-        return true;
+        return res.ok;
+    } catch (e) {
+        console.error("Partial Sync Failed", e);
+        return false;
+    }
+};
+
+/**
+ * PHYSICAL DELETE: Menghapus satu record spesifik di server.
+ */
+export const deleteFromCloud = async (userId: string, collection: string, id: string): Promise<boolean> => {
+    const baseUrl = getBackend();
+    const tableMap: Record<string, string> = {
+        'debts': 'debts',
+        'dailyExpenses': 'daily_expenses',
+        'incomes': 'incomes',
+        'debtInstallments': 'debt_installments',
+        'tasks': 'tasks',
+        'sinkingFunds': 'sinking_funds'
+    };
+    const tableName = tableMap[collection] || collection;
+
+    try {
+        const res = await fetch(`${baseUrl}/api/sync/${tableName}/${id}?userId=${userId}`, {
+            method: 'DELETE',
+            headers: getHeaders(userId)
+        });
+        return res.ok;
     } catch (e) {
         return false;
     }
 };
 
-export const pushPartialUpdate = async (userId: string, data: any) => {
+export const saveGlobalConfigToCloud = async (configId: string, data: any): Promise<boolean> => {
     const baseUrl = getBackend();
+    const adminId = localStorage.getItem('paydone_active_user') || 'admin';
     try {
-        // TRANSFORM OUTGOING DATA
-        const payload = transformPayload({ ...data, userId }, 'outgoing');
-
-        const res = await fetch(`${baseUrl}/api/sync`, {
+        const res = await fetch(`${baseUrl}/api/admin/config`, {
             method: 'POST',
-            headers: getHeaders(userId),
-            body: JSON.stringify(payload)
+            headers: getHeaders(adminId),
+            body: JSON.stringify({ id: configId, data })
         });
         return res.ok;
     } catch { return false; }

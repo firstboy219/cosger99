@@ -1,4 +1,5 @@
 
+
 export enum LoanType {
   KPR = 'KPR',
   KKB = 'KKB', // Kendaraan
@@ -82,6 +83,8 @@ export interface AppConfig extends SyncMetadata {
 
 export interface Ticket {
   id: string;
+  // Add userId to Ticket interface to support sync
+  userId?: string;
   title: string;
   description: string;
   priority: 'low' | 'medium' | 'high' | 'critical';

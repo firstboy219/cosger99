@@ -52,9 +52,7 @@ interface DashboardLayoutProps {
   userId: string; 
   syncStatus: 'idle' | 'pulling' | 'pushing' | 'error' | 'offline';
   onManualSync?: () => void;
-  lastFailedPayload?: string | null;
-  lastSyncError?: string | null;
-  hasUnsavedChanges?: boolean; // NEW PROP
+  hasUnsavedChanges?: boolean;
 }
 
 interface Notification {
@@ -65,30 +63,29 @@ interface Notification {
     date: string;
 }
 
-export default function DashboardLayout({ onLogout, userId, syncStatus, onManualSync, lastFailedPayload, lastSyncError, hasUnsavedChanges }: DashboardLayoutProps) {
+export default function DashboardLayout({ onLogout, userId, syncStatus, onManualSync, hasUnsavedChanges }: DashboardLayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { t, language, setLanguage } = useTranslation();
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
   const [showDebugModal, setShowDebugModal] = useState(false);
-  
-  // Payload Preview States
   const [showPayloadModal, setShowPayloadModal] = useState(false);
   const [currentPayload, setCurrentPayload] = useState<any>(null);
 
   const navigate = useNavigate();
-  
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [nextBill, setNextBill] = useState<{name: string, days: number, amount: number} | null>(null);
-
   const [notifMenuOpen, setNotifMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  // --- MANUAL PULL (GET) STATE ---
   const [isPulling, setIsPulling] = useState(false);
   const [pullResult, setPullResult] = useState<{ status: 'success' | 'error', data: any } | null>(null);
   const [showPullModal, setShowPullModal] = useState(false);
+
+  // STRATEGY CHECK
+  const config = getConfig();
+  const isAutoSync = config.advancedConfig?.syncStrategy === 'background';
 
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
@@ -118,47 +115,20 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       }
   }, [userId]);
 
-  useEffect(() => {
-      const data = getUserData(userId);
-      const today = new Date().getDate();
-      const tempNotifs: Notification[] = [];
-      data.debts.forEach((debt: DebtItem) => {
-          const due = debt.dueDate;
-          const diff = due - today;
-          if (diff >= 0 && diff <= 3) {
-              tempNotifs.push({ id: `due-${debt.id}`, type: diff === 0 ? 'warning' : 'info', title: diff === 0 ? 'Jatuh Tempo Hari Ini!' : `Jatuh Tempo ${diff} Hari Lagi`, message: `Siapkan dana ${formatCurrency(debt.monthlyPayment)} untuk ${debt.name}.`, date: new Date().toISOString() });
-          }
-      });
-      setNotifications(tempNotifs);
-  }, [userId]);
-
   const handleManualPull = async () => {
       setIsPulling(true);
-      try {
-          const data = await pullUserDataFromCloud(userId, true);
-          setPullResult({ 
-              status: 'success', 
-              data: data || { message: "No Data returned (Possible 404 or Empty DB)" } 
-          });
-      } catch (e: any) {
-          setPullResult({ 
-              status: 'error', 
-              data: { error: e.message, stack: e.stack } 
-          });
-      } finally {
-          setIsPulling(false);
-          setShowPullModal(true);
-      }
+      const result = await pullUserDataFromCloud(userId);
+      setPullResult({ 
+          status: result.success ? 'success' : 'error', 
+          data: result.success ? result.data : { error: result.error }
+      });
+      setIsPulling(false);
+      setShowPullModal(true);
   };
 
-  // SMART SYNC WITH INSPECTOR
   const initiateSync = () => {
-      const config = getConfig();
       const userData = getUserData(userId);
-      const fullPayload = {
-          users: getAllUsers(), 
-          ...userData
-      };
+      const fullPayload = { users: getAllUsers(), ...userData };
 
       if (config.enablePayloadPreview) {
           setCurrentPayload(fullPayload);
@@ -168,16 +138,11 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       }
   };
 
-  const handleConfirmedPush = () => {
-      setShowPayloadModal(false);
-      onManualSync?.();
-  };
-
   const menuStructure = useMemo(() => [
       { title: 'Overview', items: [{ to: '/app', icon: LayoutDashboard, label: t("nav.dashboard") }, { to: '/app/ai-strategist', icon: BrainCircuit, label: t("nav.ai_strategist"), badge: 'AI' }, { to: '/app/planning', icon: ClipboardList, label: t("nav.planning") }] },
       { title: 'Management', items: [{ to: '/app/my-debts', icon: List, label: t("nav.my_debts") }, { to: '/app/allocation', icon: PieChart, label: t("nav.allocation") }, { to: '/app/calendar', icon: CalendarDays, label: t("nav.calendar") }] },
       { title: 'Tracker', items: [{ to: '/app/income', icon: DollarSign, label: t("nav.income") }, { to: '/app/expenses', icon: Receipt, label: t("nav.expenses") }, { to: '/app/financial-freedom', icon: TrendingUp, label: t("nav.freedom") }] },
-      { title: 'Account', items: [{ to: '/app/team', icon: Users, label: t("nav.team") }, { to: '/app/logs', icon: History, label: t("nav.history") }, { to: '/app/profile', icon: UserCog, label: t("nav.profile") }] }
+      { title: 'Account', items: [{ to: '/app/logs', icon: History, label: t("nav.history") }, { to: '/app/profile', icon: UserCog, label: t("nav.profile") }] }
   ], [t]);
 
   const filteredMenu = useMemo(() => {
@@ -205,16 +170,6 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
                 <div className="absolute inset-y-0 left-6 flex items-center pointer-events-none text-slate-500 group-focus-within:text-brand-500 transition-colors"><Search size={14} /></div>
                 <input type="text" placeholder="Jump to..." value={menuSearch} onChange={(e) => setMenuSearch(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700/50 text-slate-300 text-xs rounded-lg py-2.5 pl-9 pr-3 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500 transition-all placeholder-slate-600"/>
             </div>
-            {nextBill && !menuSearch && (
-                <div onClick={() => navigate('/app/calendar')} className="mx-3 p-3 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl border border-slate-700/50 relative overflow-hidden cursor-pointer group hover:border-brand-500/30 transition-all shadow-lg">
-                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><AlarmClock size={40}/></div>
-                    <div className="relative z-10">
-                        <div className="flex items-center gap-2 mb-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span><span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Upcoming Bill</span></div>
-                        <h4 className="text-sm font-bold text-white truncate">{nextBill.name}</h4>
-                        <div className="flex justify-between items-end mt-1"><span className="text-xs text-brand-400 font-mono">{formatCurrency(nextBill.amount)}</span><span className={`text-[10px] px-2 py-0.5 rounded font-bold ${nextBill.days <= 3 ? 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-slate-300'}`}>{nextBill.days === 0 ? 'Today!' : `${nextBill.days}d left`}</span></div>
-                    </div>
-                </div>
-            )}
             <div className="space-y-6">
                 {filteredMenu.map((group, idx) => (
                     <div key={idx}><div className="px-6 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">{group.title}<div className="h-px bg-slate-800 flex-1"></div></div><div className="space-y-0.5">{group.items.map((item, i) => (<SidebarItem key={i} to={item.to} icon={item.icon} label={item.label} badge={item.badge} onClick={() => setIsMobileMenuOpen(false)}/>))}</div></div>
@@ -225,160 +180,56 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
             <div className="bg-slate-900/50 rounded-xl p-3 border border-slate-800 flex items-center gap-3 relative group transition-all hover:bg-slate-800 hover:border-slate-700">
                 <div className="relative">
                     <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-brand-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm overflow-hidden shadow-lg border-2 border-slate-900 group-hover:border-brand-500 transition-colors">{currentUser?.photoUrl ? (<img src={currentUser.photoUrl} alt="User" className="w-full h-full object-cover"/>) : (currentUser?.username?.charAt(0).toUpperCase() || 'U')}</div>
-                    <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-slate-900 ${syncStatus === 'error' ? 'bg-red-50' : syncStatus === 'pushing' || syncStatus === 'pulling' ? 'bg-blue-500 animate-pulse' : 'bg-green-500'}`}></div>
+                    <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-slate-900 ${syncStatus === 'error' ? 'bg-red-500' : syncStatus === 'pushing' || syncStatus === 'pulling' ? 'bg-blue-500 animate-pulse' : 'bg-green-500'}`}></div>
                 </div>
-                <div className="flex-1 min-0"><p className="text-sm font-bold text-white truncate group-hover:text-brand-300 transition-colors">{currentUser?.username || 'User'}</p><div className="flex items-center gap-1.5 text-slate-500 text-[10px]">{syncStatus === 'error' ? (<span className="text-red-400 flex items-center gap-1"><AlertTriangle size={10}/> Sync Failed</span>) : syncStatus === 'pushing' || syncStatus === 'pulling' ? (<span className="text-blue-400 flex items-center gap-1"><RefreshCw size={10} className="animate-spin"/> Syncing...</span>) : (<div className="flex items-center gap-1.5 cursor-pointer hover:text-white transition-colors" title="V42 Secure Connection"><span className="flex items-center gap-1"><Wifi size={10}/> V42 Secure</span></div>)}</div></div>
+                <div className="flex-1 min-0"><p className="text-sm font-bold text-white truncate group-hover:text-brand-300 transition-colors">{currentUser?.username || 'User'}</p><div className="flex items-center gap-1.5 text-slate-500 text-[10px]">{syncStatus === 'error' ? (<span className="text-red-400 flex items-center gap-1"><AlertTriangle size={10}/> Sync Problem</span>) : syncStatus === 'pushing' || syncStatus === 'pulling' ? (<span className="text-blue-400 flex items-center gap-1"><RefreshCw size={10} className="animate-spin"/> Synchronizing...</span>) : (<div className="flex items-center gap-1.5 cursor-pointer hover:text-white transition-colors" title="V42 Secure Connection"><span className="flex items-center gap-1"><Wifi size={10}/> {isAutoSync ? 'Realtime Link' : 'V42 Secure'}</span></div>)}</div></div>
                 <button onClick={onLogout} className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all" title="Logout"><LogOut size={18} /></button>
             </div>
         </div>
       </aside>
 
-      {/* --- PRE-SYNC PAYLOAD INSPECTOR MODAL --- */}
+      {/* PAYLOAD MODAL */}
       {showPayloadModal && currentPayload && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-fade-in">
               <div className="bg-white rounded-[2.5rem] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-[85vh] border border-white/20">
                   <div className="bg-slate-950 p-8 flex justify-between items-start text-white relative">
-                      <div className="absolute top-0 right-0 p-8 opacity-5"><Eye size={150}/></div>
                       <div className="relative z-10">
                           <h3 className="text-2xl font-black tracking-tight flex items-center gap-3">
                               <Terminal size={24} className="text-brand-400"/> Data Payload Inspector
                           </h3>
-                          <p className="text-slate-400 text-sm mt-2">Pratinjau data transaksi yang akan dikirim ke <strong>api.cosger.online</strong></p>
+                          <p className="text-slate-400 text-sm mt-2">Pratinjau data transaksi yang akan dikirim ke Cloud SQL</p>
                       </div>
                       <button onClick={() => setShowPayloadModal(false)} className="p-2 bg-white/10 hover:bg-white/20 text-slate-400 hover:text-white rounded-full transition-all"><X size={24}/></button>
                   </div>
-                  
                   <div className="flex-1 overflow-hidden flex flex-col bg-black">
-                      <div className="p-3 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-                          <span>payload_buffer (~/outgoing/sync.json)</span>
-                          <div className="flex gap-1.5">
-                              <div className="w-2 h-2 rounded-full bg-red-500/20"></div>
-                              <div className="w-2 h-2 rounded-full bg-green-500/20"></div>
-                          </div>
-                      </div>
                       <div className="flex-1 overflow-auto p-6 custom-scrollbar font-mono text-[11px] text-green-400 bg-black leading-relaxed">
                           <pre>{JSON.stringify(currentPayload, null, 2)}</pre>
                       </div>
                   </div>
-
-                  <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
-                      <div className="flex items-center gap-2 text-slate-500">
-                          <AlertTriangle size={16} className="text-amber-500" />
-                          <span className="text-xs font-medium">Pastikan data di atas sudah benar sebelum sinkronisasi.</span>
-                      </div>
-                      <div className="flex gap-3">
-                          <button 
-                              onClick={() => setShowPayloadModal(false)}
-                              className="px-6 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-white transition"
-                          >
-                              Batal
-                          </button>
-                          <button 
-                              onClick={handleConfirmedPush}
-                              className="px-8 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-black uppercase tracking-widest hover:bg-brand-700 shadow-xl flex items-center gap-2 transform active:scale-95 transition"
-                          >
-                              <Send size={16}/> Kirim ke Cloud
-                          </button>
-                      </div>
+                  <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                      <button onClick={() => setShowPayloadModal(false)} className="px-6 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-white transition">Batal</button>
+                      <button onClick={() => { setShowPayloadModal(false); onManualSync?.(); }} className="px-8 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-black uppercase tracking-widest hover:bg-brand-700 shadow-xl flex items-center gap-2 transform active:scale-95 transition"><Send size={16}/> Kirim Sekarang</button>
                   </div>
               </div>
           </div>
       )}
 
-      {/* DEBUG PAYLOAD & ERROR MODAL */}
-      {showDebugModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
-              <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
-                  <div className="p-4 bg-slate-800 border-b border-slate-700 flex justify-between items-center text-white">
-                      <div className="flex items-center gap-2">
-                          <Bug className="text-red-400" size={20}/>
-                          <h3 className="font-bold">Sync Failure Analysis</h3>
-                      </div>
-                      <button onClick={() => setShowDebugModal(false)} className="text-slate-400 hover:text-white transition"><X size={24}/></button>
-                  </div>
-                  <div className="flex-1 overflow-auto p-6 bg-black flex flex-col gap-6">
-                      
-                      {/* 1. SERVER RESPONSE SECTION */}
-                      <div className="space-y-2">
-                          <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider border-b border-red-900/50 pb-1">Server Response (Error)</h4>
-                          <div className="p-4 bg-red-950/30 border border-red-900 rounded-lg text-red-200 text-xs font-mono whitespace-pre-wrap leading-relaxed shadow-inner">
-                              {lastSyncError || "No error details captured."}
-                          </div>
-                      </div>
-
-                      {/* 2. REQUEST PAYLOAD SECTION */}
-                      <div className="space-y-2">
-                          <div className="flex justify-between items-end border-b border-slate-800 pb-1">
-                              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Request Payload Sent</h4>
-                              <button 
-                                  onClick={() => { navigator.clipboard.writeText(lastFailedPayload || ''); alert("Payload Copied!"); }}
-                                  className="text-[10px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1"
-                              >
-                                  <Copy size={12}/> Copy JSON
-                              </button>
-                          </div>
-                          <div className="p-4 bg-slate-900 border border-slate-800 rounded-lg text-green-400 text-[10px] font-mono whitespace-pre-wrap leading-relaxed">
-                              {lastFailedPayload || "// No payload captured."}
-                          </div>
-                      </div>
-
-                  </div>
-                  <div className="p-4 bg-slate-800 border-t border-slate-700 flex justify-end gap-3">
-                      <button 
-                          onClick={() => setShowDebugModal(false)}
-                          className="px-6 py-2 bg-brand-600 text-white rounded-xl text-sm font-bold hover:bg-brand-50 transition"
-                      >
-                          Close Inspector
-                      </button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* MANUAL PULL RESPONSE INSPECTOR MODAL */}
+      {/* PULL MODAL */}
       {showPullModal && pullResult && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
-              <div className={`rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-[85vh] border-2 ${pullResult.status === 'success' ? 'bg-slate-900 border-green-500/50' : 'bg-slate-900 border-red-500/50'}`}>
-                  {/* Header */}
-                  <div className={`p-4 border-b flex justify-between items-center text-white ${pullResult.status === 'success' ? 'bg-green-900/20 border-green-900/50' : 'bg-red-900/20 border-red-900/50'}`}>
-                      <div className="flex items-center gap-2">
-                          {pullResult.status === 'success' ? <Database className="text-green-400" size={20}/> : <AlertTriangle className="text-red-400" size={20}/>}
-                          <h3 className="font-bold flex items-center gap-2">
-                              Cloud Response Inspector
-                              <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${pullResult.status === 'success' ? 'bg-green-500 text-slate-900' : 'bg-red-500 text-white'}`}>
-                                  {pullResult.status === 'success' ? '200 OK' : 'REQUEST FAILED'}
-                              </span>
-                          </h3>
-                      </div>
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+              <div className={`rounded-[2.5rem] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col h-[85vh] border-2 bg-slate-900 ${pullResult.status === 'success' ? 'border-green-500/50' : 'border-red-500/50'}`}>
+                  <div className={`p-6 border-b flex justify-between items-center text-white ${pullResult.status === 'success' ? 'bg-green-900/20' : 'bg-red-900/20'}`}>
+                      <h3 className="font-bold flex items-center gap-2 text-xl">
+                          {pullResult.status === 'success' ? <Database className="text-green-400"/> : <AlertTriangle className="text-red-400"/>}
+                          Cloud SQL Response
+                      </h3>
                       <button onClick={() => setShowPullModal(false)} className="text-slate-400 hover:text-white transition"><X size={24}/></button>
                   </div>
-
-                  {/* Body */}
-                  <div className="flex-1 overflow-auto p-0 flex flex-col bg-black">
-                      <div className="p-2 bg-slate-800 text-xs text-slate-400 font-mono border-b border-slate-700 flex justify-between items-center">
-                          <span>GET /api/sync?userId={userId}&fullSync=true</span>
-                          <button 
-                              onClick={() => { navigator.clipboard.writeText(JSON.stringify(pullResult.data, null, 2)); alert("Response Copied!"); }}
-                              className="flex items-center gap-1 hover:text-white transition"
-                          >
-                              <Copy size={12}/> Copy
-                          </button>
-                      </div>
-                      <div className="flex-1 p-6 overflow-auto custom-scrollbar">
-                          <pre className={`text-xs font-mono whitespace-pre-wrap leading-relaxed ${pullResult.status === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                              {JSON.stringify(pullResult.data, null, 2)}
-                          </pre>
-                      </div>
+                  <div className="flex-1 overflow-auto p-6 font-mono text-xs text-green-400 bg-black leading-relaxed">
+                      <pre>{JSON.stringify(pullResult.data, null, 2)}</pre>
                   </div>
-
-                  {/* Footer */}
-                  <div className="p-4 bg-slate-800 border-t border-slate-700 flex justify-end gap-3">
-                      <button 
-                          onClick={() => setShowPullModal(false)}
-                          className={`px-6 py-2 rounded-xl text-sm font-bold transition ${pullResult.status === 'success' ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}`}
-                      >
-                          Close & Apply
-                      </button>
+                  <div className="p-6 bg-slate-900 border-t border-slate-800 flex justify-end">
+                      <button onClick={() => { setShowPullModal(false); if(pullResult.status === 'success') window.location.reload(); }} className="px-8 py-2.5 bg-white text-slate-900 rounded-xl text-sm font-black uppercase tracking-widest hover:bg-slate-50 transition">Tutup & Terapkan</button>
                   </div>
               </div>
           </div>
@@ -388,61 +239,41 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-8 z-20 shadow-sm">
           <div className="flex items-center gap-4">
             <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden text-slate-500 hover:text-slate-900"><Menu size={20} /></button>
-            <div className="hidden md:flex items-center text-sm text-slate-500"><span className="hover:text-slate-900 cursor-pointer transition flex items-center gap-1"><LayoutDashboard size={14}/> App</span><ChevronRight size={14} className="mx-1 text-slate-300"/><span className="font-semibold text-slate-900">{filteredMenu.flatMap(g => g.items).find(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))?.label || 'Dashboard'}</span></div>
+            <div className="hidden md:flex items-center text-sm text-slate-500 font-semibold text-slate-900">{filteredMenu.flatMap(g => g.items).find(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))?.label || 'Dashboard'}</div>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* --- SYNC CONTROLS --- */}
-            <div className="flex items-center gap-2">
-                {syncStatus === 'error' && (
-                    <button 
-                        onClick={() => setShowDebugModal(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg border border-red-200 text-xs font-bold hover:bg-red-100 transition animate-pulse"
-                        title="Inspect Failed Data"
-                    >
-                        <Bug size={14} /> Error
+            {/* HIDDEN IN AUTO SYNC MODE */}
+            {!isAutoSync && (
+                <div className="flex items-center gap-2 animate-fade-in">
+                    <button onClick={handleManualPull} disabled={isPulling || syncStatus === 'pushing'} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-brand-600" title="Tarik Data (Manual)">
+                        {isPulling ? <RefreshCw size={14} className="animate-spin" /> : <CloudDownload size={14} />}
+                        Tarik
                     </button>
-                )}
-                
-                {/* NEW: MANUAL PULL BUTTON */}
-                <button 
-                    onClick={handleManualPull}
-                    disabled={isPulling || syncStatus === 'pushing'}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-brand-600"
-                    title="Tarik Data Terbaru dari Cloud (Manual - Full Sync)"
-                >
-                    {isPulling ? <RefreshCw size={14} className="animate-spin" /> : <CloudDownload size={14} />}
-                    Tarik Data
-                </button>
 
-                {/* EXISTING: MANUAL PUSH BUTTON */}
-                {hasUnsavedChanges && (
-                    <button 
-                        onClick={initiateSync}
-                        disabled={syncStatus === 'pushing' || isPulling}
-                        className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-lg border ${
-                            syncStatus === 'pushing' ? 'bg-slate-50 text-slate-400 border-slate-200' : 
-                            syncStatus === 'error' ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' :
-                            'bg-brand-600 text-white border-brand-600 hover:bg-brand-700 shadow-brand-500/20'
-                        }`}
-                    >
-                        {syncStatus === 'pushing' ? <RefreshCw size={14} className="animate-spin" /> : <CloudUpload size={14} />}
-                        {syncStatus === 'pushing' ? 'Saving...' : 'Simpan ke Cloud'}
-                    </button>
-                )}
-            </div>
+                    {hasUnsavedChanges && (
+                        <button onClick={initiateSync} disabled={syncStatus === 'pushing' || isPulling} className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-lg border bg-brand-600 text-white border-brand-600 hover:bg-brand-700 shadow-brand-500/20">
+                            {syncStatus === 'pushing' ? <RefreshCw size={14} className="animate-spin" /> : <CloudUpload size={14} />}
+                            Simpan ke Cloud
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {isAutoSync && (
+                <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-green-50 text-green-700 text-[10px] font-black uppercase tracking-tighter border border-green-100">
+                    <Wifi size={10} className="animate-pulse"/> Realtime Sync Active
+                </div>
+            )}
 
             <div className="h-6 w-px bg-slate-200 mx-1"></div>
 
             <div className="relative">
-               <button onClick={() => setLangMenuOpen(!langMenuOpen)} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 px-2 py-1 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 transition"><Globe size={16} /><span className="uppercase font-bold text-xs">{language}</span><ChevronDown size={12} /></button>
-               {langMenuOpen && (<div className="absolute right-0 top-full mt-2 w-32 bg-white border border-slate-200 shadow-xl rounded-xl py-1 z-50 animate-fade-in-up"><button onClick={() => { setLanguage('id'); setLangMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"><span>Indonesian</span>{language === 'id' && <CheckCircle2 size={14} className="text-brand-600"/>}</button><button onClick={() => { setLanguage('en'); setLangMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"><span>English</span>{language === 'en' && <CheckCircle2 size={14} className="text-brand-600"/>}</button></div>)}
+               <button onClick={() => setLangMenuOpen(!langMenuOpen)} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 px-2 py-1 rounded-lg hover:bg-slate-50 transition font-bold text-xs uppercase">{language} <ChevronDown size={12} /></button>
+               {langMenuOpen && (<div className="absolute right-0 top-full mt-2 w-32 bg-white border border-slate-200 shadow-xl rounded-xl py-1 z-50 animate-fade-in-up"><button onClick={() => { setLanguage('id'); setLangMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"><span>Indonesia</span>{language === 'id' && <CheckCircle2 size={14} className="text-brand-600"/>}</button><button onClick={() => { setLanguage('en'); setLangMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"><span>English</span>{language === 'en' && <CheckCircle2 size={14} className="text-brand-600"/>}</button></div>)}
             </div>
 
-            <div className="relative" ref={notifRef}>
-                <button onClick={() => setNotifMenuOpen(!notifMenuOpen)} className={`relative p-2 rounded-full transition-colors ${notifMenuOpen ? 'bg-brand-50 text-brand-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}><Bell size={18} />{notifications.length > 0 && (<span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>)}</button>
-                {notifMenuOpen && (<div className="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 shadow-xl rounded-2xl z-50 overflow-hidden animate-fade-in-up"><div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center"><h3 className="font-bold text-sm text-slate-800 flex items-center gap-2"><Sparkles size={14} className="text-yellow-500"/> Notifikasi</h3></div><div className="max-h-[300px] overflow-y-auto custom-scrollbar">{notifications.length === 0 ? (<div className="p-8 text-center text-slate-400 text-xs">Tidak ada notifikasi baru.</div>) : (notifications.map(notif => (<div key={notif.id} className={`p-3 border-b border-slate-50 hover:bg-slate-50 transition flex gap-3 ${notif.type === 'alarm' ? 'bg-amber-50/50' : ''}`}><div className={`mt-1 flex-shrink-0 p-1.5 rounded-full ${notif.type === 'warning' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{notif.type === 'warning' ? <AlertCircle size={14} /> : <Wallet size={14} />}</div><div><h4 className="text-sm font-bold text-slate-800">{notif.title}</h4><p className="text-xs text-slate-500 leading-relaxed">{notif.message}</p></div></div>)))}</div></div>)}
-            </div>
+            <button onClick={() => setNotifMenuOpen(!notifMenuOpen)} className={`p-2 rounded-full transition-colors ${notifMenuOpen ? 'bg-brand-50 text-brand-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}><Bell size={18} /></button>
           </div>
         </header>
 

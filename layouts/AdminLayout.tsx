@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { ShieldCheck, Database, LogOut, Users, Settings, Briefcase, Server, Code, Rocket, RefreshCw, Wifi, WifiOff, History, LayoutDashboard, Terminal, Workflow, Ticket, ArrowLeftRight, Bot, Activity, Building2 } from 'lucide-react';
+import { ShieldCheck, Database, LogOut, Users, Settings, Briefcase, Server, Code, Rocket, RefreshCw, Wifi, WifiOff, History, LayoutDashboard, Terminal, Workflow, Ticket, ArrowLeftRight, Bot, Activity, Building2, DatabaseZap } from 'lucide-react';
 import { getConfig } from '../services/mockDb';
 
 const SidebarItem = ({ to, icon: Icon, label, badge }: { to: string, icon: any, label: string, badge?: string }) => {
@@ -108,6 +108,7 @@ export default function AdminLayout({ onLogout }: { onLogout: () => void }) {
           <div>
             <h3 className="px-4 mb-3 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">Developer Console</h3>
             <div className="space-y-1">
+                <SidebarItem to="/admin/sql-studio" icon={DatabaseZap} label="SQL Studio" badge="PRO" />
                 <SidebarItem to="/admin/database" icon={Database} label="Database Sync" />
                 <SidebarItem to="/admin/qa" icon={Terminal} label="QA Automation" />
                 <SidebarItem to="/admin/compare" icon={ArrowLeftRight} label="Code Fact Checker" />

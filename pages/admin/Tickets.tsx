@@ -39,14 +39,16 @@ export default function Tickets() {
     
     if (config.backendUrl) {
         try {
-            const data = await pullUserDataFromCloud(adminId, true);
-            if (data && data.tickets) {
-                setTickets(data.tickets);
+            // Fix: remove 'true' which is invalid for onProgress callback
+            const result = await pullUserDataFromCloud(adminId);
+            // Fix: result is SyncResult, access .data for actual user data
+            if (result.success && result.data && result.data.tickets) {
+                setTickets(result.data.tickets);
                 setDataSource('cloud');
                 
                 // Update local storage to match cloud
                 const db = getDB();
-                db.tickets = data.tickets;
+                db.tickets = result.data.tickets;
                 saveDB(db);
             } else {
                 fallbackLocal();

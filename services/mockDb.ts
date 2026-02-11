@@ -263,6 +263,7 @@ export const saveDB = (db: DBSchema) => {
   localStorage.setItem(DB_NAME, JSON.stringify(db));
 };
 
+// Fix: Update getUserData to include tickets and other entities
 export const getUserData = (userId: string) => {
   const db = getDB();
   const filteredAllocations: Record<string, ExpenseItem[]> = {};
@@ -280,7 +281,11 @@ export const getUserData = (userId: string) => {
     tasks: db.tasks.filter(t => t.userId === userId),
     dailyExpenses: db.dailyExpenses.filter(e => e.userId === userId),
     paymentRecords: db.paymentRecords.filter(p => p.userId === userId),
-    sinkingFunds: db.sinkingFunds ? db.sinkingFunds.filter(s => s.userId === userId) : []
+    sinkingFunds: db.sinkingFunds ? db.sinkingFunds.filter(s => s.userId === userId) : [],
+    // Include tickets and other entities in the return object
+    tickets: db.tickets ? db.tickets.filter(t => t.userId === userId) : [],
+    qaScenarios: db.qaScenarios || [],
+    qaHistory: db.qaHistory || []
   };
 };
 
@@ -291,6 +296,7 @@ const stampUpdate = <T>(items: T[]): T[] => {
     });
 };
 
+// Fix: Update saveUserData to handle tickets and other entities
 export const saveUserData = (
   userId: string, 
   data: { 
@@ -301,7 +307,10 @@ export const saveUserData = (
     tasks?: TaskItem[], 
     dailyExpenses?: DailyExpense[], 
     paymentRecords?: PaymentRecord[],
-    sinkingFunds?: SinkingFund[]
+    sinkingFunds?: SinkingFund[],
+    tickets?: Ticket[],
+    qaScenarios?: QAScenario[],
+    qaHistory?: QARunHistory[]
   }
 ) => {
   const db = getDB();
@@ -320,6 +329,10 @@ export const saveUserData = (
   if (data.dailyExpenses) updateCollection('dailyExpenses', data.dailyExpenses);
   if (data.paymentRecords) updateCollection('paymentRecords', data.paymentRecords);
   if (data.sinkingFunds) updateCollection('sinkingFunds', data.sinkingFunds);
+  if (data.tickets) updateCollection('tickets', data.tickets);
+  
+  if (data.qaScenarios) db.qaScenarios = data.qaScenarios;
+  if (data.qaHistory) db.qaHistory = data.qaHistory;
   
   if (data.allocations) {
       Object.keys(data.allocations).forEach(monthKey => {
@@ -345,6 +358,7 @@ export const purgeSoftDeletedData = (userId: string) => {
     db.dailyExpenses = purge(db.dailyExpenses);
     db.paymentRecords = purge(db.paymentRecords);
     db.sinkingFunds = purge(db.sinkingFunds || []);
+    db.tickets = purge(db.tickets || []);
     
     if (db.allocations) {
         Object.keys(db.allocations).forEach(key => {
@@ -365,6 +379,7 @@ export const clearLocalUserData = (userId: string) => {
   db.dailyExpenses = db.dailyExpenses.filter(e => e.userId !== userId);
   db.paymentRecords = db.paymentRecords.filter(p => p.userId !== userId);
   db.sinkingFunds = db.sinkingFunds?.filter(s => s.userId !== userId) || [];
+  db.tickets = db.tickets?.filter(t => t.userId !== userId) || [];
   
   if (db.allocations) {
       Object.keys(db.allocations).forEach(monthKey => {
@@ -393,6 +408,7 @@ export const migrateUserData = (oldUserId: string, newUserId: string) => {
   db.dailyExpenses.forEach(e => { if(e.userId === oldUserId) e.userId = newUserId; });
   db.paymentRecords.forEach(p => { if(p.userId === oldUserId) p.userId = newUserId; });
   if (db.sinkingFunds) db.sinkingFunds.forEach(s => { if(s.userId === oldUserId) s.userId = newUserId; });
+  if (db.tickets) db.tickets.forEach(t => { if(t.userId === oldUserId) t.userId = newUserId; });
   
   if (db.allocations) {
       Object.values(db.allocations).forEach(list => {

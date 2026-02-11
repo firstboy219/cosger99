@@ -6,7 +6,8 @@ import { getConfig, getAllUsers, updateUser, addUser, migrateUserData } from '..
 import { addLogEntry } from '../services/activityLogger';
 import { decodeJwt, GoogleJwtPayload } from '../services/authUtils';
 import { User as UserType } from '../types';
-import { pushUserDataToCloud, pullUserDataFromCloud } from '../services/cloudSync';
+// Fix: Remove pushUserDataToCloud which is not exported from services/cloudSync
+import { pullUserDataFromCloud } from '../services/cloudSync';
 
 declare global {
   interface Window {
@@ -132,7 +133,8 @@ export default function Login({ onLogin }: LoginProps) {
 
           setGoogleSyncStatus('checking_db');
           setSyncMessage('Menyinkronkan data cloud...');
-          await pullUserDataFromCloud(serverUser.id, true);
+          // Fix: pullUserDataFromCloud expects an onProgress function, not a boolean
+          await pullUserDataFromCloud(serverUser.id);
 
           setGoogleSyncStatus('success');
           setSyncMessage('Login Berhasil!');
@@ -208,7 +210,8 @@ export default function Login({ onLogin }: LoginProps) {
 
         const data = await res.json();
         localStorage.setItem('paydone_session_token', data.user.sessionToken);
-        await pullUserDataFromCloud(data.user.id, true);
+        // Fix: pullUserDataFromCloud expects an onProgress function, not a boolean
+        await pullUserDataFromCloud(data.user.id);
         
         onLogin(data.user.role, data.user.id);
         navigate(data.user.role === 'admin' ? '/admin' : '/app');

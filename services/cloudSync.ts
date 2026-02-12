@@ -1,6 +1,7 @@
 
 import { getConfig, getDB, saveDB, getUserData } from './mockDb';
 import { convertKeysToSnakeCase, convertKeysToCamelCase } from './formatUtils';
+import { interpretBackendPayload } from './geminiService';
 
 const getBackend = () => getConfig().backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
 
@@ -13,121 +14,140 @@ export const getHeaders = (userId: string) => {
     };
 };
 
-const transformPayload = (data: any, direction: 'outgoing' | 'incoming') => {
-    if (!data) return data;
-    const config = getConfig();
-    const convention = config.apiCaseConvention || 'snake_case';
-
-    if (convention === 'snake_case') {
-        if (direction === 'outgoing') return convertKeysToSnakeCase(data);
-        if (direction === 'incoming') return convertKeysToCamelCase(data);
-    }
-    return data;
-};
-
 /**
- * FULL PULL: Digunakan saat login atau inisialisasi awal.
- * Mengembalikan objek detail hasil sync.
+ * PULL: Menarik data sesuai endpoint /api/sync backend V47.10
  */
-export interface SyncResult {
-    success: boolean;
-    data?: any;
-    error?: string;
-    status?: number;
-}
-
 export const pullUserDataFromCloud = async (userId: string, onProgress?: (msg: string) => void): Promise<SyncResult> => {
     const baseUrl = getBackend();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 Seconds Timeout
+
     try {
         if (onProgress) onProgress("Menghubungi Cloud SQL...");
+        
         const res = await fetch(`${baseUrl}/api/sync?userId=${userId}`, {
             headers: getHeaders(userId),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
-        if (!res.ok) {
-            let errorMsg = `Server Error (${res.status})`;
-            try {
-                const errData = await res.json();
-                errorMsg = errData.error || errorMsg;
-            } catch(e) {}
-            return { success: false, error: errorMsg, status: res.status };
-        }
+        if (!res.ok) return { success: false, error: `Cloud Error ${res.status}` };
         
-        let data = await res.json();
-        data = transformPayload(data, 'incoming');
+        const data = await res.json();
 
         const db = getDB();
-        // Fix: Expand pullUserDataFromCloud to handle all syncable entities
+        // Mapping data dari backend ke local state
         if (data.debts) db.debts = data.debts;
         if (data.incomes) db.incomes = data.incomes;
         if (data.dailyExpenses) db.dailyExpenses = data.dailyExpenses;
         if (data.debtInstallments) db.debtInstallments = data.debtInstallments;
-        if (data.tasks) db.tasks = data.tasks;
-        if (data.tickets) db.tickets = data.tickets;
-        if (data.sinkingFunds) db.sinkingFunds = data.sinkingFunds;
         if (data.paymentRecords) db.paymentRecords = data.paymentRecords;
+        if (data.allocations) db.allocations = data.allocations;
+        if (data.tasks) db.tasks = data.tasks;
+        if (data.sinkingFunds) db.sinkingFunds = data.sinkingFunds;
         
         saveDB(db);
         return { success: true, data: getUserData(userId) };
     } catch (e: any) {
-        return { success: false, error: e.message === 'Failed to fetch' ? "Gagal terhubung ke Backend (CORS atau Offline)" : e.message };
+        if (e.name === 'AbortError') {
+            return { success: false, error: "Connection Timeout (5s)" };
+        }
+        return { success: false, error: e.message };
     }
 };
 
 /**
- * PARTIAL PUSH: Mengirimkan HANYA item yang berubah.
+ * PUSH: Mengirim data ke /api/sync sesuai format loop backend
  */
 export const pushPartialUpdate = async (userId: string, data: any): Promise<boolean> => {
     const baseUrl = getBackend();
+    const now = new Date().toISOString();
+    
+    // Update local dulu (Optimistic)
+    const db = getDB();
+    Object.keys(data).forEach(key => {
+        if (Array.isArray(data[key])) {
+            const incomingItems = data[key];
+            const currentItems = (db as any)[key] || [];
+            
+            incomingItems.forEach((newItem: any) => {
+                const idx = currentItems.findIndex((item: any) => item.id === newItem.id);
+                const stampedItem = { ...newItem, updatedAt: now };
+                if (idx !== -1) currentItems[idx] = stampedItem;
+                else currentItems.push(stampedItem);
+            });
+            (db as any)[key] = currentItems;
+        }
+    });
+    saveDB(db);
+
     try {
-        const payload = transformPayload({ ...data, userId }, 'outgoing');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s Timeout for Push
+
         const res = await fetch(`${baseUrl}/api/sync`, {
             method: 'POST',
             headers: getHeaders(userId),
-            body: JSON.stringify(payload)
+            body: JSON.stringify({ ...data, userId }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
         return res.ok;
     } catch (e) {
-        console.error("Partial Sync Failed", e);
         return false;
     }
 };
 
 /**
- * PHYSICAL DELETE: Menghapus satu record spesifik di server.
+ * DELETE: Menggunakan endpoint spesifik sesuai server.cjs deleteHandler
  */
-export const deleteFromCloud = async (userId: string, collection: string, id: string): Promise<boolean> => {
+export const deleteFromCloud = async (userId: string, table: string, id: string): Promise<boolean> => {
     const baseUrl = getBackend();
-    const tableMap: Record<string, string> = {
-        'debts': 'debts',
-        'dailyExpenses': 'daily_expenses',
-        'incomes': 'incomes',
-        'debtInstallments': 'debt_installments',
-        'tasks': 'tasks',
-        'sinkingFunds': 'sinking_funds'
-    };
-    const tableName = tableMap[collection] || collection;
-
+    
+    // Mapping ke endpoint backend (debts, incomes, daily-expenses, allocations)
+    let endpoint = table;
+    if (table === 'dailyExpenses') endpoint = 'daily-expenses';
+    
     try {
-        const res = await fetch(`${baseUrl}/api/sync/${tableName}/${id}?userId=${userId}`, {
+        const res = await fetch(`${baseUrl}/api/${endpoint}/${id}`, {
             method: 'DELETE',
             headers: getHeaders(userId)
         });
-        return res.ok;
+        
+        if (res.ok) {
+            const db = getDB();
+            if ((db as any)[table]) {
+                (db as any)[table] = (db as any)[table].filter((item: any) => item.id !== id);
+                saveDB(db);
+            }
+            return true;
+        }
+        return false;
     } catch (e) {
         return false;
     }
 };
 
-export const saveGlobalConfigToCloud = async (configId: string, data: any): Promise<boolean> => {
+/**
+ * SAVE GLOBAL CONFIG: Mengirim konfigurasi sistem ke backend (V44.22)
+ */
+export const saveGlobalConfigToCloud = async (id: string, config: any): Promise<boolean> => {
     const baseUrl = getBackend();
     const adminId = localStorage.getItem('paydone_active_user') || 'admin';
     try {
         const res = await fetch(`${baseUrl}/api/admin/config`, {
             method: 'POST',
             headers: getHeaders(adminId),
-            body: JSON.stringify({ id: configId, data })
+            body: JSON.stringify({ id, config })
         });
         return res.ok;
-    } catch { return false; }
+    } catch (e) {
+        return false;
+    }
 };
+
+export interface SyncResult {
+    success: boolean;
+    data?: any;
+    error?: string;
+}

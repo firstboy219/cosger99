@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GOLDEN_SERVER_JS } from '../../services/serverTemplate';
 import { getConfig } from '../../services/mockDb';
+import { getHeaders } from '../../services/cloudSync';
 import { runDevDebate } from '../../services/geminiService';
 import { 
   ArrowLeftRight, RefreshCw, Copy, Check, Terminal, FileCode, Server, 
@@ -40,18 +41,22 @@ export default function ServerCompare() {
     setStatus('idle');
     setErrorMsg('');
     const config = getConfig();
+    const adminId = localStorage.getItem('paydone_active_user') || 'admin';
     
     // Prioritize Source Code URL
-    let url = config.sourceCodeUrl;
-    if (!url) {
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || '';
-        url = `${baseUrl}/api/admin/source-code`;
-    }
+    let url = config.sourceCodeUrl || 'https://api.cosger.online/api/view-source?kunci=gen-lang-client-0662447520';
 
     try {
-      const res = await fetch(url);
+      const fetchOptions: RequestInit = {};
+      // Add auth headers if connecting to internal API
+      if (url.includes('/api/admin')) {
+          fetchOptions.headers = getHeaders(adminId);
+      }
+
+      const res = await fetch(url, fetchOptions);
+      
       if (res.status === 403) {
-          throw new Error("Access Denied (403). The server blocked the source code request. Check Cloud Run IAM settings.");
+          throw new Error("Access Denied (403). The server blocked the source code request.");
       }
       if (!res.ok) {
           throw new Error(`HTTP ${res.status}: ${res.statusText || 'Unknown Error'}`);

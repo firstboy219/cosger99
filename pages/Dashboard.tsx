@@ -1,25 +1,20 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  BarChart, Bar, Cell, PieChart, Pie, Legend, ReferenceLine, ComposedChart, Line
+  PieChart, Pie, Cell, LineChart, Line, Legend, ReferenceLine
 } from 'recharts';
 import { 
-  Mic, Send, Sparkles, TrendingDown, TrendingUp,
-  Zap, Wind, Activity, Wallet, PiggyBank, BrainCircuit, X,
-  FastForward, HeartPulse, ArrowRight, Info, Calendar, ShieldCheck, Target, 
-  LayoutDashboard, AlertTriangle, Scale, Calculator, ArrowUpRight, ArrowDownRight,
-  PieChart as PieIcon, BarChart3, AlertCircle, CheckCircle2, Scissors, Briefcase, GraduationCap, Hourglass, Landmark, Coins, Loader2, Search, Bot, ReceiptText, MessageCircle
+  Zap, AlertTriangle, CheckCircle2, Target, Info, Scissors, PieChart as PieIcon,
+  Wallet, TrendingDown, AlertCircle, Calculator, Sparkles, BrainCircuit,
+  Command, Send, Mic, ArrowUpRight, Activity, ShieldCheck, Clock
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { DebtItem, ExpenseItem, TaskItem, DailyExpense, DebtInstallment, SinkingFund } from '../types';
-import { formatCurrency, getMonthDiff, generateInstallmentsForDebt, safeDateISO } from '../services/financeUtils';
-import { getAllUsers, getConfig, getUserData } from '../services/mockDb';
-import { parseTransactionAI, generateDashboardSummary } from '../services/geminiService';
+import { DebtItem, ExpenseItem, TaskItem, DailyExpense, SinkingFund } from '../types';
+import { formatCurrency, generateGlobalProjection, generateCrossingAnalysis } from '../services/financeUtils';
+import { generateDashboardSummary, parseTransactionAI } from '../services/geminiService';
 
 interface DashboardProps {
   debts: DebtItem[];
-  debtInstallments?: DebtInstallment[];
   allocations: ExpenseItem[]; 
   tasks: TaskItem[];
   income?: number;
@@ -27,661 +22,481 @@ interface DashboardProps {
   userId: string;
   dailyExpenses?: DailyExpense[];
   sinkingFunds?: SinkingFund[]; 
+  debtInstallments?: any[]; 
 }
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-
-export default function Dashboard({ debts, debtInstallments = [], allocations, income = 0, onAIAction, userId, dailyExpenses = [], sinkingFunds = [] }: DashboardProps) {
-  const navigate = useNavigate();
-  const [omniInput, setOmniInput] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+export default function Dashboard({ 
+  debts = [], 
+  allocations = [], 
+  income = 0, 
+  sinkingFunds = [],
+  onAIAction
+}: DashboardProps) {
   
-  // --- AI SUMMARY STATE ---
-  const [aiSummary, setAiSummary] = useState('');
-  const [loadingSummary, setLoadingSummary] = useState(false);
+  // --- STATE FOR WIDGETS ---
+  const [extraPayment, setExtraPayment] = useState(0);
+  const [freedomMode, setFreedomMode] = useState<'lump_sum' | 'cutoff'>('lump_sum');
+  const [freedomMatrix, setFreedomMatrix] = useState<any>(null);
+  const [crossingData, setCrossingData] = useState<any>(null);
+  const [aiSummary, setAiSummary] = useState("AI sedang menganalisa data keuanganmu...");
   
-  // --- CONTEXT AWARE STATE ---
-  const [clarificationMode, setClarificationMode] = useState<string | null>(null); 
-  const [aiQuestion, setAiQuestion] = useState<string | null>(null);
+  // AI COMMAND STATE
+  const [commandInput, setCommandInput] = useState('');
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState<{type: 'success'|'error', msg: string} | null>(null);
 
-  // --- AI MODAL STATE ---
-  const [showOmniPlan, setShowOmniPlan] = useState(false);
-  const [parsedPlan, setParsedPlan] = useState<any>(null); 
+  // --- 1. CALCULATE METRICS ---
+  const metrics = useMemo(() => {
+    const activeDebts = debts.filter(d => !d._deleted && d.remainingPrincipal > 100);
+    const totalDebt = activeDebts.reduce((a, b) => a + b.remainingPrincipal, 0);
+    const monthlyDebtObligation = activeDebts.reduce((a, b) => a + b.monthlyPayment, 0);
+    
+    // Living Cost = Allocations that are NOT debt
+    const livingCost = allocations.filter(a => a.category !== 'debt').reduce((a, b) => a + b.amount, 0);
+    const totalLivingCost = livingCost > 0 ? livingCost : (income * 0.5); 
 
-  // --- FREEDOM MATRIX STATE ---
-  const [extraPayment, setExtraPayment] = useState(1000000); // Slider Value
-  const [freedomStrategy, setFreedomStrategy] = useState<'lump_sum' | 'cutoff'>('lump_sum');
+    const totalExpense = monthlyDebtObligation + totalLivingCost;
+    const netCashflow = income - totalExpense;
+    const dsr = income > 0 ? (monthlyDebtObligation / income) * 100 : 0;
+    
+    // Runway
+    const totalLiquid = sinkingFunds.reduce((a, b) => a + b.currentAmount, 0);
+    const runway = totalExpense > 0 ? totalLiquid / totalExpense : 0;
 
-  // --- 1. CORE DATA ENGINE ---
-  const { 
-      totalDebt, totalMonthlyObligation, activeDebts, 
-      totalRealExpenses, totalLivingCost, netCashflow,
-      expenseByCategory, capacityData, healthMetrics, crossingData, freedomMatrixData,
-      decisionPain, currentMonthLabel
-  } = useMemo(() => {
-      // 1. Filter Active Debts
-      const validDebts = (debts || []).filter(d => !d._deleted).map((d: any) => ({
-          ...d,
-          remainingPrincipal: Number(d.remainingPrincipal || 0),
-          monthlyPayment: Number(d.monthlyPayment || 0),
-          interestRate: Number(d.interestRate || 10),
-          startDate: d.startDate || new Date().toISOString(),
-          endDate: d.endDate || new Date().toISOString()
-      }));
+    return { totalDebt, monthlyDebtObligation, livingCost, netCashflow, dsr, runway, activeDebts, totalExpense };
+  }, [debts, allocations, income, sinkingFunds]);
 
-      const tDebt = validDebts.reduce((a, b) => a + Number(b.remainingPrincipal || 0), 0);
-      const tObligation = validDebts.reduce((a, b) => a + Number(b.monthlyPayment || 0), 0);
-      const realExp = (dailyExpenses || []).reduce((a, b) => a + Number(b.amount || 0), 0);
-      
-      const catMap: Record<string, number> = { 'Needs': 0, 'Wants': 0, 'Debt': 0, 'Savings': 0 };
-      catMap['Debt'] = tObligation;
-
-      // 2. Calculate Living Cost from Allocations (Routine Pockets)
-      let calculatedLivingCost = 0;
-      if (allocations && allocations.length > 0) {
-          allocations.forEach(item => {
-              const amount = Number(item.amount || 0);
-              if (item.category === 'needs' || item.category === 'wants') {
-                  calculatedLivingCost += amount;
-                  if (item.category === 'needs') catMap['Needs'] += amount;
-                  if (item.category === 'wants') catMap['Wants'] += amount;
-              }
-          });
-      } else {
-          const disposable = Math.max(0, income - tObligation);
-          catMap['Needs'] = disposable * 0.5;
-          catMap['Wants'] = disposable * 0.3;
-          calculatedLivingCost = catMap['Needs'] + catMap['Wants'];
-      }
-
-      const tLiving = calculatedLivingCost;
-      const monthlyBurn = tObligation + tLiving;
-      
-      const totalSavings = (sinkingFunds || []).reduce((acc, sf) => acc + Number(sf.currentAmount || 0), 0);
-      const config = getConfig();
-      const assumedCash = config.advancedConfig?.runwayAssumption || 0;
-      const liquidAssets = totalSavings + assumedCash;
-      const runwayMonths = monthlyBurn > 0 ? liquidAssets / monthlyBurn : 0;
-
-      const dsr = income > 0 ? (tObligation / income) * 100 : 0;
-      const dsrStatus = dsr < (config.systemRules?.dsrSafeLimit || 30) ? 'Sehat' : (dsr < (config.systemRules?.dsrWarningLimit || 45) ? 'Waspada' : 'Bahaya');
-
-      // --- CROSSING ANALYSIS DATA (REAL DATE RANGE) ---
-      let crossingData = [];
-      const currentDate = new Date();
-      const currentMonthLabel = currentDate.toLocaleDateString('id-ID', { month: 'short', year: '2-digit' });
-
-      // Determine Date Range from Debts
-      let minDate = new Date();
-      let maxDate = new Date();
-      
-      if (validDebts.length > 0) {
-          // Earliest start date
-          const startDates = validDebts.map(d => new Date(d.startDate).getTime());
-          minDate = new Date(Math.min(...startDates));
-          
-          // Latest end date
-          const endDates = validDebts.map(d => new Date(d.endDate).getTime());
-          maxDate = new Date(Math.max(...endDates));
-      } else {
-          // Default range if no debts: Current Year
-          minDate.setMonth(0);
-          maxDate.setMonth(11);
-      }
-
-      // Generate Amortization for ALL debts
-      let aggregatedInstallments: { date: string, amount: number }[] = [];
-      validDebts.forEach(debt => {
-          const schedule = generateInstallmentsForDebt(debt, []); 
-          schedule.forEach(inst => {
-              aggregatedInstallments.push({ date: inst.dueDate.slice(0, 7), amount: inst.amount });
-          });
-      });
-
-      // Loop month by month from Min to Max
-      const iterDate = new Date(minDate);
-      iterDate.setDate(1); // Start of month
-      
-      // Limit iterations to prevent crashing (max 20 years = 240 months)
-      let safetyCounter = 0;
-      while (iterDate <= maxDate && safetyCounter < 240) {
-          const monthKey = iterDate.toISOString().slice(0, 7); // YYYY-MM
-          const monthLabel = iterDate.toLocaleDateString('id-ID', { month: 'short', year: '2-digit' });
-
-          const monthlyDebtPayment = aggregatedInstallments
-              .filter(item => item.date === monthKey)
-              .reduce((sum, item) => sum + item.amount, 0);
-
-          crossingData.push({
-              month: monthLabel,
-              income: income,
-              obligation: monthlyDebtPayment, 
-              totalExp: monthlyDebtPayment + tLiving,
-              livingCost: tLiving
-          });
-
-          // Increment Month
-          iterDate.setMonth(iterDate.getMonth() + 1);
-          safetyCounter++;
-      }
-
-      // --- FREEDOM MATRIX DATA (Debt Reduction Curves) ---
-      const matrixData = [];
-      const monthsLimit = 120; // 10 Years view
-      
-      let balanceStd = tDebt;
-      let balancePaydone = tDebt; // Jalur Paydone (Direct Payment)
-      let savingsAccumulated = 0; // Tabungan Cutoff (Ungu)
-      let freedomMonth = 0; // Kapan lunas?
-
-      for (let i = 0; i <= monthsLimit; i++) {
-          const date = new Date(currentDate.getFullYear(), currentDate.getMonth() + i, 1);
-          const monthLabel = date.toLocaleDateString('id-ID', { month: 'short', year: 'numeric' });
-          
-          // 1. Standard Path (Minimum Payment)
-          if (balanceStd > 0) {
-              const interest = (balanceStd * 0.1) / 12; // Approx 10% avg interest
-              balanceStd = balanceStd - (tObligation - interest);
-              if (balanceStd < 0) balanceStd = 0;
-          }
-
-          // 2. Paydone Path (Logic depends on Strategy)
-          if (freedomStrategy === 'lump_sum') {
-              // Direct Extra Payment: Reduces Principal Faster
-              if (balancePaydone > 0) {
-                  const interest = (balancePaydone * 0.1) / 12;
-                  balancePaydone = balancePaydone - (tObligation + extraPayment - interest);
-                  if (balancePaydone < 0) {
-                      balancePaydone = 0;
-                      if (freedomMonth === 0) freedomMonth = i;
-                  }
-              }
-          } else {
-              // Cutoff Strategy: Accumulate Savings, Pay Debt Normally until Intersection
-              if (balancePaydone > 0) {
-                  const interest = (balancePaydone * 0.1) / 12;
-                  balancePaydone = balancePaydone - (tObligation - interest); // Pay Normal
-                  if (balancePaydone < 0) balancePaydone = 0;
-                  
-                  // Accumulate Savings
-                  savingsAccumulated += extraPayment;
-                  
-                  // Check Intersection (Cutoff)
-                  if (savingsAccumulated >= balancePaydone && freedomMonth === 0) {
-                      freedomMonth = i;
-                      // Visual Effect: Drop debt to 0 at this point
-                      balancePaydone = 0;
-                  }
-              }
-          }
-
-          matrixData.push({
-              name: monthLabel,
-              Standard: Math.round(balanceStd),
-              Paydone: Math.round(balancePaydone),
-              Savings: freedomStrategy === 'cutoff' ? Math.round(savingsAccumulated) : null
-          });
-      }
-
-      // --- WHICH PAIN DECISION LOGIC ---
-      const safeDSR = 30; // 30%
-      const targetIncome = tObligation / (safeDSR / 100);
-      const incomeGap = Math.max(0, targetIncome - income);
-      
-      const targetObligation = income * (safeDSR / 100);
-      const debtReductionNeeded = Math.max(0, tObligation - targetObligation);
-      const assetValueToSell = debtReductionNeeded * 50; 
-
-      const decisionPain = {
-          dsr,
-          incomeGap,
-          debtReductionMonthly: debtReductionNeeded,
-          assetSellTarget: assetValueToSell
-      };
-
-      return {
-          totalDebt: tDebt,
-          totalMonthlyObligation: tObligation,
-          activeDebts: validDebts,
-          totalRealExpenses: realExp,
-          totalLivingCost: tLiving, 
-          netCashflow: income - (tObligation + realExp),
-          expenseByCategory: [
-              { name: 'Needs (50%)', value: catMap['Needs'], fill: '#3b82f6' },
-              { name: 'Wants (30%)', value: catMap['Wants'], fill: '#f59e0b' },
-              { name: 'Debt (Max 30%)', value: catMap['Debt'], fill: '#ef4444' }, 
-          ],
-          capacityData: [
-              { name: 'Kapasitas Bayar', value: Math.max(0, income - tLiving) },
-              { name: 'Kewajiban Hutang', value: tObligation }
-          ],
-          healthMetrics: { dsr, dsrStatus, runwayMonths },
-          crossingData,
-          freedomMatrixData: { data: matrixData, freedomMonth },
-          decisionPain,
-          currentMonthLabel
-      };
-  }, [debts, dailyExpenses, income, allocations, sinkingFunds, extraPayment, freedomStrategy]);
-
-  // --- GENERATE AI SUMMARY (OPTIMIZED: SESSION CACHE) ---
+  // --- 2. GENERATE CHARTS ON CHANGE ---
   useEffect(() => {
-      const fetchSummary = async () => {
-          if (!userId || income <= 0) return;
+      const projection = generateGlobalProjection(debts, extraPayment, 'snowball', freedomMode);
+      setFreedomMatrix(projection);
 
-          // 1. Check Cache First
-          const cachedSummary = sessionStorage.getItem('paydone_ai_summary');
-          if (cachedSummary) {
-              setAiSummary(cachedSummary);
-              return;
-          }
+      const crossing = generateCrossingAnalysis(income, debts, allocations);
+      setCrossingData(crossing);
+  }, [debts, income, allocations, extraPayment, freedomMode]);
 
-          setLoadingSummary(true);
-          const metrics = {
-              dsr: healthMetrics.dsr,
-              runway: healthMetrics.runwayMonths,
-              netCashflow,
-              totalDebt,
-              income,
-              debtCount: activeDebts.length
-          };
-          
+  // --- 3. GENERATE AI SUMMARY ---
+  useEffect(() => {
+      const getSummary = async () => {
+          if (income <= 0 && debts.length === 0) return;
           try {
-              const text = await generateDashboardSummary(metrics);
-              setAiSummary(text);
-              sessionStorage.setItem('paydone_ai_summary', text); // Cache it
+              const summary = await generateDashboardSummary(metrics);
+              setAiSummary(summary);
           } catch (e) {
-              console.error("AI Summary Error", e);
-          } finally {
-              setLoadingSummary(false);
+              if (metrics.dsr > 40) setAiSummary("DSR Kamu tinggi! Fokus turunkan hutang konsumtif.");
+              else if (metrics.runway < 3) setAiSummary("Dana darurat tipis. Tambah cash sebelum investasi.");
+              else setAiSummary("Kondisi prima! Saatnya gaspol investasi.");
           }
       };
-      
-      fetchSummary();
-  }, [userId, healthMetrics.dsr, netCashflow]); // Only runs if metrics change significantly or initial load
+      const timeout = setTimeout(getSummary, 1500);
+      return () => clearTimeout(timeout);
+  }, [metrics.dsr, metrics.runway]);
 
-  // --- SMART AI LOGIC ---
-  const handleOmniCommand = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!omniInput.trim()) return;
-      setIsAnalyzing(true);
-      setParsedPlan(null); setAiQuestion(null);
+  // --- 4. AI COMMAND HANDLER ---
+  const handleAICommand = async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (!commandInput.trim()) return;
+
+      setIsAiProcessing(true);
+      setAiFeedback(null);
 
       try {
-          let finalInput = omniInput;
-          if (clarificationMode) finalInput = `[Previous Context: ${clarificationMode}] User Answer: ${omniInput}`;
-
-          const contextData = {
-              debts: activeDebts.map(d => ({ name: d.name, monthlyPayment: d.monthlyPayment })),
-              allocations: allocations.map(a => ({ name: a.name, amount: a.amount })),
-              income
-          };
-
-          const result = await parseTransactionAI(finalInput, contextData);
-          
-          if (result && result.intent === 'CLARIFICATION') {
-              setClarificationMode(finalInput);
-              setAiQuestion(result.question || "Mohon perjelas maksud Anda.");
-              setOmniInput(''); 
-          } else if (result && result.intent && result.intent !== 'ERROR') {
-              const { intent, data } = result;
-              let status: 'ready' | 'missing_data' = 'ready';
-              let displayTitle = '';
-              let matchedData = null;
-
-              if (intent === 'PAY_DEBT') {
-                  displayTitle = 'Bayar Cicilan';
-                  const match = debts.find(d => d.name.toLowerCase().includes((data.matchedItemName || data.title || '').toLowerCase()));
-                  if (match) { matchedData = match; if (!data.amount) data.amount = match.monthlyPayment; } else { status = 'missing_data'; }
-              } else if (intent === 'ADD_INCOME') { displayTitle = 'Tambah Pemasukan'; if (!data.amount) status = 'missing_data'; }
-              else if (intent === 'ADD_EXPENSE') { displayTitle = 'Catat Pengeluaran'; if (!data.amount) status = 'missing_data'; }
-              else if (intent === 'ADD_DEBT') { displayTitle = 'Tambah Hutang Baru'; if (!data.amount) status = 'missing_data'; }
-              else if (intent === 'ADD_ALLOCATION') { displayTitle = 'Buat Budget Baru'; if (!data.amount) status = 'missing_data'; }
-
-              setParsedPlan({ originalInput: omniInput, intent, amount: data.amount || 0, displayTitle, data, matchedData, status });
-              setShowOmniPlan(true); setClarificationMode(null); setAiQuestion(null);
-          } else { alert("Maaf, AI tidak mengerti."); }
-      } catch (e) { alert("Gagal menghubungi AI."); } finally { setIsAnalyzing(false); }
+          const result = await parseTransactionAI(commandInput);
+          if (onAIAction && result && result.intent !== 'ERROR' && result.intent !== 'CLARIFICATION') {
+              onAIAction(result);
+              setAiFeedback({ type: 'success', msg: `Berhasil: ${result.intent.replace('ADD_', 'Catat ')}` });
+              setCommandInput('');
+          } else {
+              setAiFeedback({ type: 'error', msg: "Maaf, saya kurang paham. Coba 'Catat makan 20rb'." });
+          }
+      } catch (err) {
+          setAiFeedback({ type: 'error', msg: "Gagal memproses perintah." });
+      } finally {
+          setIsAiProcessing(false);
+          setTimeout(() => setAiFeedback(null), 3000);
+      }
   };
 
-  const executeOmniPlan = () => {
-      if (!parsedPlan || !onAIAction) return;
-      const payload: any = { intent: parsedPlan.intent, data: { ...parsedPlan.data, amount: parsedPlan.amount } };
-      if (parsedPlan.intent === 'PAY_DEBT' && parsedPlan.matchedData) payload.data.debtId = parsedPlan.matchedData.id;
-      onAIAction(payload);
-      setShowOmniPlan(false); setOmniInput('');
+  // --- COLORS ---
+  const COLORS = {
+      needs: '#3b82f6', 
+      wants: '#f59e0b', 
+      debt: '#ef4444',  
+      savings: '#10b981' 
   };
+
+  // --- STRUCTURE DATA ---
+  const structureData = [
+      { name: 'Needs (50%)', value: metrics.livingCost * 0.7, color: COLORS.needs }, 
+      { name: 'Wants (30%)', value: metrics.livingCost * 0.3, color: COLORS.wants },
+      { name: 'Debt (Max 30%)', value: metrics.monthlyDebtObligation, color: COLORS.debt },
+  ];
+  const totalStructure = structureData.reduce((a,b)=>a+b.value,0);
+
+  // DECISION LOGIC
+  const decisionGap = Math.max(0, (metrics.monthlyDebtObligation / 0.3) - income);
+  const highestDebt = metrics.activeDebts.sort((a,b) => b.monthlyPayment - a.monthlyPayment)[0];
 
   return (
-    <div className="min-h-screen space-y-8 pb-24 font-sans text-slate-900">
+    <div className="space-y-8 pb-20 animate-fade-in font-sans">
       
-      {/* 1. HEADER & AI COMMAND CENTER */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-          <div>
-              <h1 className="text-3xl font-black tracking-tight text-slate-900 flex items-center gap-3">
-                  <LayoutDashboard className="text-slate-400" size={32}/> Financial Cockpit
-              </h1>
-              <p className="text-slate-500 font-medium mt-1">Analisa 360° Kesehatan & Strategi Keuangan Anda</p>
-          </div>
-          <div className="w-full lg:w-[600px] relative group z-30">
-              <div className={`absolute inset-0 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500 ${aiQuestion ? 'bg-amber-500' : 'bg-gradient-to-r from-blue-500 to-indigo-600'}`}></div>
-              <form onSubmit={handleOmniCommand} className={`relative bg-white rounded-2xl shadow-xl border flex items-center p-2 transition-all focus-within:ring-2 ${aiQuestion ? 'border-amber-300 ring-amber-200' : 'border-slate-200 focus-within:ring-blue-500/50'}`}>
-                  <div className={`pl-3 pr-3 ${aiQuestion ? 'text-amber-500 animate-pulse' : 'text-brand-600'}`}>
-                      {isAnalyzing ? <Loader2 size={24} className="animate-spin text-indigo-600"/> : aiQuestion ? <MessageCircle size={24}/> : <BrainCircuit size={24} className={omniInput ? "text-indigo-600" : ""} />}
+      {/* SECTION 1: AI COMMAND CENTER (THE BRAIN) */}
+      <div className="relative bg-slate-900 rounded-[2.5rem] p-8 overflow-hidden shadow-2xl">
+          {/* Decorative Background */}
+          <div className="absolute top-0 right-0 p-10 opacity-10 pointer-events-none"><BrainCircuit size={200} className="text-white"/></div>
+          <div className="absolute -left-10 -bottom-10 w-64 h-64 bg-brand-600 rounded-full blur-[100px] opacity-20 pointer-events-none"></div>
+
+          <div className="relative z-10 max-w-3xl mx-auto text-center space-y-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-brand-300 text-[10px] font-black uppercase tracking-widest backdrop-blur-md">
+                  <Sparkles size={12}/> Paydone AI Assistant V2
+              </div>
+              
+              <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight">
+                  Apa yang ingin kamu <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-indigo-400">selesaikan hari ini?</span>
+              </h2>
+
+              <form onSubmit={handleAICommand} className="relative w-full max-w-xl mx-auto group">
+                  <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-brand-400 transition-colors">
+                      <Command size={20} />
                   </div>
-                  <input type="text" className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder-slate-400 text-sm font-bold py-2.5" placeholder={isAnalyzing ? "AI Sedang Menerjemahkan..." : aiQuestion ? aiQuestion : "Ketik: 'tambah income 5jt', 'bayar kpr', 'beli kopi 20rb'"} value={omniInput} onChange={e => setOmniInput(e.target.value)} disabled={isAnalyzing} autoFocus={!!aiQuestion} />
-                  {aiQuestion && (<button type="button" onClick={() => { setAiQuestion(null); setClarificationMode(null); setOmniInput(''); }} className="p-2 mr-1 text-slate-400 hover:text-slate-600"><X size={16}/></button>)}
-                  <button type="submit" disabled={!omniInput || isAnalyzing} className="p-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition disabled:opacity-50 shadow-md"><ArrowRight size={18}/></button>
+                  <input 
+                      type="text" 
+                      value={commandInput}
+                      onChange={(e) => setCommandInput(e.target.value)}
+                      placeholder="Contoh: 'Catat pengeluaran kopi 25rb' atau 'Analisa hutang saya'..." 
+                      className="w-full pl-12 pr-14 py-4 rounded-2xl bg-white/10 border border-white/10 text-white placeholder-slate-400 focus:bg-white/20 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-500/20 transition-all shadow-xl backdrop-blur-md font-medium"
+                      disabled={isAiProcessing}
+                  />
+                  <button 
+                      type="submit"
+                      disabled={!commandInput.trim() || isAiProcessing}
+                      className="absolute right-2 top-2 p-2 bg-brand-600 text-white rounded-xl hover:bg-brand-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg active:scale-95"
+                  >
+                      {isAiProcessing ? <Sparkles size={20} className="animate-spin"/> : <Send size={20}/>}
+                  </button>
               </form>
+
+              {aiFeedback && (
+                  <div className={`text-sm font-bold animate-fade-in-up ${aiFeedback.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                      {aiFeedback.msg}
+                  </div>
+              )}
+
+              {/* Quick Chips */}
+              <div className="flex flex-wrap justify-center gap-2">
+                  {[
+                      { icon: <Wallet size={12}/>, label: "Log Gaji Masuk", cmd: "Pemasukan gaji 10jt" },
+                      { icon: <TrendingDown size={12}/>, label: "Catat Jajan", cmd: "Pengeluaran makan 50rb" },
+                      { icon: <Target size={12}/>, label: "Cek Kesehatan", cmd: "Analisa DSR saya" }
+                  ].map((chip, idx) => (
+                      <button 
+                          key={idx}
+                          onClick={() => setCommandInput(chip.cmd)}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-xs font-bold hover:bg-white/10 hover:text-white hover:border-brand-400/50 transition-all"
+                      >
+                          {chip.icon} {chip.label}
+                      </button>
+                  ))}
+              </div>
           </div>
       </div>
 
-      {/* NEW: AI SUMMARY WIDGET */}
-      <div className="bg-gradient-to-r from-indigo-900 to-slate-900 rounded-3xl p-1 shadow-xl relative overflow-hidden">
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none"></div>
-          <div className="bg-slate-900/90 backdrop-blur-sm rounded-[22px] p-6 flex items-start gap-4 text-white relative z-10">
-              <div className="p-3 bg-indigo-500/20 rounded-2xl border border-indigo-500/30 flex-shrink-0 animate-pulse-slow">
-                  <Sparkles size={24} className="text-indigo-300"/>
-              </div>
-              <div className="flex-1">
-                  <div className="flex justify-between items-center mb-2">
-                      <h3 className="font-bold text-lg text-indigo-100 flex items-center gap-2">
-                          AI Executive Summary
-                          <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30 uppercase tracking-wider">Gemini 3 Preview</span>
+      {/* SECTION 2: HEALTH SCORE & KEY METRICS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Metric 1: DSR */}
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-lg transition-all group">
+              <div className="flex justify-between items-start">
+                  <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Debt Service Ratio</p>
+                      <h3 className={`text-4xl font-black ${metrics.dsr > 40 ? 'text-red-500' : 'text-slate-900'}`}>
+                          {metrics.dsr.toFixed(1)}<span className="text-lg">%</span>
                       </h3>
                   </div>
-                  <div className="text-slate-300 text-sm leading-relaxed max-w-4xl">
-                      {loadingSummary ? (
-                          <div className="flex items-center gap-2 text-slate-500"><Loader2 size={14} className="animate-spin"/> Analyzing your financial data...</div>
-                      ) : (
-                          aiSummary || "Halo! Saya AI asisten keuanganmu. Masukkan data income dan hutang agar saya bisa memberikan analisa lengkap di sini."
-                      )}
+                  <div className={`p-3 rounded-2xl ${metrics.dsr > 40 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
+                      <Activity size={24}/>
                   </div>
+              </div>
+              <div className="mt-4">
+                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-1000 ${metrics.dsr > 40 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${Math.min(100, metrics.dsr)}%` }}></div>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-2 font-medium">
+                      {metrics.dsr > 40 ? '⚠️ Bahaya! Kurangi hutang.' : '✅ Cashflow sehat.'}
+                  </p>
+              </div>
+          </div>
+
+          {/* Metric 2: Runway */}
+          <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-lg transition-all group">
+              <div className="flex justify-between items-start">
+                  <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Financial Runway</p>
+                      <h3 className="text-4xl font-black text-slate-900">
+                          {metrics.runway.toFixed(1)}<span className="text-lg text-slate-400"> Bln</span>
+                      </h3>
+                  </div>
+                  <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                      <ShieldCheck size={24}/>
+                  </div>
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                  <div className="flex -space-x-2">
+                      {sinkingFunds.slice(0,3).map(sf => (
+                          <div key={sf.id} className={`w-6 h-6 rounded-full border-2 border-white flex items-center justify-center text-[8px] text-white ${sf.color}`}>
+                              <Target size={10}/>
+                          </div>
+                      ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-medium">
+                      Total Liquid: {formatCurrency(sinkingFunds.reduce((a,b)=>a+b.currentAmount,0))}
+                  </p>
+              </div>
+          </div>
+
+          {/* Metric 3: Net Cashflow */}
+          <div className="bg-slate-900 p-6 rounded-[2.5rem] shadow-xl flex flex-col justify-between relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform"><Wallet size={100} className="text-white"/></div>
+              <div className="relative z-10">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Net Cashflow / Bulan</p>
+                  <h3 className={`text-3xl font-black ${metrics.netCashflow < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {formatCurrency(metrics.netCashflow)}
+                  </h3>
+              </div>
+              <div className="relative z-10 mt-4 pt-4 border-t border-white/10">
+                  <p className="text-xs text-slate-300 italic flex items-start gap-2">
+                      <Sparkles size={14} className="text-yellow-400 shrink-0 mt-0.5"/>
+                      "{aiSummary.split('.')[0]}."
+                  </p>
               </div>
           </div>
       </div>
 
-      {/* 2. FREEDOM MATRIX (TAB CUTOFF UPDATED) */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-center mb-6">
+      {/* SECTION 3: FREEDOM MATRIX */}
+      <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-lg relative overflow-hidden">
+          <div className="flex flex-col md:flex-row justify-between items-start mb-8 gap-6 relative z-10">
               <div>
-                  <h3 className="font-bold text-2xl text-slate-900 flex items-center gap-2">
-                      <Calculator size={24} className="text-brand-600"/> Freedom Matrix
-                  </h3>
-                  <p className="text-slate-500 text-sm">Timeline lengkap dari awal berhutang hingga estimasi lunas.</p>
+                  <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+                      <Calculator className="text-brand-600" /> Freedom Matrix
+                  </h2>
+                  <p className="text-slate-500 text-sm mt-1">Simulator pelunasan hutang dengan strategi Snowball vs Avalanche.</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex p-1 bg-slate-100 rounded-xl">
                   <button 
-                    onClick={() => setFreedomStrategy('lump_sum')}
-                    className={`px-4 py-2 border rounded-lg text-xs font-bold flex items-center gap-2 transition ${freedomStrategy === 'lump_sum' ? 'bg-brand-50 border-brand-200 text-brand-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                    onClick={() => setFreedomMode('lump_sum')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${freedomMode === 'lump_sum' ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-700'}`}
                   >
-                      <Zap size={14}/> Lump Sum (Cicil Extra)
+                      <Zap size={14}/> Percepat Cicil
                   </button>
                   <button 
-                    onClick={() => setFreedomStrategy('cutoff')}
-                    className={`px-4 py-2 border rounded-lg text-xs font-bold flex items-center gap-2 transition ${freedomStrategy === 'cutoff' ? 'bg-purple-50 border-purple-200 text-purple-600 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                    onClick={() => setFreedomMode('cutoff')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${freedomMode === 'cutoff' ? 'bg-white text-purple-700 shadow' : 'text-slate-500 hover:text-slate-700'}`}
                   >
-                      <PiggyBank size={14}/> Cutoff (Tabung Extra)
+                      <Target size={14}/> Strategi Cutoff
                   </button>
               </div>
           </div>
 
-          <div className="grid lg:grid-cols-12 gap-8">
-              {/* Left Panel: Inputs & Stats */}
-              <div className="lg:col-span-4 space-y-6">
-                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                      <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-4"><Zap size={14} className="text-yellow-500"/> EXTRA PAYMENT / BLN</label>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 relative z-10">
+              {/* CONTROLS */}
+              <div className="lg:col-span-1 space-y-6">
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                      <label className="flex items-center gap-2 text-xs font-black text-slate-500 uppercase tracking-widest mb-4">
+                          <Zap size={14} className="text-yellow-500"/> Extra Payment / Bln
+                      </label>
                       <input 
                         type="range" 
-                        min="0" max="10000000" step="100000" 
-                        className="w-full h-3 bg-brand-200 rounded-lg appearance-none cursor-pointer accent-brand-600 mb-4"
+                        min="0" max={income * 0.5} step="100000"
                         value={extraPayment}
-                        onChange={e => setExtraPayment(Number(e.target.value))}
+                        onChange={(e) => setExtraPayment(Number(e.target.value))}
+                        className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-brand-600 mb-4"
                       />
-                      <div className="text-right">
-                          <span className="text-3xl font-black text-slate-900">{formatCurrency(extraPayment)}</span>
+                      <div className="text-3xl font-black text-slate-900 text-right">
+                          {formatCurrency(extraPayment)}
                       </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-green-50 p-4 rounded-2xl border border-green-100 text-center">
-                          <Hourglass size={24} className="text-green-600 mx-auto mb-2"/>
-                          <p className="text-[10px] font-bold text-green-700 uppercase">HEMAT WAKTU</p>
-                          <p className="text-2xl font-black text-green-800">{freedomMatrixData.freedomMonth > 0 ? (freedomMatrixData.data.length - freedomMatrixData.freedomMonth) : 0} <span className="text-sm">Bln</span></p>
+                      <div className="p-5 bg-green-50 rounded-3xl border border-green-100 text-center">
+                          <p className="text-[10px] font-black uppercase text-green-600 mb-1">Hemat Waktu</p>
+                          <div className="text-3xl font-black text-green-700">{freedomMatrix?.monthsSaved || 0} <span className="text-sm">Bln</span></div>
                       </div>
-                      <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 text-center">
-                          <PiggyBank size={24} className="text-blue-600 mx-auto mb-2"/>
-                          <p className="text-[10px] font-bold text-blue-700 uppercase">POTENSI HEMAT</p>
-                          <p className="text-xl font-black text-blue-800">{formatCurrency(totalDebt * 0.15)}</p>
+                      <div className="p-5 bg-blue-50 rounded-3xl border border-blue-100 text-center">
+                          <p className="text-[10px] font-black uppercase text-blue-600 mb-1">Potensi Hemat</p>
+                          <div className="text-lg font-black text-blue-700 truncate" title={formatCurrency(freedomMatrix?.moneySaved || 0)}>{formatCurrency(freedomMatrix?.moneySaved || 0)}</div>
                       </div>
-                  </div>
-
-                  <div className="bg-slate-900 p-6 rounded-2xl text-white text-center shadow-xl">
-                      <Coins size={32} className="text-yellow-400 mx-auto mb-2"/>
-                      <p className="text-xs font-bold text-slate-400 uppercase mb-1">TOTAL EXTRA INVESTMENT</p>
-                      <p className="text-2xl font-black text-white">{formatCurrency(extraPayment * (freedomMatrixData.freedomMonth || 12))}</p>
-                      <p className="text-[10px] text-slate-500 mt-1">Total uang tambahan yang harus disiapkan.</p>
                   </div>
               </div>
 
-              {/* Right Panel: Chart */}
-              <div className="lg:col-span-8 h-[400px] relative">
-                  <div className="absolute top-0 right-0 flex gap-4 text-xs font-medium text-slate-500 z-10">
-                      <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-slate-400"></div> Jalur Biasa</div>
-                      <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-brand-600"></div> Jalur Paydone</div>
-                      {freedomStrategy === 'cutoff' && (
-                          <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-purple-500"></div> Tabungan Cutoff</div>
-                      )}
-                  </div>
-                  <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={freedomMatrixData.data} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                          <defs>
-                              <linearGradient id="colorAcc" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                              </linearGradient>
-                              <linearGradient id="colorSavings" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#a855f7" stopOpacity={0.1}/>
-                                  <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
-                              </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="name" tick={{fontSize: 10}} tickLine={false} axisLine={false} interval={12} />
-                          <YAxis tickFormatter={(val) => `${val/1000000}jt`} tick={{fontSize: 10}} tickLine={false} axisLine={false} />
-                          <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{borderRadius: '12px', border:'none', boxShadow:'0 10px 15px -3px rgba(0, 0, 0, 0.1)'}} />
-                          
-                          {/* Standard Line (Dashed Gray) */}
-                          <Line type="monotone" dataKey="Standard" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} />
-                          
-                          {/* Paydone Line (Solid Blue) */}
-                          <Line type="monotone" dataKey="Paydone" stroke="#2563eb" strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
-                          
-                          {/* Savings Line (Only in Cutoff Mode) */}
-                          {freedomStrategy === 'cutoff' && (
-                              <Area type="monotone" dataKey="Savings" stroke="#a855f7" fill="url(#colorSavings)" strokeWidth={2} dot={false} />
-                          )}
-                          
-                          {/* Freedom Line */}
-                          {freedomMatrixData.freedomMonth > 0 && (
-                              <ReferenceLine x={freedomMatrixData.data[freedomMatrixData.freedomMonth].name} stroke="#10b981" strokeWidth={2} label={{ position: 'top', value: 'BEBAS HUTANG! 🎉', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} />
-                          )}
-                      </AreaChart>
-                  </ResponsiveContainer>
+              {/* CHART AREA */}
+              <div className="lg:col-span-2 h-[350px] w-full bg-slate-50/50 rounded-3xl border border-slate-100 p-4">
+                  {freedomMatrix && (
+                      <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={freedomMatrix.data} margin={{ top: 20, right: 30, left: 20, bottom: 10 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                              <XAxis dataKey="month" tick={{fontSize: 10, fill: '#94a3b8'}} tickLine={false} axisLine={false} minTickGap={30} />
+                              <YAxis tickFormatter={(val) => `${val/1000000}jt`} tick={{fontSize: 10, fill: '#94a3b8'}} tickLine={false} axisLine={false} />
+                              <Tooltip 
+                                  contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '12px'}} 
+                                  formatter={(val:number) => formatCurrency(val)}
+                              />
+                              <Legend verticalAlign="top" height={36} iconType="circle" />
+                              <Line type="monotone" dataKey="Biasa" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} name="Jalur Biasa" />
+                              <Line type="monotone" dataKey="Paydone" stroke="#2563eb" strokeWidth={3} dot={false} name="Jalur Cepat" />
+                              
+                              {freedomMode === 'cutoff' && (
+                                  <Line type="monotone" dataKey="Tabungan" stroke="#a855f7" strokeWidth={2} dot={false} name="Tabungan Cutoff" />
+                              )}
+                              
+                              {freedomMatrix.finishDateAcc && (
+                                  <ReferenceLine x={freedomMatrix.data.find((d:any) => d.Paydone <= 0)?.month} stroke="#10b981" strokeDasharray="3 3" label={{ position: 'top', value: 'BEBAS! 🎉', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} />
+                              )}
+                          </LineChart>
+                      </ResponsiveContainer>
+                  )}
               </div>
           </div>
       </div>
 
-      {/* 3. ROW 3: WHICH PAIN & STRUCTURE */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* THE "WHICH PAIN" DECISION */}
-          <div className="bg-slate-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl flex flex-col justify-between">
-              <div className="absolute right-0 top-0 p-8 opacity-5"><Scissors size={200} /></div>
-              <div className="relative z-10">
-                  <div className="flex items-center gap-3 mb-2 text-yellow-400">
-                      <Target size={24} />
-                      <h2 className="text-xl font-bold">The "Which Pain" Decision</h2>
-                  </div>
-                  <p className="text-slate-400 text-sm mb-6">
-                      Pilih satu rasa sakit untuk masa depan yang tenang. (DSR Saat Ini: <span className={healthMetrics.dsr > 30 ? "text-red-400 font-bold" : "text-green-400 font-bold"}>{healthMetrics.dsr.toFixed(1)}%</span>)
-                  </p>
-
-                  <div className="space-y-4">
-                      {/* Option A */}
-                      <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700 hover:border-blue-500/50 transition cursor-pointer group">
-                          <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                  <Briefcase className="text-blue-400" size={20}/>
-                                  <h3 className="font-bold text-sm">Opsi A: Cari Tambahan</h3>
-                              </div>
-                              <span className="text-[10px] text-slate-500 font-bold uppercase">TARGET / BULAN</span>
-                          </div>
-                          <p className="text-2xl font-black text-white group-hover:text-blue-400 transition mt-1">{formatCurrency(decisionPain.incomeGap)}</p>
-                      </div>
-
-                      {/* Option B */}
-                      <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700 hover:border-red-500/50 transition cursor-pointer group">
-                          <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                  <Scissors className="text-red-400" size={20}/>
-                                  <h3 className="font-bold text-sm">Opsi B: Jual Aset</h3>
-                              </div>
-                              <span className="text-[10px] text-slate-500 font-bold uppercase">NILAI ASET</span>
-                          </div>
-                          <p className="text-2xl font-bold text-white group-hover:text-red-400 transition mt-1">{formatCurrency(decisionPain.assetSellTarget)}</p>
-                      </div>
-                  </div>
+      {/* SECTION 4: ANALYSIS GRID */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          
+          {/* CROSSING ANALYSIS */}
+          <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-lg flex flex-col">
+              <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-black text-slate-900 flex items-center gap-3">
+                      <Target className="text-blue-600"/> Crossing Analysis
+                  </h2>
+                  {crossingData?.dangerMonth && (
+                      <span className="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-bold flex items-center gap-1 animate-pulse border border-red-100">
+                          <AlertTriangle size={12}/> BAHAYA @ {crossingData.dangerMonth.name}
+                      </span>
+                  )}
               </div>
-              <div className="mt-6 pt-4 border-t border-slate-800 flex items-center gap-2 text-xs text-slate-400 italic">
-                  <Sparkles size={14} className="text-yellow-500"/> "Fokus investasi atau pelunasan dipercepat."
+
+              <div className="flex-1 min-h-[300px]">
+                  {crossingData && (
+                      <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={crossingData.data}>
+                              <defs>
+                                  <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+                                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                                  </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
+                              <XAxis dataKey="name" tick={{fontSize: 10, fill: '#94a3b8'}} tickLine={false} axisLine={false} />
+                              <YAxis tickFormatter={(val) => `${val/1000000}jt`} tick={{fontSize: 10, fill: '#94a3b8'}} tickLine={false} axisLine={false} />
+                              <Tooltip contentStyle={{borderRadius: '12px', fontSize: '12px'}} formatter={(val:number) => formatCurrency(val)} />
+                              <Legend verticalAlign="top" iconType="circle" height={36}/>
+                              
+                              <Area type="step" dataKey="TotalExpense" stroke="#ef4444" fill="url(#colorExpense)" name="Total Pengeluaran" strokeWidth={2}/>
+                              <Line type="step" dataKey="Debt" stroke="#3b82f6" strokeWidth={2} name="Porsi Hutang" dot={false}/>
+                              <Line type="step" dataKey="Income" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" name="Pemasukan" dot={false}/>
+                          </AreaChart>
+                      </ResponsiveContainer>
+                  )}
               </div>
           </div>
 
-          {/* STRUKTUR PENGELUARAN (Donut) */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative flex flex-col items-center justify-center">
-              <h3 className="font-bold text-slate-900 mb-2 flex items-center gap-2 w-full"><PieIcon size={18} className="text-slate-400"/> STRUKTUR PENGELUARAN</h3>
-              <div className="flex items-center w-full h-full">
-                  <div className="h-64 w-64 relative flex-shrink-0">
+          {/* STRUCTURE & DECISION */}
+          <div className="space-y-8">
+              
+              {/* "WHICH PAIN" DECISION */}
+              <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-8 opacity-5"><Scissors size={150}/></div>
+                  
+                  <div className="relative z-10">
+                      <h3 className="text-lg font-bold text-yellow-400 mb-2 flex items-center gap-2">
+                          <Target size={18}/> The "Which Pain" Decision
+                      </h3>
+                      <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                          Saran sistem berdasarkan DSR {metrics.dsr.toFixed(1)}%:
+                      </p>
+
+                      <div className="grid grid-cols-2 gap-4">
+                          {/* OPTION A */}
+                          <div className={`p-4 rounded-2xl border transition cursor-pointer ${metrics.dsr < 40 ? 'bg-blue-600 border-blue-500 shadow-lg scale-105' : 'bg-slate-800 border-slate-700 opacity-60'}`}>
+                              <div className="flex items-center gap-2 mb-2 font-bold text-sm">
+                                  <Wallet size={16}/> Opsi A: Cari Tambahan
+                              </div>
+                              <p className="text-[10px] text-blue-100 mb-2">Target Income Tambahan:</p>
+                              <div className="text-xl font-black">{formatCurrency(metrics.monthlyDebtObligation / 0.3 - income > 0 ? metrics.monthlyDebtObligation / 0.3 - income : 0)}</div>
+                          </div>
+
+                          {/* OPTION B */}
+                          <div className={`p-4 rounded-2xl border transition cursor-pointer ${metrics.dsr >= 40 ? 'bg-red-600 border-red-500 shadow-lg scale-105' : 'bg-slate-800 border-slate-700 opacity-60'}`}>
+                              <div className="flex items-center gap-2 mb-2 font-bold text-sm">
+                                  <Scissors size={16}/> Opsi B: Jual Aset
+                              </div>
+                              <p className="text-[10px] text-red-100 mb-2">Potensi Hemat Cicilan:</p>
+                              <div className="text-xl font-black truncate">{formatCurrency(highestDebt?.monthlyPayment || 0)}</div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              {/* STRUKTUR PENGELUARAN */}
+              <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div>
+                      <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2 uppercase tracking-widest mb-4">
+                          <PieIcon size={16} className="text-slate-400"/> Struktur Cashflow
+                      </h3>
+                      <div className="space-y-2">
+                          {structureData.map((item, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                                  <div className="w-3 h-3 rounded-full" style={{backgroundColor: item.color}}></div>
+                                  {item.name}: <span className="font-bold text-slate-900">{formatCurrency(item.value)}</span>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+                  <div className="w-32 h-32 relative">
                       <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
-                              <Pie
-                                  data={expenseByCategory}
-                                  cx="50%" cy="50%"
-                                  innerRadius={60} outerRadius={80}
-                                  paddingAngle={5}
-                                  dataKey="value"
-                                  startAngle={90} endAngle={-270}
-                              >
-                                  {expenseByCategory.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                              <Pie data={structureData} innerRadius={35} outerRadius={50} paddingAngle={5} dataKey="value">
+                                  {structureData.map((entry, index) => (
+                                      <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
+                                  ))}
                               </Pie>
-                              <Tooltip formatter={(val: number) => formatCurrency(val)} contentStyle={{borderRadius: '12px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}/>
                           </PieChart>
                       </ResponsiveContainer>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                          <span className="text-xs text-slate-400 font-bold uppercase">Total Out</span>
-                          <span className="text-lg font-black text-slate-900">{formatCurrency(totalMonthlyObligation + totalLivingCost)}</span>
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <span className="text-xs font-black text-slate-400">OUT</span>
                       </div>
                   </div>
-                  
-                  <div className="flex-1 space-y-3 pl-4 w-full">
-                      {expenseByCategory.map((entry, idx) => (
-                          <div key={idx} className="flex justify-between items-center text-xs w-full">
-                              <div className="flex items-center gap-2">
-                                  <div className="w-2 h-2 rounded-full" style={{backgroundColor: entry.fill}}></div>
-                                  <span className="text-slate-600 font-medium truncate max-w-[120px]" title={entry.name}>{entry.name.split('(')[0]}</span>
-                              </div>
-                              <span className="font-bold text-slate-900">
-                                  {totalMonthlyObligation + totalLivingCost > 0 
-                                    ? ((entry.value / (totalMonthlyObligation + totalLivingCost)) * 100).toFixed(0) 
-                                    : 0}%
-                              </span>
-                          </div>
-                      ))}
+              </div>
+
+          </div>
+      </div>
+
+      {/* SECTION 5: KAPASITAS BAYAR (VISUAL BAR) */}
+      <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm">
+          <div className="flex justify-between items-center mb-6">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                  <TrendingDown className="text-blue-600"/> Kapasitas Bayar
+              </h3>
+              <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold uppercase">Income - Needs vs Cicilan</span>
+          </div>
+          
+          <div className="space-y-6">
+              <div>
+                  <div className="flex justify-between text-xs font-bold mb-2 text-slate-600">
+                      <span>Kapasitas (Uang Nganggur)</span>
+                  </div>
+                  <div className="h-10 bg-green-500 rounded-r-2xl w-[80%] relative flex items-center px-4 text-white font-black shadow-lg shadow-green-200 text-sm">
+                      {formatCurrency(metrics.netCashflow + metrics.monthlyDebtObligation)}
+                  </div>
+              </div>
+              <div>
+                  <div className="flex justify-between text-xs font-bold mb-2 text-slate-600">
+                      <span>Kewajiban Hutang</span>
+                  </div>
+                  <div className="h-10 bg-red-500 rounded-r-2xl relative flex items-center px-4 text-white font-black shadow-lg shadow-red-200 text-sm" style={{ width: `${Math.min(100, (metrics.monthlyDebtObligation / (metrics.netCashflow + metrics.monthlyDebtObligation)) * 80)}%` }}>
+                      {formatCurrency(metrics.monthlyDebtObligation)}
                   </div>
               </div>
           </div>
       </div>
-
-      {/* 4. ROW 4: KAPASITAS & CROSSING */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Kapasitas Bayar (Bar Chart) */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative">
-              <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-bold text-slate-900 flex items-center gap-2"><Scale size={18} className="text-blue-600"/> Kapasitas Bayar</h3>
-                  <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded">Income Bersih vs Hutang</span>
-              </div>
-              
-              <div className="h-48 relative z-10">
-                  <ResponsiveContainer width="100%" height="100%">
-                      <BarChart layout="vertical" data={capacityData} margin={{ top: 0, right: 30, left: 20, bottom: 0 }} barSize={30}>
-                          <XAxis type="number" hide />
-                          <YAxis dataKey="name" type="category" tick={{fontSize: 10, fontWeight: 'bold', fill: '#64748b'}} width={100} tickLine={false} axisLine={false} />
-                          <Tooltip formatter={(val: number) => formatCurrency(val)} cursor={{fill: 'transparent'}} contentStyle={{borderRadius: '12px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}/>
-                          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                              {capacityData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={index === 0 ? '#10b981' : '#ef4444'} />
-                              ))}
-                          </Bar>
-                      </BarChart>
-                  </ResponsiveContainer>
-              </div>
-              <div className="mt-4 flex items-start gap-2 text-[10px] text-slate-500 italic">
-                  <Info size={12} className="mt-0.5 shrink-0"/> "Grafik ini menunjukkan sisa uangmu setelah makan/transport (Needs) dibandingkan dengan total cicilan. Jika merah lebih panjang, kamu defisit."
-              </div>
-          </div>
-
-          {/* Crossing Analysis (Line) */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative">
-              <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2"><TrendingUp size={18} className="text-blue-600"/> Crossing Analysis</h3>
-              <div className="h-48 relative z-10">
-                  <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={crossingData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
-                          <XAxis dataKey="month" tick={{fontSize: 10}} tickLine={false} axisLine={false} />
-                          <YAxis hide domain={['auto', 'auto']} />
-                          <Tooltip formatter={(val: number) => formatCurrency(val)} contentStyle={{borderRadius: '12px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}/>
-                          
-                          {/* Reference Line Current Month */}
-                          <ReferenceLine x={currentMonthLabel} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: 'Bulan Ini', fill: '#ef4444', fontSize: 10 }} />
-
-                          {/* Income Threshold (Green Dashed) */}
-                          <Line type="step" dataKey="income" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Pemasukan" />
-                          
-                          {/* Expense Line (Red) */}
-                          <Line type="monotone" dataKey="totalExp" stroke="#ef4444" strokeWidth={2} dot={false} name="Total Out (Hidup + Hutang)" />
-                          
-                          {/* Debt Portion (Blue Area - Mocked as Line for clarity in composed) */}
-                          <Line type="monotone" dataKey="obligation" stroke="#3b82f6" strokeWidth={2} dot={false} name="Porsi Cicilan Real" />
-                      </ComposedChart>
-                  </ResponsiveContainer>
-              </div>
-              
-              <div className="mt-2 flex justify-center gap-4 text-[10px] text-slate-500">
-                  <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div> Pemasukan</span>
-                  <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"></div> Cicilan</span>
-                  <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> Total Out</span>
-              </div>
-
-              <div className="mt-4 bg-green-50 border border-green-100 p-2 rounded-lg flex items-center gap-2 text-xs text-green-700 font-medium">
-                  <CheckCircle2 size={14}/> Grafik ini menggunakan jadwal cicilan riil & budget rutin Anda.
-              </div>
-          </div>
-      </div>
-
-      {/* SMART AI PLAN CONFIRMATION MODAL */}
-      {showOmniPlan && parsedPlan && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-              <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden transform scale-100 transition-all border border-slate-200">
-                  <div className="bg-gradient-to-r from-slate-900 to-indigo-900 p-6 text-white flex justify-between items-start">
-                      <div><div className="flex items-center gap-2 mb-1 text-indigo-200 text-xs font-bold uppercase tracking-wider"><Bot size={14}/> Paydone Command Center</div><h3 className="font-bold text-xl">Konfirmasi: {parsedPlan.displayTitle}</h3></div>
-                      <button onClick={() => setShowOmniPlan(false)} className="text-indigo-300 hover:text-white transition bg-white/10 p-1.5 rounded-full"><X size={20}/></button>
-                  </div>
-                  <div className="p-6 space-y-6">
-                      <div className="flex gap-4 items-start"><div className={`p-3 rounded-2xl shadow-sm ${parsedPlan.intent === 'PAY_DEBT' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{parsedPlan.intent === 'PAY_DEBT' || parsedPlan.intent === 'ADD_DEBT' ? <Coins size={24}/> : <ReceiptText size={24}/>}</div><div className="flex-1"><h4 className="text-sm text-slate-500 font-medium">Original Input:</h4><p className="font-medium text-slate-700 text-sm mb-2 italic">"{parsedPlan.originalInput}"</p><div className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(parsedPlan.amount)}</div></div></div>
-                      {parsedPlan.matchedData ? (<div className="bg-green-50 border border-green-200 rounded-xl p-4"><div className="flex justify-between items-start mb-1"><span className="text-xs font-bold text-green-700 flex items-center gap-1"><CheckCircle2 size={12}/> Target Ditemukan</span></div><p className="text-sm text-slate-700 mt-1">Terhubung ke: <strong>{parsedPlan.matchedData.name}</strong></p></div>) : parsedPlan.status === 'missing_data' ? (<div className="bg-amber-50 border border-amber-200 rounded-xl p-4"><div className="flex justify-between items-start mb-1"><span className="text-xs font-bold text-amber-700 flex items-center gap-1"><AlertCircle size={12}/> Data Kurang Lengkap</span></div><p className="text-sm text-slate-700 mt-1">Mohon lengkapi nominal atau target.</p></div>) : null}
-                      <div className="flex gap-3 pt-2"><button onClick={() => setShowOmniPlan(false)} className="flex-1 py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition">Batal</button><button onClick={executeOmniPlan} disabled={parsedPlan.status === 'missing_data'} className="flex-1 py-3 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 shadow-lg flex items-center justify-center gap-2 transition transform active:scale-95 disabled:opacity-50"><CheckCircle2 size={18}/> Eksekusi</button></div>
-                  </div>
-              </div>
-          </div>
-      )}
 
     </div>
   );

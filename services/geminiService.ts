@@ -1,217 +1,239 @@
 
+import { GoogleGenAI, Type } from "@google/genai";
 import { DebtItem, Opportunity, TaskItem } from "../types";
 import { getConfig, getAgentConfig } from "./mockDb";
 
-// --- SECURITY UPDATE V42: STRICT AUTH HEADER INJECTION ---
-// Helper to get current authenticated user ID from reliable storage
-const getAuthIdentifier = () => {
-    return localStorage.getItem('paydone_active_user') || 'guest_mode';
-};
-
-// Helper to get session token
-const getSessionToken = () => {
-    return localStorage.getItem('paydone_session_token') || '';
-};
-
-const getBackendUrl = () => {
-    const config = getConfig();
-    return config.backendUrl?.replace(/\/$/, '') || '';
-};
-
-// Helper: Raw Fetch Wrapper with V42 Auth and 429 awareness
-const makeProxyRequest = async (baseUrl: string, prompt: string, model: string, systemInstruction?: string) => {
-    const userId = getAuthIdentifier();
-    
-    // Construct V42 Compliant Body
-    const bodyPayload = { 
-        prompt, 
-        model, 
-        userId: userId, // V42 Requirement: userId in body
-        systemInstruction // Pass dynamic instruction to backend
+const getAgent = (id: string) => {
+    const agent = getAgentConfig(id);
+    return {
+        model: agent?.model || 'gemini-3-flash-preview',
+        systemInstruction: agent?.systemInstruction || agent?.system_instruction || ''
     };
+};
+
+/**
+ * AI INTERPRETER: Menerjemahkan kolom database baru dari Backend menjadi bahasa bisnis yang dimengerti user.
+ */
+export const interpretBackendPayload = async (unknownKeys: string[], rawPayload: any): Promise<string> => {
+    // Initialization of AI client
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const prompt = `
+        Terdapat field database baru: [${unknownKeys.join(', ')}].
+        Sample Data: ${JSON.stringify(rawPayload).substring(0, 300)}
+        
+        TUGAS: Jelaskan kegunaan field ini bagi pengguna akhir dalam 1 kalimat taktis.
+    `;
 
     try {
-        const response = await fetch(`${baseUrl}/api/ai/analyze`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'x-user-id': userId, // V42 Requirement: Header injection
-                'x-session-token': getSessionToken() // V44.17 Session Enforcement
-            },
-            body: JSON.stringify(bodyPayload)
+        // Calling generateContent with correct parameters
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: { systemInstruction: "Anda adalah analis sistem fintech senior." }
         });
-
-        // QUOTA / RATE LIMIT HANDLER (429)
-        if (response.status === 429) {
-            console.warn("[GeminiService] 429 Rate Limit - Quota Exceeded");
-            throw new Error("AI sedang istirahat sejenak (Quota Limit). Silakan coba lagi dalam 1 menit.");
-        }
-
-        // V42 AUTH HANDLER
-        if (response.status === 401) {
-            console.error("[GeminiService] 401 Unauthorized - Session Invalid");
-            // Only force logout if we are not in guest/onboarding mode
-            if (userId !== 'guest_mode') {
-                localStorage.removeItem('paydone_active_user'); 
-                window.location.reload(); 
-            }
-            throw new Error("Session Expired: Please login again.");
-        }
-
-        if (response.status === 403) {
-            console.warn("[GeminiService] 403 Forbidden. Check API Key or Service Account permissions.");
-            throw new Error("AI Service Access Denied (403). Please check System Config API Key.");
-        }
-
-        if (!response.ok) {
-            let errorMessage = `Server Error: ${response.status}`;
-            try {
-                const errorData = await response.json();
-                if (errorData.error) errorMessage = errorData.error;
-            } catch (e) {
-                // response was not json
-            }
-            throw new Error(errorMessage);
-        }
-
-        const data = await response.json();
-        return data.text;
-    } catch (e: any) {
-        console.error("AI Request Failed:", e.message);
-        throw e;
-    }
+        return response.text || "";
+    } catch (e) { return "Konfigurasi backend baru terdeteksi."; }
 };
 
-// DYNAMIC AGENT CALLER
-const callAgent = async (agentId: string, userPrompt: string, contextData: string = '') => {
-    const baseUrl = getBackendUrl();
-    if (!baseUrl) throw new Error("Backend URL missing");
-
-    const agentConfig = getAgentConfig(agentId);
-    const systemInstruction = agentConfig ? agentConfig.systemInstruction : "You are a helpful assistant.";
-    // Updated fallback model to gemini-3-flash-preview as per guidelines
-    const model = agentConfig ? agentConfig.model : "gemini-3-flash-preview";
-
-    const fullPrompt = contextData ? `CONTEXT DATA:\n${contextData}\n\nUSER PROMPT:\n${userPrompt}` : userPrompt;
-
-    try {
-        return await makeProxyRequest(baseUrl, fullPrompt, model, systemInstruction);
-    } catch (e: any) {
-        console.error(`Agent ${agentId} failed:`, e);
-        throw e;
-    }
-};
-
-// Helper to extract JSON from text
-const extractJSON = (text: string) => {
-    try {
-        const start = text.indexOf('{');
-        const end = text.lastIndexOf('}');
-        if (start === -1 || end === -1) return {};
-        return JSON.parse(text.substring(start, end + 1));
-    } catch (e) {
-        return {};
-    }
-};
-
-const extractJSONArray = (text: string) => {
-    try {
-        const start = text.indexOf('[');
-        const end = text.lastIndexOf(']');
-        if (start === -1 || end === -1) return [];
-        return JSON.parse(text.substring(start, end + 1));
-    } catch (e) {
-        return [];
-    }
-};
-
-// --- FEATURES ---
-
+/**
+ * DASHBOARD SUMMARY: Menghasilkan ringkasan kondisi finansial yang sangat cerdas dan solutif.
+ */
 export const generateDashboardSummary = async (metrics: any) => {
-    try {
-        const context = JSON.stringify(metrics, null, 2);
-        const text = await callAgent('dashboard_summary', "Generate my financial summary for today.", context);
-        return text;
-    } catch (e: any) {
-        if (e.message.includes("istirahat")) return e.message; // Friendly quota error
-        return "AI sedang istirahat. Cek data manual ya.";
-    }
+    // Initialization of AI client
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const agent = getAgent('dashboard_summary');
+    
+    // Calling generateContent with correct parameters
+    const response = await ai.models.generateContent({
+        model: agent.model,
+        contents: `Financial Metrics: ${JSON.stringify(metrics)}`,
+        config: { systemInstruction: agent.systemInstruction }
+    });
+    
+    return response.text || "";
 };
 
-export const parseTransactionAI = async (text: string, contextData: any = {}) => {
+/**
+ * TRANSACTION PARSER: Mendukung instruksi bahasa alami yang kompleks untuk entri data.
+ */
+export const parseTransactionAI = async (input: string, context?: any) => {
+    // Initialization of AI client
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const agent = getAgent('command_center');
+    
+    // Calling generateContent with correct parameters
+    const response = await ai.models.generateContent({
+        model: agent.model,
+        contents: `INPUT: "${input}"\nCONTEXT: ${JSON.stringify(context || {})}`,
+        config: { 
+            systemInstruction: agent.systemInstruction,
+            responseMimeType: "application/json"
+        }
+    });
+    
     try {
-        // Serialize Context for AI
-        const debtsContext = contextData.debts ? contextData.debts.map((d: any) => `${d.name} (Cicilan: ${d.monthlyPayment})`).join(', ') : 'No Active Debts';
-        const allocationsContext = contextData.allocations ? contextData.allocations.map((a: any) => a.name).join(', ') : '';
-        
-        const context = `
-            Existing Debts: [${debtsContext}]
-            Existing Allocations: [${allocationsContext}]
-        `;
-        
-        const textRes = await callAgent('command_center', text, context);
-        return extractJSON(textRes);
-    } catch (e) { return { intent: 'ERROR', message: 'AI Parse Failed' }; }
-};
-
-export const analyzeDebtStrategy = async (debts: DebtItem[], language: string = 'id'): Promise<{ text: string; actions: string[] }> => {
-    try {
-        const context = JSON.stringify(debts.map(d => ({ name: d.name, rate: d.interestRate, remaining: d.remainingPrincipal, monthly: d.monthlyPayment })));
-        const textRes = await callAgent('debt_strategist', `Analyze these debts in language: ${language}`, context);
-        return extractJSON(textRes);
+        return JSON.parse(response.text || '{}');
     } catch (e) {
-        return { text: "AI Analysis Failed (Connection Error). Please try again.", actions: [] };
+        return { intent: 'ERROR', message: "Maaf, instruksi terlalu kompleks." };
     }
 };
 
-export const parseOnboardingResponse = async (step: 'INCOME' | 'DEBT', input: string) => {
-  try {
-    const textRes = await callAgent('new_user_wizard', `Step: ${step}. User Input: "${input}"`);
-    return extractJSON(textRes);
-  } catch (error) { return null; }
+export const analyzeDebtStrategy = async (debts: DebtItem[], language: string) => {
+    // Initialization of AI client
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const agent = getAgent('debt_strategist');
+    
+    // Calling generateContent with correct parameters
+    const response = await ai.models.generateContent({
+        model: agent.model,
+        contents: `Debts: ${JSON.stringify(debts)}\nLang: ${language}`,
+        config: { 
+            systemInstruction: agent.systemInstruction,
+            responseMimeType: "application/json"
+        }
+    });
+    
+    try {
+        return JSON.parse(response.text || '{"text": "", "actions": []}');
+    } catch (e) {
+        return { text: "Gagal menganalisa strategi.", actions: [] };
+    }
 };
 
-export const findFinancialOpportunities = async (debts: DebtItem[], income: number, country: string = 'Indonesia', language: string = 'id'): Promise<Opportunity[]> => {
+export const findFinancialOpportunities = async (debts: DebtItem[], income: number, country: string, language: string) => {
+    // Initialization of AI client
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const agent = getAgent('financial_freedom');
+    
+    // Calling generateContent with correct parameters and responseSchema
+    const response = await ai.models.generateContent({
+        model: agent.model,
+        contents: `DATA: Debts=${JSON.stringify(debts)}, Income=${income}, Locale=${country}`,
+        config: {
+            systemInstruction: agent.systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        title: { type: Type.STRING },
+                        type: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        potentialIncome: { type: Type.STRING },
+                        riskLevel: { type: Type.STRING }
+                    },
+                    required: ["title", "potentialIncome"]
+                }
+            }
+        }
+    });
+    
     try {
-        const context = `Debts: ${debts.length}, Income: ${income}, Country: ${country}`;
-        const textRes = await callAgent('financial_freedom', "Generate financial opportunities.", context);
-        return extractJSONArray(textRes);
+        return JSON.parse(response.text || '[]');
     } catch (e) { return []; }
 };
 
-export const getOpportunityDetails = async (opp: Opportunity, language: string = 'id'): Promise<{ explanation: string; checklist: string[]; sources: string[] }> => {
+// Implement missing sendChatMessage function for the AI Strategist chat
+/**
+ * CHAT SERVICE: Chat umum dengan konteks finansial.
+ */
+export const sendChatMessage = async (message: string, language: string, context: string): Promise<string> => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     try {
-        const text = await callAgent('financial_freedom', `Details for opportunity: "${opp.title}". Return JSON {explanation, checklist, sources}.`);
-        return extractJSON(text);
-    } catch (e) { return { explanation: "Error fetching details.", checklist: [], sources: [] }; }
-};
-
-export const sendChatMessage = async (message: string, language: string = 'id', contextData: string = ''): Promise<string> => {
-    try {
-        return await callAgent('debt_strategist', message, contextData);
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `CONTEXT: ${context}\nLANG: ${language}\nUSER: ${message}`,
+            config: { systemInstruction: "Anda adalah asisten keuangan pribadi yang cerdas dan ramah dari Paydone.id." }
+        });
+        return response.text || "";
     } catch (e) {
-        return "Maaf, sistem AI sedang sibuk. Coba lagi nanti.";
+        return "Maaf, sistem AI sedang offline.";
     }
 };
 
-// Legacy tools (DevTools) REFACTORED TO AGENTS
-export const runDevDebate = async (history: any[], local: string, remote: string, role: string) => {
-    const context = `Role: ${role}\nLocal: ${local.substring(0, 500)}...\nRemote: ${remote.substring(0, 500)}...`;
-    return await callAgent('dev_auditor', "Analyze code differences.", context); 
+// Implement missing getOpportunityDetails function for Financial Freedom details
+/**
+ * OPPORTUNITY DETAILS: Mengambil detail langkah eksekusi untuk peluang finansial.
+ */
+export const getOpportunityDetails = async (opp: Opportunity, language: string) => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `OPPORTUNITY: ${JSON.stringify(opp)}\nLANG: ${language}`,
+            config: {
+                systemInstruction: "Berikan penjelasan detail dan langkah-langkah (checklist) untuk peluang bisnis ini. Output dalam JSON.",
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        explanation: { type: Type.STRING },
+                        checklist: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        sources: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    },
+                    required: ["explanation", "checklist"]
+                }
+            }
+        });
+        return JSON.parse(response.text || '{}');
+    } catch (e) {
+        return { explanation: "Gagal memuat detail strategi.", checklist: [], sources: [] };
+    }
 };
 
-export const generateQAScenarios = async (routes: string[]) => {
-    const context = `Routes: ${routes.join(',')}`;
-    const text = await callAgent('qa_specialist', "Generate QA Scenarios.", context);
-    return extractJSONArray(text);
+// Implement missing parseOnboardingResponse function for the initial wizard
+/**
+ * ONBOARDING PARSER: Ekstraksi data dari percakapan awal user.
+ */
+export const parseOnboardingResponse = async (step: string, input: string) => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const agent = getAgent('new_user_wizard');
+
+    try {
+        const response = await ai.models.generateContent({
+            model: agent.model,
+            contents: `STEP: ${step}\nINPUT: ${input}`,
+            config: {
+                systemInstruction: agent.systemInstruction,
+                responseMimeType: "application/json"
+            }
+        });
+        return JSON.parse(response.text || '{}');
+    } catch (e) {
+        return null;
+    }
 };
 
-export const parseBugReportToScenario = async (input: string) => {
-    const text = await callAgent('qa_specialist', `Parse bug report to QA Scenario JSON: "${input}"`);
-    return extractJSON(text);
-};
+// Implement missing runDevDebate function for code auditing comparisons
+/**
+ * DEV DEBATE: AI vs AI comparison for code auditing.
+ */
+export const runDevDebate = async (history: {role: string, text: string}[], localCode: string, remoteCode: string, targetAi: 'FRONTEND_AI' | 'BACKEND_AI'): Promise<string> => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const agent = getAgent('dev_auditor');
+    
+    const systemInstruction = targetAi === 'FRONTEND_AI' 
+        ? "Anda adalah Lead Frontend Architect. Bandingkan kode lokal vs remote. Cari ketidakkonsistenan logika, bug, atau fitur yang hilang di salah satu sisi."
+        : "Anda adalah Backend Compliance Bot. Pastikan kode backend (remote) sesuai dengan kebutuhan frontend (lokal). Sarankan perbaikan jika ada API yang tidak sinkron.";
 
-export const getPublicHolidays = async (country: string, year: number) => {
-    const text = await callAgent('system_utility', `List holidays in ${country} ${year} as JSON Array {date, name}.`);
-    return extractJSONArray(text);
+    const historyParts = history.map(h => ({ text: `${h.role}: ${h.text}` }));
+    const contents = [
+        { text: `LOCAL_CODE_FRONTEND:\n${localCode}\n\nREMOTE_CODE_BACKEND:\n${remoteCode}` },
+        ...historyParts
+    ];
+
+    try {
+        const response = await ai.models.generateContent({
+            model: agent.model,
+            contents: { parts: contents },
+            config: { systemInstruction }
+        });
+        return response.text || "";
+    } catch (e) {
+        return "Gagal melakukan audit kode.";
+    }
 };

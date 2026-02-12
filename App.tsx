@@ -27,6 +27,10 @@ import Profile from './pages/Profile';
 import AdminDashboard from './pages/admin/AdminDashboard'; 
 import AICenter from './pages/admin/AICenter';
 import SQLStudio from './pages/admin/SQLStudio';
+import Tickets from './pages/admin/Tickets';
+import BAAnalyst from './pages/admin/BAAnalyst';
+import QAAnalyst from './pages/admin/QAAnalyst';
+import ServerCompare from './pages/admin/ServerCompare';
 
 import { getConfig, getUserData, saveUserData, getAllUsers } from './services/mockDb';
 import { pullUserDataFromCloud, pushPartialUpdate } from './services/cloudSync';
@@ -52,7 +56,8 @@ export default function App() {
   const [sinkingFunds, setSinkingFunds] = useState<SinkingFund[]>([]); 
 
   const currentMonthKey = new Date().toISOString().slice(0, 7);
-  const [isDataLoaded, setIsDataLoaded] = useState(false); 
+  // Default true to prevent flash of loading screen if local data exists
+  const [isDataLoaded, setIsDataLoaded] = useState(true); 
   const [syncStatus, setSyncStatus] = useState<'idle' | 'pulling' | 'pushing' | 'error' | 'offline'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncProgressMsg, setSyncProgressMsg] = useState<string | null>(null);
@@ -80,33 +85,56 @@ export default function App() {
     connectWebSocket(currentUserId);
   }, [currentUserId, userRole]);
 
-  // INITIAL LOAD HANDLER
-  const performInitialSync = async (userId: string) => {
-    setSyncStatus('pulling');
-    setSyncError(null);
-    
-    const result = await pullUserDataFromCloud(userId, (msg) => setSyncProgressMsg(msg));
-    
-    if (result.success && result.data) {
-        const finalData = result.data;
-        setDebts(finalData.debts || []);
-        setDebtInstallments(finalData.debtInstallments || []); 
-        setTasks(finalData.tasks || []);
-        setDailyExpenses(finalData.dailyExpenses || []);
-        setPaymentRecords(finalData.paymentRecords || []);
-        setIncomes(finalData.incomes || []);
-        setMonthlyExpenses(finalData.allocations || {});
-        setSinkingFunds(finalData.sinkingFunds || []);
-        
-        setSyncStatus('idle');
-        setSyncProgressMsg(null);
-        setIsDataLoaded(true); 
-    } else {
+  // LOAD LOCAL DATA (Instant UI)
+  const loadLocalDataIntoState = (userId: string) => {
+      const localData = getUserData(userId);
+      setDebts(localData.debts || []);
+      setDebtInstallments(localData.debtInstallments || []); 
+      setTasks(localData.tasks || []);
+      setDailyExpenses(localData.dailyExpenses || []);
+      setPaymentRecords(localData.paymentRecords || []);
+      setIncomes(localData.incomes || []);
+      setMonthlyExpenses(localData.allocations || {});
+      setSinkingFunds(localData.sinkingFunds || []);
+  };
+
+  // BACKGROUND SYNC (Non-Blocking)
+  const performBackgroundSync = async (userId: string) => {
+    try {
+      const config = getConfig();
+      const strategy = config.advancedConfig?.syncStrategy;
+
+      if (strategy === 'manual_only') {
+          setSyncStatus('idle');
+          return;
+      }
+
+      setSyncStatus('pulling');
+      
+      // Pass a silent callback or null if we don't want to show the full screen loader
+      const result = await pullUserDataFromCloud(userId);
+      
+      if (result.success && result.data) {
+          const finalData = result.data;
+          // Smooth update
+          setDebts(finalData.debts || []);
+          setDebtInstallments(finalData.debtInstallments || []); 
+          setTasks(finalData.tasks || []);
+          setDailyExpenses(finalData.dailyExpenses || []);
+          setPaymentRecords(finalData.paymentRecords || []);
+          setIncomes(finalData.incomes || []);
+          setMonthlyExpenses(finalData.allocations || {});
+          setSinkingFunds(finalData.sinkingFunds || []);
+          
+          setSyncStatus('idle');
+      } else {
+          console.warn("[App] Background sync failed:", result.error);
+          setSyncStatus('error');
+          // Don't show error modal aggressively, just update status icon
+      }
+    } catch (e: any) {
+        console.error("[App] Sync Exception:", e);
         setSyncStatus('error');
-        setSyncError(result.error || "Gagal sinkronisasi data.");
-        setSyncProgressMsg(null);
-        // Tetap tandai loaded agar user bisa masuk dashboard, tapi dengan data lokal lama
-        setIsDataLoaded(true); 
     }
   };
 
@@ -118,11 +146,22 @@ export default function App() {
             return;
         }
 
+        // 1. SET USER & AUTH IMMEDIATELY
         setCurrentUserId(storedUserId);
         setIsAuthenticated(true);
-        setUserRole(storedUserId === 'u1' ? 'admin' : 'user');
+        
+        const allUsers = getAllUsers();
+        const foundUser = allUsers.find(u => u.id === storedUserId);
+        const role = foundUser?.role || (storedUserId === 'u1' ? 'admin' : 'user');
+        setUserRole(role);
 
-        await performInitialSync(storedUserId);
+        // 2. LOAD LOCAL DATA INSTANTLY (No Waiting)
+        if (role === 'user') {
+            loadLocalDataIntoState(storedUserId);
+            
+            // 3. TRIGGER BACKGROUND SYNC
+            performBackgroundSync(storedUserId);
+        }
     };
     initApp();
   }, []);
@@ -156,7 +195,14 @@ export default function App() {
     setUserRole(role);
     setCurrentUserId(userId);
     localStorage.setItem('paydone_active_user', userId); 
-    window.location.reload(); 
+    
+    // Immediate Load on Login
+    if (role === 'user') {
+        loadLocalDataIntoState(userId);
+        performBackgroundSync(userId);
+    }
+    // Remove reload to keep state
+    // window.location.reload(); 
   };
 
   const handleAIAction = (action: any) => {
@@ -196,14 +242,8 @@ export default function App() {
   return (
     <I18nProvider>
       <Router>
-        {syncProgressMsg && (
-            <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900/90 backdrop-blur-md animate-fade-in text-white">
-                <div className="h-16 w-16 rounded-full border-4 border-slate-700 border-t-brand-500 animate-spin mb-4"></div>
-                <h2 className="text-xl font-bold mb-2">Sinkronisasi Cloud...</h2>
-                <p className="text-slate-400 text-sm font-mono animate-pulse">{syncProgressMsg}</p>
-            </div>
-        )}
-
+        {/* REMOVED: Blocking Sync Progress Modal */}
+        
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/simulator" element={<Simulator />} />
@@ -213,43 +253,20 @@ export default function App() {
           <Route 
             path="/app" 
             element={isAuthenticated && userRole === 'user' ? (
-              isDataLoaded ? (
-                  <DashboardLayout 
-                      onLogout={handleLogout} 
-                      userId={currentUserId || ''} 
-                      syncStatus={syncStatus} 
-                      onManualSync={handleManualSync}
-                      hasUnsavedChanges={hasUnsavedChanges}
-                  />
-              ) : (
-                  <div className="flex h-screen w-full flex-col items-center justify-center bg-white p-6">
-                      <Cloud size={48} className="text-brand-600 animate-bounce mb-4" />
-                      <h2 className="text-xl font-bold">Inisialisasi Keamanan V42...</h2>
-                  </div>
-              )
+              // Always show dashboard, sync happens in background status bar
+              <DashboardLayout 
+                  onLogout={handleLogout} 
+                  userId={currentUserId || ''} 
+                  syncStatus={syncStatus} 
+                  onManualSync={handleManualSync}
+                  hasUnsavedChanges={hasUnsavedChanges}
+              />
             ) : (
               <Navigate to="/login" replace />
             )}
           >
             <Route index element={
                 <div className="space-y-6">
-                    {syncError && (
-                        <div className="bg-red-50 border-2 border-red-200 p-6 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-4 animate-shake">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-red-100 text-red-600 rounded-2xl"><AlertCircle size={24}/></div>
-                                <div>
-                                    <h3 className="font-bold text-red-900">Gagal Sinkronisasi Awal</h3>
-                                    <p className="text-xs text-red-700 mt-1">Backend: "{syncError}"</p>
-                                </div>
-                            </div>
-                            <button 
-                                onClick={() => performInitialSync(currentUserId!)}
-                                className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition shadow-lg shadow-red-200"
-                            >
-                                <CloudDownload size={18}/> Coba Tarik Data Lagi
-                            </button>
-                        </div>
-                    )}
                     <Dashboard debts={debts} debtInstallments={debtInstallments} allocations={monthlyExpenses[currentMonthKey] || []} tasks={tasks} onAIAction={handleAIAction} income={totalMonthlyIncome} userId={currentUserId || ''} dailyExpenses={dailyExpenses} sinkingFunds={sinkingFunds} />
                 </div>
             } />
@@ -275,6 +292,10 @@ export default function App() {
             <Route path="developer" element={<DeveloperTools />} />
             <Route path="logs" element={<ActivityLogs userType="admin" />} />
             <Route path="ai-center" element={<AICenter />} />
+            <Route path="tickets" element={<Tickets />} />
+            <Route path="ba" element={<BAAnalyst />} />
+            <Route path="qa" element={<QAAnalyst />} />
+            <Route path="compare" element={<ServerCompare />} />
           </Route>
         </Routes>
 

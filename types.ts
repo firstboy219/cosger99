@@ -1,5 +1,4 @@
 
-
 export enum LoanType {
   KPR = 'KPR',
   KKB = 'KKB', // Kendaraan
@@ -32,6 +31,13 @@ export interface AppConfig extends SyncMetadata {
     googleClientSecret?: string;
     appleClientId?: string;
     
+    // Branding & Identity (NEW)
+    appName?: string;
+    appDescription?: string; // Slogan
+    appLogoUrl?: string;
+    appDomain?: string;
+    appFaviconUrl?: string;
+
     // API Keys
     geminiApiKey?: string;
     midtransServerKey?: string;
@@ -55,7 +61,6 @@ export interface AppConfig extends SyncMetadata {
     dbName?: string;
     
     // Appearance
-    appName?: string;
     appFont?: string;
     appThemeColor?: string;
     inputBgColor?: string;

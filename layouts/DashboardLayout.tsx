@@ -4,7 +4,7 @@ import { NavLink, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, BrainCircuit, Wallet, Menu, X, Bell, LogOut, PieChart, CalendarDays, ClipboardList, List, TrendingUp, DollarSign, Receipt, History, Users, UserCog, Search, ChevronDown, Globe, AlertCircle, CheckCircle2, PiggyBank, AlarmClock, Copy, Sparkles, Zap, ChevronRight, Wifi, RefreshCw, AlertTriangle, CloudUpload, Bug, CloudDownload, Code, Database, Eye, Terminal, Send } from 'lucide-react';
 import { useTranslation } from '../services/translationService';
 import { getUserData, getAllUsers, getConfig } from '../services/mockDb';
-import { DebtItem, SinkingFund, TaskItem, User } from '../types';
+import { DebtItem, SinkingFund, TaskItem, User, AppConfig } from '../types';
 import { formatCurrency } from '../services/financeUtils';
 import { pullUserDataFromCloud } from '../services/cloudSync';
 
@@ -83,9 +83,19 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const [pullResult, setPullResult] = useState<{ status: 'success' | 'error', data: any } | null>(null);
   const [showPullModal, setShowPullModal] = useState(false);
 
-  // STRATEGY CHECK
-  const config = getConfig();
-  const isAutoSync = config.advancedConfig?.syncStrategy === 'background';
+  // REACTIVE CONFIG STATE
+  const [appConfig, setAppConfig] = useState<AppConfig>(getConfig());
+
+  useEffect(() => {
+      const updateConfig = () => setAppConfig(getConfig());
+      window.addEventListener('PAYDONE_CONFIG_UPDATE', updateConfig);
+      return () => window.removeEventListener('PAYDONE_CONFIG_UPDATE', updateConfig);
+  }, []);
+
+  const isAutoSync = appConfig.advancedConfig?.syncStrategy === 'background';
+  const appName = appConfig.appName || 'Paydone.id';
+  const appDesc = appConfig.appDescription || 'Financial Cockpit';
+  const appLogo = appConfig.appLogoUrl;
 
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
@@ -130,7 +140,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       const userData = getUserData(userId);
       const fullPayload = { users: getAllUsers(), ...userData };
 
-      if (config.enablePayloadPreview) {
+      if (appConfig.enablePayloadPreview) {
           setCurrentPayload(fullPayload);
           setShowPayloadModal(true);
       } else {
@@ -155,12 +165,16 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#0f172a] text-slate-300 border-r border-slate-800 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 shadow-2xl flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="h-20 flex items-center px-6 border-b border-slate-800/60 bg-gradient-to-r from-[#0f172a] to-[#1e293b]">
             <div className="flex items-center gap-3 text-white w-full">
-                <div className="bg-gradient-to-tr from-brand-600 to-indigo-600 text-white p-2 rounded-xl shadow-lg shadow-brand-900/50">
-                    <Wallet className="h-5 w-5" />
-                </div>
-                <div>
-                    <h1 className="font-bold text-lg tracking-tight leading-none text-white">Paydone<span className="text-brand-500">.id</span></h1>
-                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">Financial Cockpit</p>
+                {appLogo ? (
+                    <img src={appLogo} alt="Logo" className="w-9 h-9 object-contain bg-white rounded-xl p-1 shadow-lg shadow-brand-900/50" />
+                ) : (
+                    <div className="bg-gradient-to-tr from-brand-600 to-indigo-600 text-white p-2 rounded-xl shadow-lg shadow-brand-900/50">
+                        <Wallet className="h-5 w-5" />
+                    </div>
+                )}
+                <div className="overflow-hidden">
+                    <h1 className="font-bold text-lg tracking-tight leading-none text-white truncate max-w-[150px]">{appName}</h1>
+                    <p className="text-[10px] text-slate-400 font-medium mt-0.5 truncate max-w-[150px]">{appDesc}</p>
                 </div>
             </div>
             <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400 hover:text-white"><X size={20} /></button>

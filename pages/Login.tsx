@@ -5,9 +5,8 @@ import { Wallet, Loader2, Lock, User, AlertCircle, X, CheckCircle2, RefreshCw, D
 import { getConfig, getAllUsers, updateUser, addUser, migrateUserData } from '../services/mockDb';
 import { addLogEntry } from '../services/activityLogger';
 import { decodeJwt, GoogleJwtPayload } from '../services/authUtils';
-import { User as UserType } from '../types';
-// Fix: Remove pushUserDataToCloud which is not exported from services/cloudSync
-import { pullUserDataFromCloud } from '../services/cloudSync';
+import { User as UserType, AppConfig } from '../types';
+// Remove import: pullUserDataFromCloud (now handled in App.tsx)
 
 declare global {
   interface Window {
@@ -34,14 +33,23 @@ export default function Login({ onLogin }: LoginProps) {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
   
-  const [googleSyncStatus, setGoogleSyncStatus] = useState<'idle' | 'verifying' | 'checking_db' | 'registering' | 'success'>('idle');
+  const [googleSyncStatus, setGoogleSyncStatus] = useState<'idle' | 'verifying' | 'success'>('idle');
   const [syncMessage, setSyncMessage] = useState('');
   const [configClientId, setConfigClientId] = useState('');
   const [isGsiInitialized, setIsGsiInitialized] = useState(false);
 
+  // BRANDING STATE
+  const [appConfig, setAppConfig] = useState<AppConfig>(getConfig());
+
   const navigate = useNavigate();
 
   const addDebug = (msg: string) => setAuthDebug(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+
+  useEffect(() => {
+      const updateConfig = () => setAppConfig(getConfig());
+      window.addEventListener('PAYDONE_CONFIG_UPDATE', updateConfig);
+      return () => window.removeEventListener('PAYDONE_CONFIG_UPDATE', updateConfig);
+  }, []);
 
   // Load Config
   useEffect(() => {
@@ -52,7 +60,7 @@ export default function Login({ onLogin }: LoginProps) {
     } else {
       addDebug("WARNING: Google Client ID is missing in system config.");
     }
-  }, []);
+  }, [appConfig]); // Re-run when config updates
 
   // Initialize Google SDK
   useEffect(() => {
@@ -131,19 +139,15 @@ export default function Login({ onLogin }: LoginProps) {
               localStorage.setItem('paydone_session_token', serverUser.sessionToken);
           }
 
-          setGoogleSyncStatus('checking_db');
-          setSyncMessage('Menyinkronkan data cloud...');
-          // Fix: pullUserDataFromCloud expects an onProgress function, not a boolean
-          await pullUserDataFromCloud(serverUser.id);
-
           setGoogleSyncStatus('success');
           setSyncMessage('Login Berhasil!');
-          addDebug("Login complete. Redirecting...");
+          addDebug("Login complete. Redirecting immediately...");
           
+          // INSTANT REDIRECT (Sync happens in App.tsx)
           setTimeout(() => {
               onLogin(serverUser.role, serverUser.id);
               navigate(serverUser.role === 'admin' ? '/admin' : '/app');
-          }, 800);
+          }, 300);
 
       } catch (serverErr: any) {
           addDebug(`SERVER REJECTED: ${serverErr.message}`);
@@ -171,10 +175,11 @@ export default function Login({ onLogin }: LoginProps) {
         setError("Google Client ID belum diatur. Masuk sebagai admin untuk setting.");
         return;
     }
-    if (window.google) {
+    if (window.google && isGsiInitialized) {
         window.google.accounts.id.prompt();
     } else {
-        setError("Google Identity SDK belum termuat.");
+        if (!window.google) setError("Google SDK gagal dimuat. Periksa koneksi internet.");
+        else setError("Menunggu inisialisasi Google Sign-In...");
     }
   };
 
@@ -210,9 +215,9 @@ export default function Login({ onLogin }: LoginProps) {
 
         const data = await res.json();
         localStorage.setItem('paydone_session_token', data.user.sessionToken);
-        // Fix: pullUserDataFromCloud expects an onProgress function, not a boolean
-        await pullUserDataFromCloud(data.user.id);
         
+        // INSTANT REDIRECT (Skip Waiting for Sync)
+        addDebug("Login success. Redirecting...");
         onLogin(data.user.role, data.user.id);
         navigate(data.user.role === 'admin' ? '/admin' : '/app');
 
@@ -223,6 +228,9 @@ export default function Login({ onLogin }: LoginProps) {
         setLoading(false);
     }
   };
+
+  const appName = appConfig.appName || 'Paydone.id';
+  const appLogo = appConfig.appLogoUrl;
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-6 relative overflow-hidden">
@@ -240,10 +248,14 @@ export default function Login({ onLogin }: LoginProps) {
             
             <div className="relative z-10">
                 <Link to="/" className="flex items-center gap-3 text-white mb-12">
-                    <div className="bg-brand-600 p-2 rounded-xl shadow-lg shadow-brand-500/30">
-                        <Wallet className="h-6 w-6" />
-                    </div>
-                    <span className="font-black text-2xl tracking-tighter">Paydone<span className="text-brand-500">.id</span></span>
+                    {appLogo ? (
+                        <img src={appLogo} alt="Logo" className="w-8 h-8 object-contain bg-white rounded-lg p-1" />
+                    ) : (
+                        <div className="bg-brand-600 p-2 rounded-xl shadow-lg shadow-brand-500/30">
+                            <Wallet className="h-6 w-6" />
+                        </div>
+                    )}
+                    <span className="font-black text-2xl tracking-tighter">{appName}</span>
                 </Link>
                 <h1 className="text-4xl font-black text-white leading-tight mb-4">
                     Sistem Pelunasan <br/>
@@ -276,7 +288,7 @@ export default function Login({ onLogin }: LoginProps) {
             <div className="mb-10 lg:hidden text-center">
                  <Link to="/" className="inline-flex items-center gap-2 text-slate-900">
                     <Wallet className="h-8 w-8 text-brand-600" />
-                    <span className="font-black text-xl tracking-tighter">Paydone.id</span>
+                    <span className="font-black text-xl tracking-tighter">{appName}</span>
                 </Link>
             </div>
 
@@ -290,12 +302,19 @@ export default function Login({ onLogin }: LoginProps) {
                 <div className="mb-8">
                     <button 
                         onClick={triggerGoogleLogin}
-                        disabled={!isGsiInitialized || loading}
-                        className="w-full group flex items-center justify-center gap-4 py-3.5 border-2 border-slate-100 rounded-2xl bg-white text-xs font-black uppercase tracking-widest text-slate-700 hover:border-brand-500 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md disabled:opacity-50"
+                        disabled={loading}
+                        className={`w-full group flex items-center justify-center gap-4 py-3.5 border-2 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm hover:shadow-md disabled:opacity-50 ${
+                            !configClientId ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white border-slate-100 text-slate-700 hover:border-brand-500 hover:bg-slate-50'
+                        }`}
                     >
-                        <img className="h-5 w-5 group-hover:scale-110 transition-transform" src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" />
-                        Masuk dengan Google
+                        <img className={`h-5 w-5 transition-transform ${configClientId ? 'group-hover:scale-110' : 'grayscale opacity-50'}`} src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" />
+                        {configClientId ? 'Masuk dengan Google' : 'Google Auth Belum Aktif'}
                     </button>
+                    {!configClientId && (
+                        <p className="text-[10px] text-red-400 mt-2 text-center font-bold">
+                            ⚠️ Admin: Masukkan Google Client ID di menu Settings untuk mengaktifkan.
+                        </p>
+                    )}
                     
                     <div className="mt-8 relative">
                         <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100" /></div>
@@ -388,7 +407,7 @@ export default function Login({ onLogin }: LoginProps) {
         </div>
       </div>
 
-      {/* SYNC OVERLAY: SMART & PRETTY */}
+      {/* SYNC OVERLAY: SMART & PRETTY (Now simpler) */}
       {googleSyncStatus !== 'idle' && (
            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl z-[100] flex flex-col items-center justify-center animate-fade-in">
               <div className="text-center p-12 max-w-md w-full relative">
@@ -404,7 +423,6 @@ export default function Login({ onLogin }: LoginProps) {
                     ) : (
                        <div className="h-24 w-24 bg-white/10 border-2 border-white/20 rounded-[2rem] flex items-center justify-center relative z-10 shadow-2xl backdrop-blur-md">
                           {googleSyncStatus === 'verifying' && <Fingerprint size={48} className="text-brand-400 animate-pulse" />}
-                          {googleSyncStatus === 'checking_db' && <Database size={40} className="text-indigo-400 animate-bounce" />}
                           <div className="absolute inset-[-8px] rounded-[2.5rem] border-4 border-t-brand-500 border-white/5 animate-spin"></div>
                        </div>
                     )}
@@ -413,11 +431,6 @@ export default function Login({ onLogin }: LoginProps) {
                  <h3 className="text-2xl font-black text-white mb-3 tracking-tight">{syncMessage}</h3>
                  <div className="flex flex-col items-center gap-3">
                     <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">V42 Secure Handshake Active</p>
-                    <div className="flex gap-1.5">
-                        <div className={`h-1.5 w-1.5 rounded-full ${googleSyncStatus === 'verifying' ? 'bg-brand-500' : 'bg-white/20'}`}></div>
-                        <div className={`h-1.5 w-1.5 rounded-full ${googleSyncStatus === 'checking_db' ? 'bg-brand-500' : 'bg-white/20'}`}></div>
-                        <div className={`h-1.5 w-1.5 rounded-full ${googleSyncStatus === 'success' ? 'bg-brand-500' : 'bg-white/20'}`}></div>
-                    </div>
                  </div>
               </div>
            </div>
@@ -425,7 +438,7 @@ export default function Login({ onLogin }: LoginProps) {
 
       {/* Footer Branding for Public View */}
       <div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none opacity-40">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em]">Paydone Personal Finance &copy; 2024</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em]">{appName} &copy; 2024</p>
       </div>
 
     </div>

@@ -1,15 +1,14 @@
-
 import React, { useState, useEffect } from 'react';
 import { getConfig, saveConfig } from '../../services/mockDb';
 import { saveGlobalConfigToCloud } from '../../services/cloudSync';
-import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye } from 'lucide-react';
+import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye, Fingerprint, Image, LayoutPanelLeft, X } from 'lucide-react';
 import { themePresets, ThemeConfig } from '../../services/themeService';
 import { useTranslation } from '../../services/translationService';
 import { SystemRules, AdvancedConfig } from '../../types';
 
 export default function AdminSettings() {
   const { t, updateTranslations, translations } = useTranslation();
-  const [activeTab, setActiveTab] = useState('system'); // Start on System as it's consolidated
+  const [activeTab, setActiveTab] = useState('identity'); // Default to Identity
   const [config, setConfig] = useState<any>({});
   const [showSuccess, setShowSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -50,6 +49,11 @@ export default function AdminSettings() {
         ...config, 
         systemRules: rules, 
         advancedConfig: advConfig,
+        // Ensure Identity fields are saved
+        appName: config.appName,
+        appDomain: config.appDomain,
+        appDescription: config.appDescription,
+        appLogoUrl: config.appLogoUrl,
         // Legacy/Direct sync mapping
         geminiApiKey: config.geminiApiKey,
         backendUrl: config.backendUrl,
@@ -103,6 +107,7 @@ export default function AdminSettings() {
       </div>
 
       <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar gap-2">
+        <button onClick={() => setActiveTab('identity')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === 'identity' ? 'border-brand-600 text-brand-600 bg-brand-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Brand Identity</button>
         <button onClick={() => setActiveTab('system')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === 'system' ? 'border-brand-600 text-brand-600 bg-brand-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>System & API</button>
         <button onClick={() => setActiveTab('flow')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === 'flow' ? 'border-brand-600 text-brand-600 bg-brand-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Logic & Flows</button>
         <button onClick={() => setActiveTab('rules')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === 'rules' ? 'border-brand-600 text-brand-600 bg-brand-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Financial Rules</button>
@@ -113,6 +118,105 @@ export default function AdminSettings() {
 
       <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm min-h-[500px]">
             
+            {/* TAB: BRAND IDENTITY */}
+            {activeTab === 'identity' && (
+                <div className="space-y-8 animate-fade-in">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                        {/* INPUTS */}
+                        <div className="space-y-6">
+                            <h3 className="font-bold text-slate-900 flex items-center gap-2 border-b pb-3 uppercase tracking-wider text-xs text-slate-400">
+                                <Fingerprint size={18} className="text-brand-600"/> Website Identitas
+                            </h3>
+                            
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Nama Website (Brand)</label>
+                                    <div className="relative">
+                                        <input type="text" className="w-full border-2 border-slate-100 p-3 pl-10 rounded-xl text-sm font-bold focus:border-brand-500 transition outline-none" value={config.appName || ''} onChange={e => setConfig({...config, appName: e.target.value})} placeholder="Paydone.id" />
+                                        <LayoutPanelLeft className="absolute left-3 top-3.5 text-slate-400" size={16} />
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 mt-1">Muncul di header dashboard dan halaman login.</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Domain Utama</label>
+                                    <div className="relative">
+                                        <input type="text" className="w-full border-2 border-slate-100 p-3 pl-10 rounded-xl text-sm font-mono focus:border-brand-500 transition outline-none" value={config.appDomain || ''} onChange={e => setConfig({...config, appDomain: e.target.value})} placeholder="paydone.id" />
+                                        <Globe className="absolute left-3 top-3.5 text-slate-400" size={16} />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Slogan / Deskripsi Singkat</label>
+                                    <div className="relative">
+                                        <input type="text" className="w-full border-2 border-slate-100 p-3 pl-10 rounded-xl text-sm font-medium focus:border-brand-500 transition outline-none" value={config.appDescription || ''} onChange={e => setConfig({...config, appDescription: e.target.value})} placeholder="Financial Cockpit" />
+                                        <Megaphone className="absolute left-3 top-3.5 text-slate-400" size={16} />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Logo URL (Icon)</label>
+                                    <div className="relative">
+                                        <input type="text" className="w-full border-2 border-slate-100 p-3 pl-10 rounded-xl text-sm font-mono focus:border-brand-500 transition outline-none text-slate-600" value={config.appLogoUrl || ''} onChange={e => setConfig({...config, appLogoUrl: e.target.value})} placeholder="https://example.com/logo.png" />
+                                        <Image className="absolute left-3 top-3.5 text-slate-400" size={16} />
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 mt-1">Gunakan URL gambar transparan (PNG/SVG) untuk hasil terbaik.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* LIVE PREVIEW */}
+                        <div className="space-y-6">
+                            <h3 className="font-bold text-slate-900 flex items-center gap-2 border-b pb-3 uppercase tracking-wider text-xs text-slate-400">
+                                <Eye size={18} className="text-blue-500"/> Live Preview
+                            </h3>
+                            
+                            <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-200">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 text-center">Sidebar View</p>
+                                {/* Simulated Sidebar Header */}
+                                <div className="bg-slate-900 rounded-xl p-4 shadow-xl max-w-xs mx-auto">
+                                    <div className="flex items-center gap-3">
+                                        {config.appLogoUrl ? (
+                                            <img src={config.appLogoUrl} alt="Logo" className="w-8 h-8 object-contain bg-white rounded-lg p-1"/>
+                                        ) : (
+                                            <div className="bg-gradient-to-tr from-brand-600 to-indigo-600 text-white p-2 rounded-lg shadow-lg">
+                                                <Layout className="h-5 w-5" />
+                                            </div>
+                                        )}
+                                        <div>
+                                            <h1 className="font-bold text-lg tracking-tight leading-none text-white">
+                                                {config.appName || 'Paydone.id'}
+                                            </h1>
+                                            <p className="text-[10px] text-slate-400 font-medium mt-0.5 opacity-80">
+                                                {config.appDescription || 'Financial Cockpit'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-8 pt-6 border-t border-slate-200">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 text-center">Browser Tab Preview</p>
+                                    <div className="bg-white border-2 border-slate-200 rounded-t-xl p-2 flex items-center gap-2 max-w-xs mx-auto shadow-sm">
+                                        <div className="w-3 h-3 rounded-full bg-slate-300"></div>
+                                        <div className="flex-1 bg-slate-100 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                                            {config.appLogoUrl ? (
+                                                <img src={config.appLogoUrl} className="w-3 h-3 object-contain"/>
+                                            ) : (
+                                                <div className="w-3 h-3 bg-brand-500 rounded-full"></div>
+                                            )}
+                                            <span className="text-xs text-slate-600 font-medium truncate w-32">
+                                                {config.appName || 'Paydone.id'} | {config.appDescription || 'Dashboard'}
+                                            </span>
+                                        </div>
+                                        <div className="w-3 h-3 text-slate-300"><X size={12}/></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* TAB: SYSTEM & CONNECTION */}
             {activeTab === 'system' && (
                 <div className="space-y-8 animate-fade-in">
@@ -248,14 +352,10 @@ export default function AdminSettings() {
             {/* TAB: GLOBAL CONTROLS */}
             {activeTab === 'controls' && (
                 <div className="space-y-8 animate-fade-in max-w-2xl">
-                    <h3 className="font-black text-slate-800 text-sm mb-4 uppercase tracking-widest flex items-center gap-2"><Layout size={20} className="text-purple-600"/> Brand & Broadcast</h3>
+                    <h3 className="font-black text-slate-800 text-sm mb-4 uppercase tracking-widest flex items-center gap-2"><Layout size={20} className="text-purple-600"/> Feature Broadcast</h3>
                     <div className="space-y-6">
-                        <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Application Name</label>
-                            <input type="text" className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold focus:border-brand-500 transition outline-none" value={config.appName || 'Paydone.id'} onChange={e => setConfig({...config, appName: e.target.value})} />
-                        </div>
                         
-                        {/* NEW: PAYLOAD PREVIEW TOGGLE */}
+                        {/* PAYLOAD PREVIEW TOGGLE */}
                         <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 flex items-center justify-between group hover:border-brand-300 transition-all">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 bg-brand-100 text-brand-600 rounded-2xl group-hover:bg-brand-600 group-hover:text-white transition-colors"><Eye size={24}/></div>

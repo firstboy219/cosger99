@@ -1,5 +1,5 @@
 
-import { User, DebtItem, TaskItem, IncomeItem, DailyExpense, PaymentRecord, SinkingFund, Badge, ExpenseItem, DebtInstallment, SystemRules, AdvancedConfig, Ticket, QAScenario, QARunHistory, AIAgent, AppConfig } from '../types';
+import { User, DebtItem, TaskItem, IncomeItem, DailyExpense, PaymentRecord, SinkingFund, Badge, ExpenseItem, DebtInstallment, SystemRules, AdvancedConfig, Ticket, QAScenario, QARunHistory, AIAgent, AppConfig, LoanType } from '../types';
 
 // This service simulates a NoSQL Database (like MongoDB) running in the browser.
 // It persists data to localStorage so it survives refreshes.
@@ -139,6 +139,10 @@ const DEFAULT_AGENTS: AIAgent[] = [
     }
 ];
 
+// --- DUMMY DATA GENERATOR ---
+const today = new Date();
+const currentMonthKey = today.toISOString().slice(0, 7);
+
 const INITIAL_DB: DBSchema = {
   users: [
     { 
@@ -152,12 +156,52 @@ const INITIAL_DB: DBSchema = {
       badges: ['b1']
     }
   ],
-  debts: [], 
+  debts: [
+      {
+          id: 'd1', userId: 'u2', name: 'KPR Rumah Tipe 45', type: LoanType.KPR,
+          bankName: 'Bank BTN', originalPrincipal: 500000000, remainingPrincipal: 485000000,
+          interestRate: 8.5, monthlyPayment: 4200000,
+          startDate: '2022-01-01', endDate: '2037-01-01', dueDate: 5,
+          totalLiability: 756000000, remainingMonths: 144, interestStrategy: 'Fixed'
+      },
+      {
+          id: 'd2', userId: 'u2', name: 'Kredit Mobil Honda Brio', type: LoanType.KKB,
+          bankName: 'BCA Finance', originalPrincipal: 150000000, remainingPrincipal: 90000000,
+          interestRate: 6.0, monthlyPayment: 3500000,
+          startDate: '2023-05-01', endDate: '2026-05-01', dueDate: 15,
+          totalLiability: 126000000, remainingMonths: 24, interestStrategy: 'Fixed'
+      },
+      {
+          id: 'd3', userId: 'u2', name: 'Kartu Kredit Lifestyle', type: LoanType.CC,
+          bankName: 'Mandiri', originalPrincipal: 15000000, remainingPrincipal: 12500000,
+          interestRate: 22.0, monthlyPayment: 1250000, // Min payment high interest
+          startDate: '2024-01-01', endDate: '2025-06-01', dueDate: 25,
+          totalLiability: 15000000, remainingMonths: 12, interestStrategy: 'Fixed'
+      }
+  ], 
   debtInstallments: [],
-  incomes: [],
-  allocations: {},
-  tasks: [],
-  dailyExpenses: [], 
+  incomes: [
+      { id: 'i1', userId: 'u2', source: 'Gaji Bulanan (PT Tech)', amount: 15000000, type: 'active', frequency: 'monthly', dateReceived: `${currentMonthKey}-25` },
+      { id: 'i2', userId: 'u2', source: 'Freelance Design', amount: 2500000, type: 'active', frequency: 'monthly', dateReceived: `${currentMonthKey}-10` }
+  ],
+  allocations: {
+      [currentMonthKey]: [
+          { id: 'a1', userId: 'u2', name: 'Belanja Bulanan', amount: 3000000, category: 'needs', priority: 1, isTransferred: false, assignedAccountId: null },
+          { id: 'a2', userId: 'u2', name: 'Listrik & Air', amount: 1000000, category: 'needs', priority: 1, isTransferred: true, assignedAccountId: null },
+          { id: 'a3', userId: 'u2', name: 'Transportasi', amount: 1500000, category: 'needs', priority: 1, isTransferred: false, assignedAccountId: null },
+          { id: 'a4', userId: 'u2', name: 'Ngopi & Hiburan', amount: 1000000, category: 'wants', priority: 3, isTransferred: false, assignedAccountId: null },
+          { id: 'a5', userId: 'u2', name: 'Dana Darurat', amount: 1000000, category: 'debt', priority: 2, isTransferred: true, assignedAccountId: null },
+      ]
+  },
+  tasks: [
+      { id: 't1', userId: 'u2', title: 'Bayar Listrik', category: 'Payment', status: 'completed', dueDate: `${currentMonthKey}-05`, context: 'Routine Bill' },
+      { id: 't2', userId: 'u2', title: 'Cek Bunga KPR Refinance', category: 'Negotiation', status: 'pending', dueDate: `${currentMonthKey}-20`, context: 'Debt Acceleration' }
+  ],
+  dailyExpenses: [
+      { id: 'de1', userId: 'u2', date: `${currentMonthKey}-02`, title: 'Token Listrik', amount: 500000, category: 'Utilities', allocationId: 'a2' },
+      { id: 'de2', userId: 'u2', date: `${currentMonthKey}-03`, title: 'Bensin Mingguan', amount: 200000, category: 'Transport', allocationId: 'a3' },
+      { id: 'de3', userId: 'u2', date: `${currentMonthKey}-05`, title: 'Makan Siang', amount: 50000, category: 'Food', allocationId: 'a1' }
+  ], 
   paymentRecords: [], 
   sinkingFunds: [
     { id: 'sf1', userId: 'u2', name: 'Pajak STNK', targetAmount: 3500000, currentAmount: 1200000, deadline: '2024-12-01', icon: 'car', color: 'bg-blue-500' },
@@ -171,6 +215,7 @@ const INITIAL_DB: DBSchema = {
   config: {
     googleClientId: '417959019304-kdsk1t0rr6l9gukogsmrpavip31fj5f6.apps.googleusercontent.com', 
     backendUrl: 'https://api.cosger.online', 
+    sourceCodeUrl: 'https://api.cosger.online/api/view-source?kunci=gen-lang-client-0662447520',
     gcpSqlInstance: 'gen-lang-client-0662447520:asia-southeast2:paydone201190',
     dbUser: 'postgres',
     dbPass: 'Abasmallah_12', 
@@ -240,21 +285,31 @@ export const getDB = (): DBSchema => {
   
   // Enforce the provided server URL as the source of truth (STRICT)
   const targetServerUrl = 'https://api.cosger.online';
+  const targetSourceUrl = 'https://api.cosger.online/api/view-source?kunci=gen-lang-client-0662447520';
+  
+  let needsSave = false;
+  
   if (parsed.config.backendUrl !== targetServerUrl) {
-      console.log(`[STRICT] Correcting Backend URL to: ${targetServerUrl}`);
       parsed.config.backendUrl = targetServerUrl;
-      saveDB(parsed);
+      needsSave = true;
+  }
+  
+  if (parsed.config.sourceCodeUrl !== targetSourceUrl) {
+      parsed.config.sourceCodeUrl = targetSourceUrl;
+      needsSave = true;
   }
 
   // Migration Checks
   if (!parsed.aiAgents || parsed.aiAgents.length === 0) { 
       parsed.aiAgents = DEFAULT_AGENTS; 
-      saveDB(parsed); 
+      needsSave = true; 
   }
   if (!parsed.config) {
       parsed.config = INITIAL_DB.config;
-      saveDB(parsed);
+      needsSave = true;
   }
+  
+  if (needsSave) saveDB(parsed);
   
   return parsed;
 };
@@ -423,6 +478,8 @@ export const saveConfig = (newConfig: Partial<AppConfig>) => {
     const db = getDB(); 
     db.config = { ...db.config, ...newConfig, updatedAt: new Date().toISOString() }; 
     saveDB(db); 
+    // IMPORTANT: Dispatch Event for Realtime UI Updates
+    window.dispatchEvent(new Event('PAYDONE_CONFIG_UPDATE'));
 };
 export const getConfig = () => getDB().config;
 export const getBackendUrl = () => getConfig().backendUrl || '';

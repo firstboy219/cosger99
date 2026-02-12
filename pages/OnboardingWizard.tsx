@@ -1,9 +1,8 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Send, User, ChevronRight, CheckCircle2, Wallet, Plus, Trash2, ArrowRight, X, Loader2, AlertCircle, Sparkles, MessageSquare } from 'lucide-react';
 import { parseOnboardingResponse } from '../services/geminiService';
 import { IncomeItem, DebtItem, LoanType } from '../types';
-import { formatCurrency, calculateCurrentDebtStatus } from '../services/financeUtils';
+import { formatCurrency } from '../services/financeUtils';
 import { useTranslation } from '../services/translationService';
 
 interface OnboardingWizardProps {

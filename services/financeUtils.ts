@@ -44,12 +44,14 @@ export const getMonthDiff = (d1: Date, d2: Date): number => {
   return months <= 0 ? 0 : months;
 };
 
-// --- IMPROVED INSTALLMENT GENERATOR ---
+// --- IMPROVED INSTALLMENT GENERATOR (SMART HISTORY & STRATEGIES) ---
 export const generateInstallmentsForDebt = (
     debt: DebtItem, 
-    existingInstallments: DebtInstallment[] = []
+    existingInstallments: DebtInstallment[] = [],
+    autoPayHistory: boolean = false
 ): DebtInstallment[] => {
     const newInstallments: DebtInstallment[] = [];
+    const todayStr = new Date().toISOString().split('T')[0];
     
     if (!debt.startDate || !debt.endDate || !debt.originalPrincipal) {
         return [];
@@ -66,31 +68,71 @@ export const generateInstallmentsForDebt = (
     if (totalMonths <= 0) totalMonths = 1; 
 
     let currentBalance = Number(debt.originalPrincipal);
-    const strategy = (debt.interestStrategy || 'FIXED').toUpperCase(); 
-    
+    const originalPrincipal = Number(debt.originalPrincipal);
+    const strategy = (debt.interestStrategy || 'Fixed').toUpperCase(); // Fixed (Flat), Annuity, StepUp
+    const annualRate = Number(debt.interestRate || 0);
+    const monthlyRate = (annualRate / 100) / 12;
+
+    // --- PREPARE DATA FOR STEP UP ---
     let stepUpSchedule: any[] = [];
     if (Array.isArray(debt.stepUpSchedule)) {
         stepUpSchedule = debt.stepUpSchedule;
+    } else if (typeof debt.stepUpSchedule === 'string') {
+        try { stepUpSchedule = JSON.parse(debt.stepUpSchedule); } catch(e) {}
     }
 
-    for (let i = 1; i <= totalMonths; i++) {
-        let monthlyAmount = Number(debt.monthlyPayment);
+    // --- CALCULATE ANNUITY FIXED PAYMENT (If needed) ---
+    // PMT Formula: P * (r(1+r)^n) / ((1+r)^n - 1)
+    const annuityPayment = calculatePMT(monthlyRate, totalMonths, originalPrincipal);
 
-        if (strategy === 'STEP_UP' && stepUpSchedule.length > 0) {
-            const activeRange = stepUpSchedule.find(range => i >= Number(range.startMonth) && i <= Number(range.endMonth));
+    for (let i = 1; i <= totalMonths; i++) {
+        let monthlyAmount = 0;
+        let principalPart = 0;
+        let interestPart = 0;
+
+        // --- STRATEGY SWITCH ---
+        if (strategy === 'FIXED' || strategy === 'FLAT') {
+            // FLAT RATE: Bunga dihitung dari POKOK AWAL
+            interestPart = originalPrincipal * monthlyRate;
+            principalPart = originalPrincipal / totalMonths;
+            monthlyAmount = principalPart + interestPart;
+            
+            // Adjust balance logic for flat is simple subtraction of principal portion
+            // currentBalance calculation handled at end of loop
+        } 
+        else if (strategy === 'ANNUITY' || strategy === 'EFEKTIF') {
+            // ANNUITY / EFEKTIF: Bunga dihitung dari SISA POKOK
+            monthlyAmount = annuityPayment;
+            interestPart = currentBalance * monthlyRate;
+            principalPart = monthlyAmount - interestPart;
+        } 
+        else if (strategy === 'STEPUP' || strategy === 'STEP_UP') {
+            // STEP UP: User defines Payment Amount per Period Range
+            // Default to base monthlyPayment if no schedule matches
+            monthlyAmount = Number(debt.monthlyPayment);
+            
+            const activeRange = stepUpSchedule.find((range: any) => i >= Number(range.startMonth) && i <= Number(range.endMonth));
             if (activeRange) {
                 monthlyAmount = Number(activeRange.amount);
             }
+
+            // In Step Up, typically interest is Effective (based on remaining balance)
+            interestPart = currentBalance * monthlyRate;
+            principalPart = monthlyAmount - interestPart;
         }
 
-        const rate = Number(debt.interestRate || 0);
-        const interestPart = (currentBalance * (rate / 100)) / 12;
-        let principalPart = monthlyAmount - interestPart;
+        // --- SAFETY CHECKS ---
+        if (principalPart < 0) principalPart = 0; // Negative amortization protection
         
-        if (principalPart < 0) principalPart = 0;
-        
-        currentBalance -= principalPart;
-        if (currentBalance < 0) currentBalance = 0;
+        // Final Month Adjustment (To clear dust/rounding errors)
+        if (i === totalMonths) {
+            if (currentBalance > 0 && (strategy === 'ANNUITY' || strategy === 'STEPUP')) {
+                // Adjust principal to clear debt
+                principalPart = currentBalance;
+                // Recalculate amount if needed, or just let it close
+                monthlyAmount = principalPart + interestPart;
+            }
+        }
 
         const dueDateObj = new Date(start);
         dueDateObj.setMonth(start.getMonth() + i);
@@ -101,15 +143,28 @@ export const generateInstallmentsForDebt = (
         
         const dueDateStr = safeDateISO(dueDateObj);
 
+        // Check for existing manual record
         const existingRecord = existingInstallments.find(e => e.period === i);
         
-        if (existingRecord && existingRecord.status === 'paid') {
+        if (existingRecord) {
             newInstallments.push(existingRecord);
+            // If the user manually paid less/more, strict accounting would need to adjust currentBalance differently.
+            // For simplicity in this generator, we assume the theoretical Principal reduction happens 
+            // OR we rely on the calculated schedule. 
+            // Let's stick to the schedule's theoretical balance reduction to keep projection consistent.
+            currentBalance -= principalPart;
         } else {
-            const isPast = new Date(dueDateStr) < new Date() && new Date().toISOString().split('T')[0] !== dueDateStr;
+            // Smart History Logic
+            let status: 'pending' | 'paid' | 'overdue' = 'pending';
             
+            if (autoPayHistory && dueDateStr < todayStr) {
+                status = 'paid';
+            } else if (dueDateStr < todayStr) {
+                status = 'overdue';
+            }
+
             newInstallments.push({
-                id: existingRecord ? existingRecord.id : `inst-${debt.id}-p${i}-${Date.now()}-${Math.random().toString(36).substr(2,5)}`,
+                id: `inst-${debt.id}-p${i}-${Date.now()}-${Math.random().toString(36).substr(2,5)}`,
                 debtId: debt.id,
                 userId: debt.userId,
                 period: i,
@@ -117,11 +172,15 @@ export const generateInstallmentsForDebt = (
                 amount: Math.round(monthlyAmount),
                 principalPart: Math.round(principalPart),
                 interestPart: Math.round(interestPart),
-                remainingBalance: Math.round(currentBalance),
-                status: isPast ? 'overdue' : 'pending',
-                notes: existingRecord?.notes || '' 
+                remainingBalance: Math.max(0, Math.round(currentBalance - principalPart)),
+                status: status,
+                notes: '' 
             });
+            
+            currentBalance -= principalPart;
         }
+        
+        if (currentBalance < 0) currentBalance = 0;
     }
 
     return newInstallments;
@@ -141,7 +200,7 @@ export const generateGlobalProjection = (
     const activeDebts = debts.filter(d => d.remainingPrincipal > 1000 && !d._deleted).map(d => {
         let parsedStepUp: any[] = [];
         const strategy = (d.interestStrategy || 'FIXED').toUpperCase();
-        if (strategy === 'STEP_UP') {
+        if (strategy === 'STEP_UP' || strategy === 'STEPUP') {
             if (typeof d.stepUpSchedule === 'string') {
                 try { parsedStepUp = JSON.parse(d.stepUpSchedule); } catch(e) {}
             } else if (Array.isArray(d.stepUpSchedule)) {
@@ -181,16 +240,35 @@ export const generateGlobalProjection = (
             if (d.isPaid) return;
             
             let pay = d.monthlyPayment;
+            
+            // Handle Strategies in Projection
             if (d.normalizedStrategy === 'STEP_UP' && d.parsedStepUp.length > 0) {
                 const absMonth = d.monthsPassedStart + m + 1;
                 const range = d.parsedStepUp.find((r: any) => absMonth >= Number(r.startMonth) && absMonth <= Number(r.endMonth));
                 if (range) pay = Number(range.amount);
+            } 
+            else if (d.normalizedStrategy === 'ANNUITY') {
+                // For projection, we assume payment is fixed as per MonthlyPayment field (user should input average or initial)
+                // Or we can recalculate PMT if originalPrincipal exists. 
+                // For simplicity, we trust d.monthlyPayment is accurate for the annuity.
             }
 
             const interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
             let principal = pay - interest;
             
             if (principal > d.simBalance) principal = d.simBalance;
+            
+            // Flat rate logic correction for projection: 
+            // In real world, Flat Rate payments are constant, but balance reduction is linear.
+            // However, typically "outstanding balance" on app refers to Principal.
+            // If Flat: Principal Reduction = MonthlyPayment - (OriginalPrincipal * Rate).
+            if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED') {
+                 // Re-derive if possible
+                 const orig = d.originalPrincipal || d.remainingPrincipal; // Fallback
+                 const flatInterest = (orig * (d.interestRate || 0) / 100) / 12;
+                 principal = pay - flatInterest;
+            }
+
             d.simBalance -= principal;
             if (d.simBalance <= 1000) { d.simBalance = 0; d.isPaid = true; }
         });
@@ -198,49 +276,50 @@ export const generateGlobalProjection = (
 
     // 3. Simulate Paydone Path (With Extra - Lump Sum OR Cutoff)
     const acceleratedSeries: number[] = [];
-    const savingsSeries: number[] = []; // NEW: For Cutoff Mode
+    const savingsSeries: number[] = []; 
     let tempDebtsAcc = activeDebts.map(d => ({ ...d })); 
     let accumulatedSavings = 0;
     let freedomReached = false;
     
     for (let m = 0; m <= LIMIT; m++) {
-        // Current Total Debt
         let totalBal = tempDebtsAcc.reduce((sum, d) => sum + d.simBalance, 0);
         
-        // In Cutoff Mode: If Savings >= Debt, we trigger "Freedom" (pay all at once)
         if (mode === 'cutoff' && accumulatedSavings >= totalBal && !freedomReached && totalBal > 0) {
             freedomReached = true;
-            // Conceptually pay off everything
             totalBal = 0; 
-            accumulatedSavings -= totalBal; // Remaining savings (surplus)
+            accumulatedSavings -= totalBal; 
         }
 
-        if (freedomReached) totalBal = 0; // Force zero after freedom
+        if (freedomReached) totalBal = 0; 
 
         acceleratedSeries.push(Math.round(totalBal));
         savingsSeries.push(Math.round(accumulatedSavings));
 
-        if (totalBal <= 0 && mode === 'lump_sum') break; // Only break early in lump sum
-        if (freedomReached && mode === 'cutoff') break; // Break if freedom reached in cutoff
+        if (totalBal <= 0 && mode === 'lump_sum') break; 
+        if (freedomReached && mode === 'cutoff') break; 
 
-        // LOGIC BRANCH: LUMP SUM vs CUTOFF
         if (mode === 'lump_sum') {
             let extraPool = extraMonthlyPayment;
             const targets = tempDebtsAcc.filter(d => !d.isPaid);
             if (strategy === 'snowball') targets.sort((a, b) => a.simBalance - b.simBalance);
             else targets.sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
 
-            // 1. Mandatory Minimums
+            // Mandatory Minimums
             targets.forEach(d => {
                 let pay = d.monthlyPayment;
-                // Step Up Logic ...
-                if (d.normalizedStrategy === 'STEP_UP' && d.parsedStepUp.length > 0) {
+                if ((d.normalizedStrategy === 'STEP_UP' || d.normalizedStrategy === 'STEPUP') && d.parsedStepUp.length > 0) {
                     const absMonth = d.monthsPassedStart + m + 1;
                     const range = d.parsedStepUp.find((r: any) => absMonth >= Number(r.startMonth) && absMonth <= Number(r.endMonth));
                     if (range) pay = Number(range.amount);
                 }
 
-                const interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                // Interest Calculation
+                let interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED') {
+                     const orig = d.originalPrincipal || d.remainingPrincipal;
+                     interest = (orig * (d.interestRate || 0) / 100) / 12;
+                }
+
                 let principal = pay - interest;
                 
                 if (principal > d.simBalance) {
@@ -251,10 +330,9 @@ export const generateGlobalProjection = (
                 if (d.simBalance <= 1000) { d.simBalance = 0; d.isPaid = true; }
             });
 
-            // 2. Extra Pool (Snowball)
+            // Extra Pool
             if (extraPool > 0) {
                 const activeTargets = tempDebtsAcc.filter(d => !d.isPaid);
-                // Sort again as balances might check
                 if (strategy === 'snowball') activeTargets.sort((a, b) => a.simBalance - b.simBalance);
                 else activeTargets.sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
 
@@ -268,23 +346,26 @@ export const generateGlobalProjection = (
             }
 
         } else {
-            // MODE: CUTOFF (Save extra, pay minimums only)
-            
-            // 1. Accumulate Savings (Compound Interest)
+            // MODE: CUTOFF
             accumulatedSavings += extraMonthlyPayment;
             const monthlyReturn = (investmentReturnRate / 100) / 12;
             accumulatedSavings += (accumulatedSavings * monthlyReturn);
 
-            // 2. Pay Minimums Only
             tempDebtsAcc.forEach(d => {
                 if (d.isPaid) return;
                 let pay = d.monthlyPayment;
-                if (d.normalizedStrategy === 'STEP_UP' && d.parsedStepUp.length > 0) {
+                if ((d.normalizedStrategy === 'STEP_UP' || d.normalizedStrategy === 'STEPUP') && d.parsedStepUp.length > 0) {
                     const absMonth = d.monthsPassedStart + m + 1;
                     const range = d.parsedStepUp.find((r: any) => absMonth >= Number(r.startMonth) && absMonth <= Number(r.endMonth));
                     if (range) pay = Number(range.amount);
                 }
-                const interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                
+                let interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED') {
+                     const orig = d.originalPrincipal || d.remainingPrincipal;
+                     interest = (orig * (d.interestRate || 0) / 100) / 12;
+                }
+
                 let principal = pay - interest;
                 if (principal > d.simBalance) principal = d.simBalance;
                 d.simBalance -= principal;
@@ -299,7 +380,6 @@ export const generateGlobalProjection = (
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
     for (let i = 0; i < maxLen; i++) {
-        // Optimization: Reduce points for long charts
         if (maxLen > 60 && i % 2 !== 0 && i !== maxLen - 1) continue;
 
         const date = new Date(today.getFullYear(), today.getMonth() + i, 1);
@@ -309,7 +389,6 @@ export const generateGlobalProjection = (
             month: monthLabel,
             Biasa: standardSeries[i] !== undefined ? standardSeries[i] : 0,
             Paydone: acceleratedSeries[i] !== undefined ? acceleratedSeries[i] : 0,
-            // Only add Tabungan data if in Cutoff mode
             ...(mode === 'cutoff' ? { Tabungan: savingsSeries[i] !== undefined ? savingsSeries[i] : 0 } : {}),
             index: i
         });
@@ -326,8 +405,6 @@ export const generateGlobalProjection = (
         const totalInterestAcc = totalPrincipal * estInterestRate * (acceleratedSeries.length / 12);
         moneySaved = Math.max(0, totalInterestStd - totalInterestAcc);
     } else {
-        // Cutoff Logic: Money Saved = (Interest Saved from Early Payoff) + (Investment Gains)
-        // Simplification for UI
         const cutoffMonthIndex = acceleratedSeries.findIndex(v => v <= 0);
         const actualMonths = cutoffMonthIndex === -1 ? acceleratedSeries.length : cutoffMonthIndex;
         
@@ -366,17 +443,17 @@ export const generateCrossingAnalysis = (
         let totalDebtPayment = 0;
         
         debts.forEach(d => {
-            // Check if debt is still active in this month 'i'
-            // We need precise end dates or remaining months
             const startDate = new Date(d.startDate);
             const endDate = new Date(d.endDate);
             const currentSimDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
             
             if (currentSimDate >= startDate && currentSimDate <= endDate) {
                 let pay = d.monthlyPayment;
-                // Step Up Logic
+                // Step Up Logic for Crossing
                 const monthsSinceStart = getMonthDiff(startDate, currentSimDate) + 1;
-                if (d.interestStrategy === 'StepUp' && Array.isArray(d.stepUpSchedule)) {
+                // Fix for TS overlap error: cast to string or normalize
+                const strategy = (d.interestStrategy || '').toUpperCase();
+                if ((strategy === 'STEPUP' || strategy === 'STEP_UP') && Array.isArray(d.stepUpSchedule)) {
                     const range = d.stepUpSchedule.find(r => monthsSinceStart >= Number(r.startMonth) && monthsSinceStart <= Number(r.endMonth));
                     if (range) pay = Number(range.amount);
                 }
@@ -396,14 +473,12 @@ export const generateCrossingAnalysis = (
         });
     }
 
-    // Find first danger month
     const dangerMonth = data.find(d => d.isDanger);
-
     return { data, dangerMonth };
 };
 
 export const runSimulation = (input: SimulationInput): SimulationResult => {
-  const { assetPrice, downPaymentPercent, interestRate, tenorYears, loanType } = input;
+  const { assetPrice: assetPrice, downPaymentPercent: downPaymentPercent, interestRate: interestRate, tenorYears: tenorYears, loanType: loanType } = input;
   const rules = getConfig().systemRules;
   
   const downPayment = assetPrice * (downPaymentPercent / 100);

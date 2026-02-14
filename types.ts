@@ -251,7 +251,7 @@ export interface DebtItem extends SyncMetadata {
   bankName?: string;
   createdAt?: string; 
 
-  interestStrategy?: 'Fixed' | 'StepUp';
+  interestStrategy?: 'Fixed' | 'StepUp' | 'Annuity';
   stepUpSchedule?: StepUpRange[];
 
   payoffMethod?: 'direct_extra' | 'sinking_fund'; 

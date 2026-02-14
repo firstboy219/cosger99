@@ -1,7 +1,5 @@
 
 import { getConfig, getDB, saveDB, getUserData } from './mockDb';
-import { convertKeysToSnakeCase, convertKeysToCamelCase } from './formatUtils';
-import { interpretBackendPayload } from './geminiService';
 
 const getBackend = () => getConfig().backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
 
@@ -27,7 +25,6 @@ const dispatchNetworkLog = (method: string, url: string, status: number, respons
 };
 
 // ALLOWLIST FOR PAYLOAD SANITIZATION
-// Prevents UI-only fields (like totalDebt, dsr) from crashing the SQL Insert.
 const ALLOWED_KEYS = {
     users: ['id', 'username', 'email', 'password', 'role', 'status', 'createdAt', 'lastLogin', 'photoUrl', 'parentUserId', 'sessionToken', 'badges', 'riskProfile', 'bigWhyUrl', 'financialFreedomTarget'],
     debts: ['id', 'userId', 'name', 'type', 'originalPrincipal', 'remainingPrincipal', 'interestRate', 'monthlyPayment', 'startDate', 'endDate', 'dueDate', 'bankName', 'interestStrategy', 'stepUpSchedule', 'totalLiability', 'remainingMonths', 'updatedAt'],
@@ -45,7 +42,7 @@ const ALLOWED_KEYS = {
 
 const sanitize = (item: any, type: keyof typeof ALLOWED_KEYS) => {
     const validKeys = ALLOWED_KEYS[type];
-    if (!validKeys) return item; // No filter if type unknown
+    if (!validKeys) return item; 
     
     const clean: any = {};
     validKeys.forEach(key => {
@@ -60,13 +57,27 @@ const sanitizeArray = (items: any[], type: keyof typeof ALLOWED_KEYS) => {
     return items.map(item => sanitize(item, type));
 };
 
+// HELPER: Map CamelCase Frontend Collections to Snake_Case Backend Tables (for DELETE)
+const getTableEndpoint = (collectionName: string): string => {
+    switch (collectionName) {
+        case 'dailyExpenses': return 'daily-expenses';
+        case 'debtInstallments': return 'debt-installments';
+        case 'paymentRecords': return 'payment-records';
+        case 'sinkingFunds': return 'sinking-funds';
+        case 'aiAgents': return 'ai-agents';
+        case 'qaScenarios': return 'qa-scenarios';
+        case 'baConfigurations': return 'ba-configurations';
+        default: return collectionName.toLowerCase();
+    }
+};
+
 /**
- * PULL: Menarik data sesuai endpoint /api/sync backend V47.10
+ * PULL: Menarik data sesuai endpoint /api/sync
  */
 export const pullUserDataFromCloud = async (userId: string, onProgress?: (msg: string) => void): Promise<SyncResult> => {
     const baseUrl = getBackend();
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 Seconds Timeout
+    const timeoutId = setTimeout(() => controller.abort(), 8000); 
     const targetUrl = `${baseUrl}/api/sync?userId=${userId}`;
 
     try {
@@ -80,42 +91,37 @@ export const pullUserDataFromCloud = async (userId: string, onProgress?: (msg: s
 
         const data = await res.json();
         
-        // DISPATCH NOTIFICATION (Payload null for GET)
         dispatchNetworkLog('GET', targetUrl, res.status, data, null);
 
         if (!res.ok) return { success: false, error: `Cloud Error ${res.status}` };
         
         const db = getDB();
-        // Mapping data dari backend ke local state
         if (data.debts) db.debts = data.debts;
         if (data.incomes) db.incomes = data.incomes;
         if (data.dailyExpenses) db.dailyExpenses = data.dailyExpenses;
-        if (data.debtInstallments) db.debtInstallments = data.debtInstallments;
+        if (data.debtInstallments) db.debtInstallments = data.debtInstallments; // Critical Fix
         if (data.paymentRecords) db.paymentRecords = data.paymentRecords;
         if (data.allocations) db.allocations = data.allocations;
         if (data.tasks) db.tasks = data.tasks;
         if (data.sinkingFunds) db.sinkingFunds = data.sinkingFunds;
-        if (data.tickets) db.tickets = data.tickets; // Added tickets
+        if (data.tickets) db.tickets = data.tickets;
         
         saveDB(db);
         return { success: true, data: getUserData(userId) };
     } catch (e: any) {
-        if (e.name === 'AbortError') {
-            return { success: false, error: "Connection Timeout (5s)" };
-        }
         return { success: false, error: e.message };
     }
 };
 
 /**
- * PUSH: Mengirim data ke /api/sync sesuai format loop backend
+ * PUSH: Mengirim data ke /api/sync
  */
 export const pushPartialUpdate = async (userId: string, data: any): Promise<boolean> => {
     const baseUrl = getBackend();
     const now = new Date().toISOString();
     const targetUrl = `${baseUrl}/api/sync`;
     
-    // Update local dulu (Optimistic)
+    // Update local (Optimistic)
     const db = getDB();
     const sanitizedData: any = {};
 
@@ -132,38 +138,30 @@ export const pushPartialUpdate = async (userId: string, data: any): Promise<bool
             });
             (db as any)[key] = currentItems;
 
-            // SANITIZE PAYLOAD BEFORE SENDING
             if (key in ALLOWED_KEYS) {
                 sanitizedData[key] = sanitizeArray(incomingItems, key as keyof typeof ALLOWED_KEYS);
             } else if (key === 'allocations') {
-                // Allocations is record, handled specially in loop below or backend handles flattening
                 sanitizedData[key] = data[key]; 
             } else {
-                sanitizedData[key] = incomingItems; // Fallback
+                sanitizedData[key] = incomingItems;
             }
         } else if (key === 'allocations') {
-             sanitizedData[key] = data[key]; // Allocations is object Record<string, []>
+             sanitizedData[key] = data[key];
         }
     });
     saveDB(db);
 
-    // If 'allocations' is present, we need to sanitize the items inside the record values
     if (sanitizedData.allocations) {
-        const cleanAllocations: any = {};
-        Object.keys(sanitizedData.allocations).forEach(mKey => {
-            // Assume allocation items match 'allocations' key in ALLOWED_KEYS (generic expense item)
-            // But ExpenseItem definition is slightly different. Let's make a generic one.
-            // For now, we trust allocations structure mostly matches.
-            cleanAllocations[mKey] = sanitizedData.allocations[mKey];
-        });
-        sanitizedData.allocations = cleanAllocations;
+        // Allocations structure handling if needed
     }
 
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s Timeout for Push
+        const timeoutId = setTimeout(() => controller.abort(), 10000); 
 
         const finalPayload = { ...sanitizedData, userId };
+
+        console.log(`[CloudSync] Pushing payload size: ${JSON.stringify(finalPayload).length} bytes`);
 
         const res = await fetch(targetUrl, {
             method: 'POST',
@@ -176,26 +174,26 @@ export const pushPartialUpdate = async (userId: string, data: any): Promise<bool
         let responseData = {};
         try { responseData = await res.json(); } catch(e) {}
         
-        // DISPATCH NOTIFICATION WITH PAYLOAD
         dispatchNetworkLog('POST', targetUrl, res.status, responseData, finalPayload);
 
         return res.ok;
     } catch (e) {
+        console.error("[CloudSync] Push Failed:", e);
         return false;
     }
 };
 
 /**
- * DELETE: Menggunakan endpoint spesifik sesuai server.cjs deleteHandler
+ * DELETE: Menggunakan endpoint spesifik
  */
 export const deleteFromCloud = async (userId: string, table: string, id: string): Promise<boolean> => {
     const baseUrl = getBackend();
     
-    // Mapping ke endpoint backend (debts, incomes, daily-expenses, allocations)
-    let endpoint = table;
-    if (table === 'dailyExpenses') endpoint = 'daily-expenses';
-    
+    // Critical Fix: Map camelCase collection names to URL-friendly endpoints
+    const endpoint = getTableEndpoint(table);
     const targetUrl = `${baseUrl}/api/${endpoint}/${id}`;
+
+    console.log(`[CloudSync] Deleting ${id} from ${endpoint}...`);
 
     try {
         const res = await fetch(targetUrl, {
@@ -206,11 +204,11 @@ export const deleteFromCloud = async (userId: string, table: string, id: string)
         let responseData = {};
         try { responseData = await res.json(); } catch(e) {}
         
-        // DISPATCH NOTIFICATION
         dispatchNetworkLog('DELETE', targetUrl, res.status, responseData, { table, id, action: 'DELETE' });
         
         if (res.ok) {
             const db = getDB();
+            // Local update needs exact state key (camelCase)
             if ((db as any)[table]) {
                 (db as any)[table] = (db as any)[table].filter((item: any) => item.id !== id);
                 saveDB(db);
@@ -219,12 +217,13 @@ export const deleteFromCloud = async (userId: string, table: string, id: string)
         }
         return false;
     } catch (e) {
+        console.error("[CloudSync] Delete Failed:", e);
         return false;
     }
 };
 
 /**
- * SAVE GLOBAL CONFIG: Mengirim konfigurasi sistem ke backend (V44.22)
+ * SAVE GLOBAL CONFIG
  */
 export const saveGlobalConfigToCloud = async (id: string, config: any): Promise<boolean> => {
     const baseUrl = getBackend();
@@ -243,7 +242,6 @@ export const saveGlobalConfigToCloud = async (id: string, config: any): Promise<
         let responseData = {};
         try { responseData = await res.json(); } catch(e) {}
         
-        // DISPATCH NOTIFICATION
         dispatchNetworkLog('POST', targetUrl, res.status, responseData, payload);
 
         return res.ok;

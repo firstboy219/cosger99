@@ -60,10 +60,20 @@ export default function MasterData() {
               
               if (res.ok) {
                   const data = await res.json();
-                  const enriched = data.map((u: any) => ({
-                      ...u,
-                      dsr: u.totalIncome > 0 ? (u.monthlyObligation / u.totalIncome) * 100 : 0
-                  }));
+                  const enriched = data.map((u: any) => {
+                      // Safe Number Parsing to prevent RpNaN
+                      const totalIncome = Number(u.totalIncome) || 0;
+                      const monthlyObligation = Number(u.monthlyObligation) || 0;
+                      const totalDebt = Number(u.totalDebt) || 0;
+
+                      return {
+                          ...u,
+                          totalIncome,
+                          monthlyObligation,
+                          totalDebt,
+                          dsr: totalIncome > 0 ? (monthlyObligation / totalIncome) * 100 : 0
+                      };
+                  });
                   setUsers(enriched);
                   setDataSource('cloud');
               } else {
@@ -367,8 +377,8 @@ export default function MasterData() {
                                             </span>
                                         </td>
                                         <td className="px-6 py-5">
-                                            <div className="font-black text-slate-700">{formatCurrency(user.totalDebt)}</div>
-                                            <div className="text-[9px] font-bold text-slate-400 uppercase">Inc: {formatCurrency(user.totalIncome)}</div>
+                                            <div className="font-black text-slate-700">{formatCurrency(user.totalDebt || 0)}</div>
+                                            <div className="text-[9px] font-bold text-slate-400 uppercase">Inc: {formatCurrency(user.totalIncome || 0)}</div>
                                         </td>
                                         <td className="px-6 py-5">
                                             <div className="flex flex-col gap-1">
@@ -447,7 +457,7 @@ export default function MasterData() {
         )}
       </div>
 
-      {/* INSPECTION MODAL (STAYS SAME LOGIC) */}
+      {/* INSPECTION MODAL */}
       {selectedUser && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-fade-in">
               <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col border border-white/20">
@@ -469,11 +479,11 @@ export default function MasterData() {
                       <div className="grid grid-cols-3 gap-6">
                           <div className="p-5 bg-red-50/50 rounded-3xl border-2 border-red-100 text-center group hover:bg-red-50 transition-colors">
                               <p className="text-[10px] text-red-400 font-black uppercase mb-1 tracking-widest">Liability</p>
-                              <p className="text-xl font-black text-red-600">{formatCurrency(selectedUser.totalDebt)}</p>
+                              <p className="text-xl font-black text-red-600">{formatCurrency(selectedUser.totalDebt || 0)}</p>
                           </div>
                           <div className="p-5 bg-green-50/50 rounded-3xl border-2 border-green-100 text-center group hover:bg-green-50 transition-colors">
                               <p className="text-[10px] text-green-400 font-black uppercase mb-1 tracking-widest">Income</p>
-                              <p className="text-xl font-black text-green-600">{formatCurrency(selectedUser.totalIncome)}</p>
+                              <p className="text-xl font-black text-green-600">{formatCurrency(selectedUser.totalIncome || 0)}</p>
                           </div>
                           <div className="p-5 bg-blue-50/50 rounded-3xl border-2 border-blue-100 text-center group hover:bg-blue-50 transition-colors">
                               <p className="text-[10px] text-blue-400 font-black uppercase mb-1 tracking-widest">Health Score</p>
@@ -499,8 +509,8 @@ export default function MasterData() {
                                               </div>
                                           </div>
                                           <div className="text-right">
-                                              <p className="font-mono font-black text-red-600">{formatCurrency(debt.remainingPrincipal)}</p>
-                                              <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 tracking-tight">Setoran: {formatCurrency(debt.monthlyPayment)}</p>
+                                              <p className="font-mono font-black text-red-600">{formatCurrency(debt.remainingPrincipal || 0)}</p>
+                                              <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 tracking-tight">Setoran: {formatCurrency(debt.monthlyPayment || 0)}</p>
                                           </div>
                                       </div>
                                   ))}
@@ -522,7 +532,7 @@ export default function MasterData() {
           </div>
       )}
 
-      {/* BANK MODAL (STAYS SAME LOGIC) */}
+      {/* BANK MODAL */}
       {isFormOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4 animate-fade-in">
           <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl border border-white/20">

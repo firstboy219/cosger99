@@ -10,7 +10,14 @@ export enum LoanType {
 export interface SyncMetadata {
   _deleted?: boolean;
   updatedAt?: string; // ISO String
-  updated_at?: string; // SQL Compatibility
+}
+
+export interface BankData extends SyncMetadata {
+  id: string;
+  name: string;
+  promoRate: number;
+  fixedYear: number;
+  type: 'KPR' | 'KKB' | 'KTA';
 }
 
 // NEW: AI Agent Configuration (V44.22)
@@ -19,7 +26,6 @@ export interface AIAgent extends SyncMetadata {
   name: string;
   description: string;
   systemInstruction: string; // The prompt
-  system_instruction?: string; // SQL
   model: string; // gemini-1.5-flash, etc.
   temperature?: number;
 }
@@ -44,9 +50,7 @@ export interface AppConfig extends SyncMetadata {
     
     // Backend
     backendUrl?: string;
-    backend_url?: string;
     sourceCodeUrl?: string;
-    source_code_url?: string;
     
     // Database Tools Config (NEW)
     diagnosticUrl?: string; // Link to API Diagnostic
@@ -81,9 +85,7 @@ export interface AppConfig extends SyncMetadata {
     
     // Nested Logic
     systemRules?: SystemRules; 
-    system_rules?: SystemRules;
     advancedConfig?: AdvancedConfig; 
-    advanced_config?: AdvancedConfig;
 }
 
 export interface Ticket {
@@ -97,9 +99,7 @@ export interface Ticket {
   source: 'qa_auto' | 'manual' | 'user_report';
   assignedTo?: string;
   createdAt: string;
-  created_at?: string;
   resolvedAt?: string;
-  resolved_at?: string;
   resolutionNote?: string;
   fixLogs?: string[]; 
   isRolledBack?: boolean;
@@ -190,25 +190,20 @@ export interface User {
   role: 'admin' | 'user';
   status: 'active' | 'pending_verification' | 'inactive';
   lastLogin?: string; 
-  last_login?: string; // SQL Sync
   parentUserId?: string | null; 
-  parent_user_id?: string | null;
   createdAt: string;
-  created_at?: string;
   photoUrl?: string; 
-  photo_url?: string;
   sessionToken?: string; 
-  session_token?: string;
   
   riskProfile?: 'Conservative' | 'Moderate' | 'Aggressive';
   bigWhyUrl?: string; 
   financialFreedomTarget?: number; 
   badges?: string[]; 
   
-  // Analytics Fields (Snake Case for Admin Dashboard)
-  total_debt?: number;
-  total_income?: number;
-  monthly_obligation?: number;
+  // Analytics Fields (Admin Dashboard)
+  totalDebt?: number;
+  totalIncome?: number;
+  monthlyObligation?: number;
 }
 
 export interface Badge {
@@ -222,12 +217,9 @@ export interface Badge {
 export interface SinkingFund extends SyncMetadata {
   id: string;
   userId: string;
-  user_id?: string;
   name: string;
   targetAmount: number;
-  target_amount?: number;
   currentAmount: number;
-  current_amount?: number;
   deadline: string;
   icon: string;
   color: string;
@@ -242,39 +234,25 @@ export interface StepUpRange {
 export interface DebtItem extends SyncMetadata {
   id: string;
   userId: string; 
-  user_id?: string;
   name: string;
   type: LoanType;
   originalPrincipal: number; 
-  original_principal?: number;
   totalLiability: number; 
-  total_liability?: number;
   startDate: string; 
-  start_date?: string;
   endDate: string; 
-  end_date?: string;
   dueDate: number; 
-  due_date?: number;
   
   monthlyPayment: number; 
-  monthly_payment?: number;
   remainingPrincipal: number; 
-  remaining_principal?: number;
   interestRate: number; 
-  interest_rate?: number;
   remainingMonths: number;
-  remaining_months?: number;
   monthsPassed?: number;
   
   bankName?: string;
-  bank_name?: string;
   createdAt?: string; 
-  created_at?: string;
 
   interestStrategy?: 'Fixed' | 'StepUp';
-  interest_strategy?: 'Fixed' | 'StepUp';
   stepUpSchedule?: StepUpRange[];
-  step_up_schedule?: StepUpRange[];
 
   payoffMethod?: 'direct_extra' | 'sinking_fund'; 
   allocatedExtraBudget?: number; 
@@ -285,19 +263,13 @@ export interface DebtItem extends SyncMetadata {
 export interface DebtInstallment extends SyncMetadata {
   id: string;
   debtId: string;
-  debt_id?: string;
   userId: string;
-  user_id?: string;
   period: number; 
   dueDate: string; 
-  due_date?: string;
   amount: number;
   principalPart: number;
-  principal_part?: number;
   interestPart: number;
-  interest_part?: number;
   remainingBalance: number;
-  remaining_balance?: number;
   status: 'pending' | 'paid' | 'overdue';
   notes?: string; 
 }
@@ -305,27 +277,23 @@ export interface DebtInstallment extends SyncMetadata {
 export interface IncomeItem extends SyncMetadata {
   id: string;
   userId: string; 
-  user_id?: string;
   source: string;
   amount: number;
   type: 'active' | 'passive' | 'windfall'; 
   frequency: 'monthly' | 'one-time';
   dateReceived?: string;
-  date_received?: string;
   notes?: string;
 }
 
 export interface ExpenseItem extends SyncMetadata {
   id: string;
   userId: string; 
-  user_id?: string;
   name: string;
   amount: number;
   category: 'needs' | 'wants' | 'debt';
   assignedAccountId: string | null;
   priority: number;
   isTransferred: boolean; 
-  is_transferred?: boolean;
   debtId?: string; 
   isRecurring?: boolean; 
 }
@@ -333,7 +301,6 @@ export interface ExpenseItem extends SyncMetadata {
 export interface DailyExpense extends SyncMetadata {
   id: string;
   userId: string; 
-  user_id?: string;
   date: string; 
   title: string;
   amount: number;
@@ -379,12 +346,10 @@ export interface AnalysisResponse {
 export interface TaskItem extends SyncMetadata {
   id: string;
   userId: string; 
-  user_id?: string;
   title: string;
   category: 'Administration' | 'Payment' | 'Negotiation' | 'Investment' | 'Business';
   status: 'pending' | 'completed';
   dueDate?: string;
-  due_date?: string;
   context?: 'Debt Acceleration' | 'Financial Freedom' | 'Routine Bill' | 'Manual' | 'System' | 'Allocation';
 }
 
@@ -402,14 +367,10 @@ export interface Opportunity {
 export interface PaymentRecord extends SyncMetadata {
   id: string; 
   debtId: string;
-  debt_id?: string;
   userId: string; 
-  user_id?: string;
   amount: number;
   paidDate: string; 
-  paid_date?: string;
   sourceBank: string;
-  source_bank?: string;
   status: 'paid';
 }
 

@@ -39,7 +39,6 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
   };
   
   const [formData, setFormData] = useState(initialForm);
-  const [activeStepUpYear, setActiveStepUpYear] = useState<number>(1); // UI helper for adding years
 
   const activeDebts = useMemo(() => (debts || []).filter(d => !d._deleted), [debts]);
 
@@ -142,16 +141,19 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
         remainingMonths: 180 // Recalculated in utility
     };
 
-    // Regenerate Installments based on new logic
-    const insts = generateInstallmentsForDebt(newDebt, []);
+    // 1. GENERATE INSTALLMENTS (Jadwal Cicilan)
+    // Pass existing installments if editing to preserve IDs/Status
+    const existingInsts = editingId && debtInstallments ? debtInstallments.filter(i => i.debtId === editingId) : [];
+    const newInstallments = generateInstallmentsForDebt(newDebt, existingInsts);
     
     // Recalculate remainingMonths & liability based on schedule
-    newDebt.remainingMonths = insts.length;
-    newDebt.totalLiability = insts.reduce((a, b) => a + b.amount, 0);
+    newDebt.remainingMonths = newInstallments.length;
+    newDebt.totalLiability = newInstallments.reduce((a, b) => a + b.amount, 0);
 
+    // 2. PUSH TO CLOUD (Include debtInstallments in payload)
     const success = await pushPartialUpdate(userId, { 
         debts: [newDebt], 
-        debtInstallments: insts 
+        debtInstallments: newInstallments // This saves to 'debt_installments' table
     });
 
     if (success) {
@@ -159,17 +161,17 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
             setDebts(prev => prev.map(d => d.id === editingId ? newDebt : d));
             if (setDebtInstallments) setDebtInstallments(prev => {
                 const filtered = prev.filter(i => i.debtId !== editingId);
-                return [...filtered, ...insts];
+                return [...filtered, ...newInstallments];
             });
         } else {
             setDebts(prev => [...prev, newDebt]);
-            if (setDebtInstallments) setDebtInstallments(prev => [...prev, ...insts]);
+            if (setDebtInstallments) setDebtInstallments(prev => [...prev, ...newInstallments]);
         }
         setIsModalOpen(false);
         setEditingId(null);
         setFormData(initialForm);
     } else {
-        alert("Gagal sinkronisasi ke Cloud.");
+        alert("Gagal sinkronisasi ke Cloud. Data tersimpan lokal.");
     }
     setIsSyncing(false);
   };

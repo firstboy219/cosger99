@@ -257,7 +257,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
           </div>
 
           <div className="flex items-center gap-3">
-            {/* HIDDEN IN AUTO SYNC MODE */}
+            {/* MANUAL MODE CONTROLS */}
             {!isAutoSync && (
                 <div className="flex items-center gap-2 animate-fade-in">
                     <button onClick={handleManualPull} disabled={isPulling || syncStatus === 'pushing'} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-brand-600" title="Tarik Data (Manual)">
@@ -265,12 +265,18 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
                         Tarik
                     </button>
 
-                    {hasUnsavedChanges && (
-                        <button onClick={initiateSync} disabled={syncStatus === 'pushing' || isPulling} className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-lg border bg-brand-600 text-white border-brand-600 hover:bg-brand-700 shadow-brand-500/20">
-                            {syncStatus === 'pushing' ? <RefreshCw size={14} className="animate-spin" /> : <CloudUpload size={14} />}
-                            Simpan ke Cloud
-                        </button>
-                    )}
+                    <button 
+                        onClick={initiateSync} 
+                        disabled={syncStatus === 'pushing' || isPulling} 
+                        className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition shadow-lg border ${
+                            hasUnsavedChanges 
+                            ? 'bg-brand-600 text-white border-brand-600 hover:bg-brand-700 shadow-brand-500/20' 
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                    >
+                        {syncStatus === 'pushing' ? <RefreshCw size={14} className="animate-spin" /> : <CloudUpload size={14} />}
+                        {hasUnsavedChanges ? 'Simpan Perubahan' : 'Sync / Payload'}
+                    </button>
                 </div>
             )}
 

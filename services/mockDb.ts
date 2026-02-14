@@ -1,5 +1,5 @@
 
-import { User, DebtItem, TaskItem, IncomeItem, DailyExpense, PaymentRecord, SinkingFund, Badge, ExpenseItem, DebtInstallment, SystemRules, AdvancedConfig, Ticket, QAScenario, QARunHistory, AIAgent, AppConfig, LoanType } from '../types';
+import { User, DebtItem, TaskItem, IncomeItem, DailyExpense, PaymentRecord, SinkingFund, Badge, ExpenseItem, DebtInstallment, SystemRules, AdvancedConfig, Ticket, QAScenario, QARunHistory, AIAgent, AppConfig, LoanType, BankData } from '../types';
 
 // This service simulates a NoSQL Database (like MongoDB) running in the browser.
 // It persists data to localStorage so it survives refreshes.
@@ -20,6 +20,7 @@ export interface DBSchema {
   qaScenarios: QAScenario[];
   qaHistory: QARunHistory[];
   baConfigurations: { id: string; type: string; data: any; updatedAt: string }[];
+  banks: BankData[]; // Added for Backend Parity
   
   // V44.22 Updates
   aiAgents: AIAgent[];
@@ -211,6 +212,11 @@ const INITIAL_DB: DBSchema = {
   qaScenarios: [], 
   qaHistory: [], 
   baConfigurations: [], 
+  banks: [
+      { id: 'b1', name: 'Bank Mandiri', promoRate: 6.5, fixedYear: 3, type: 'KPR' },
+      { id: 'b2', name: 'BCA', promoRate: 5.5, fixedYear: 2, type: 'KPR' },
+      { id: 'b3', name: 'BRI', promoRate: 7.0, fixedYear: 5, type: 'KPR' }
+  ],
   aiAgents: DEFAULT_AGENTS, 
   config: {
     googleClientId: '417959019304-kdsk1t0rr6l9gukogsmrpavip31fj5f6.apps.googleusercontent.com', 
@@ -306,6 +312,16 @@ export const getDB = (): DBSchema => {
   }
   if (!parsed.config) {
       parsed.config = INITIAL_DB.config;
+      needsSave = true;
+  }
+  // Ensure debtInstallments exists
+  if (!parsed.debtInstallments) {
+      parsed.debtInstallments = [];
+      needsSave = true;
+  }
+  // Ensure banks exists
+  if (!parsed.banks) {
+      parsed.banks = INITIAL_DB.banks;
       needsSave = true;
   }
   

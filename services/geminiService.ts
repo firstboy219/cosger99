@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { DebtItem, Opportunity, TaskItem } from "../types";
 import { getConfig, getAgentConfig } from "./mockDb";
@@ -7,7 +6,7 @@ const getAgent = (id: string) => {
     const agent = getAgentConfig(id);
     return {
         model: agent?.model || 'gemini-3-flash-preview',
-        systemInstruction: agent?.systemInstruction || agent?.system_instruction || ''
+        systemInstruction: agent?.systemInstruction || ''
     };
 };
 

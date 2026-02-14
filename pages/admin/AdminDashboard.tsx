@@ -9,7 +9,7 @@ import {
   Users, DollarSign, TrendingUp, AlertTriangle, Database, 
   RefreshCw, Search, CheckCircle2, 
   Terminal, AlertCircle, WifiOff, UserCheck, 
-  LayoutDashboard, Fingerprint, Clock, CloudLightning, FileCode, Server, Copy, Check, Code, ScanLine, ArrowDown, ArrowUp, Activity, ShieldAlert, Zap, Wrench, ExternalLink, Settings, ShieldQuestion, PlayCircle, X, ArrowRight, HardDrive, Wifi
+  LayoutDashboard, Fingerprint, Clock, CloudLightning, FileCode, Server, Copy, Check, Code, ScanLine, ArrowDown, ArrowUp, Activity, ShieldAlert, Zap, Wrench, ExternalLink, Settings, ShieldQuestion, PlayCircle, X, ArrowRight, HardDrive, Wifi, Eye, ArrowUpRight, ArrowDownLeft
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -19,13 +19,10 @@ interface RealUser {
     email: string;
     role: string;
     status: string;
-    last_login?: string;
-    total_debt?: number;
+    lastLogin?: string;
     totalDebt?: number;
-    total_income?: number;
     totalIncome?: number;
     dsr?: number;
-    monthly_obligation?: number;
     monthlyObligation?: number;
 }
 
@@ -36,6 +33,16 @@ interface DiagnosticStep {
     message?: string;
     fixAction?: () => void;
     fixLabel?: string;
+}
+
+interface NetworkLog {
+    id: string;
+    timestamp: Date;
+    method: string;
+    url: string;
+    status: number;
+    response: any;
+    payload?: any;
 }
 
 export default function AdminDashboard() {
@@ -59,8 +66,9 @@ export default function AdminDashboard() {
   const [diagSteps, setDiagSteps] = useState<DiagnosticStep[]>([]);
   const [isDiagRunning, setIsDiagRunning] = useState(false);
 
-  const [syncLogs, setSyncLogs] = useState<LogItem[]>([]);
-  const [selectedLog, setSelectedLog] = useState<LogItem | null>(null);
+  // REAL TIME LOGS (For Widget Only, Toast is Global now)
+  const [networkLogs, setNetworkLogs] = useState<NetworkLog[]>([]);
+  const [selectedNetworkLog, setSelectedNetworkLog] = useState<NetworkLog | null>(null);
 
   const fetchData = async () => {
       setLoading(true);
@@ -104,21 +112,22 @@ export default function AdminDashboard() {
                  const data = getUserData(u.id);
                  return {
                      ...u,
-                     last_login: u.lastLogin, 
-                     total_debt: data.debts.reduce((a, b) => a + (b.remainingPrincipal || 0), 0),
-                     total_income: data.incomes.reduce((a, b) => a + (b.amount || 0), 0),
-                     monthly_obligation: data.debts.reduce((a, b) => a + (b.monthlyPayment || 0), 0)
+                     lastLogin: u.lastLogin, 
+                     totalDebt: data.debts.reduce((a, b) => a + (b.remainingPrincipal || 0), 0),
+                     totalIncome: data.incomes.reduce((a, b) => a + (b.amount || 0), 0),
+                     monthlyObligation: data.debts.reduce((a, b) => a + (b.monthlyPayment || 0), 0)
                  };
               });
           }
           
           setUsers(userData);
-          const totalDebt = userData.reduce((acc: number, u: any) => acc + (Number(u.total_debt || u.totalDebt) || 0), 0);
-          const totalIncome = userData.reduce((acc: number, u: any) => acc + (Number(u.total_income || u.totalIncome) || 0), 0);
+          // Strictly use camelCase properties
+          const totalDebt = userData.reduce((acc: number, u: any) => acc + (Number(u.totalDebt) || 0), 0);
+          const totalIncome = userData.reduce((acc: number, u: any) => acc + (Number(u.totalIncome) || 0), 0);
           const active = userData.filter((u: any) => u.status === 'active').length;
           const risky = userData.filter((u: any) => {
-              const debt = Number(u.monthly_obligation || u.monthlyObligation) || 0;
-              const inc = Number(u.total_income || u.totalIncome) || 1; 
+              const debt = Number(u.monthlyObligation) || 0;
+              const inc = Number(u.totalIncome) || 1; 
               return (debt / inc) * 100 > 50;
           }).length;
 
@@ -180,15 +189,71 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => {
-        const logs = getLogs();
-        setSyncLogs(logs.filter(l => l.category === 'System' && (l.action.includes('DB Read') || l.action.includes('DB Write'))));
-    }, 5000);
-    return () => clearInterval(interval);
+    
+    // LISTENER FOR LIVE TRAFFIC WIDGET
+    const handleNetworkLog = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        const newLog: NetworkLog = {
+            id: `net-${Date.now()}-${Math.random()}`,
+            ...detail
+        };
+        setNetworkLogs(prev => [newLog, ...prev.slice(0, 49)]); // Keep last 50
+    };
+
+    window.addEventListener('PAYDONE_API_RESPONSE', handleNetworkLog);
+    return () => window.removeEventListener('PAYDONE_API_RESPONSE', handleNetworkLog);
   }, []);
 
   return (
     <div className="space-y-6">
+      
+      {/* RAW RESPONSE MODAL FOR WIDGET INTERACTION (SPLIT VIEW) */}
+      {selectedNetworkLog && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+              <div className="bg-slate-900 rounded-[2rem] w-full max-w-5xl shadow-2xl border border-slate-700 flex flex-col h-[85vh] overflow-hidden">
+                  <div className="p-6 border-b border-slate-800 bg-black/20 flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                          <div className={`px-3 py-1 rounded-lg text-xs font-black uppercase ${selectedNetworkLog.method === 'GET' ? 'bg-blue-600 text-white' : 'bg-orange-600 text-white'}`}>{selectedNetworkLog.method}</div>
+                          <div className="text-sm font-mono text-slate-300">{selectedNetworkLog.url}</div>
+                      </div>
+                      <button onClick={() => setSelectedNetworkLog(null)} className="text-slate-500 hover:text-white transition"><X size={24}/></button>
+                  </div>
+                  
+                  <div className="flex-1 flex overflow-hidden">
+                      {/* LEFT: REQUEST PAYLOAD */}
+                      <div className="flex-1 border-r border-slate-800 bg-slate-950 flex flex-col min-w-0">
+                          <div className="p-3 border-b border-slate-800 flex items-center gap-2 text-xs font-bold text-blue-400 uppercase tracking-widest bg-slate-900/50">
+                              <ArrowUpRight size={14}/> Request Payload
+                          </div>
+                          <div className="flex-1 overflow-auto p-6 custom-scrollbar font-mono text-xs text-blue-300 bg-slate-950">
+                              {selectedNetworkLog.payload ? (
+                                  <pre className="whitespace-pre-wrap">{JSON.stringify(selectedNetworkLog.payload, null, 2)}</pre>
+                              ) : (
+                                  <div className="text-slate-600 italic">// No payload (GET Request)</div>
+                              )}
+                          </div>
+                      </div>
+
+                      {/* RIGHT: RESPONSE BODY */}
+                      <div className="flex-1 bg-black flex flex-col min-w-0">
+                          <div className="p-3 border-b border-slate-800 flex items-center gap-2 text-xs font-bold text-green-400 uppercase tracking-widest bg-slate-900/50">
+                              <ArrowDownLeft size={14}/> Server Response
+                          </div>
+                          <div className="flex-1 overflow-auto p-6 custom-scrollbar font-mono text-xs text-green-400 bg-black">
+                              <pre className="whitespace-pre-wrap">{JSON.stringify(selectedNetworkLog.response, null, 2)}</pre>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="p-4 border-t border-slate-800 bg-slate-950 flex justify-end">
+                      <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(selectedNetworkLog, null, 2)); alert("Copied Full Log!"); }} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 text-xs font-bold uppercase transition">
+                          <Copy size={14}/> Copy Full Log
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
@@ -298,47 +363,58 @@ export default function AdminDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[400px]">
           <BackendHealthCheck />
+          
+          {/* TRAFFIC ANALYZER WITH LIVE FEED */}
           <div className="bg-black rounded-[2rem] border border-slate-800 shadow-2xl overflow-hidden flex flex-col">
               <div className="p-4 border-b border-slate-800 bg-slate-950 flex justify-between items-center">
                   <div className="flex items-center gap-3">
                       <Terminal size={18} className="text-green-500 animate-pulse" />
                       <h3 className="font-bold text-xs text-green-400 font-mono tracking-widest uppercase">Traffic Protocol Analyzer</h3>
                   </div>
-                  <div className="flex gap-1"><div className="w-1.5 h-1.5 rounded-full bg-red-500/20"></div><div className="w-1.5 h-1.5 rounded-full bg-green-500/20"></div></div>
+                  <div className="flex gap-2">
+                      <span className="text-[9px] text-slate-500 font-mono">{networkLogs.length} Events</span>
+                      <div className="flex gap-1"><div className="w-1.5 h-1.5 rounded-full bg-red-500/20"></div><div className="w-1.5 h-1.5 rounded-full bg-green-500/20"></div></div>
+                  </div>
               </div>
               <div className="flex-1 flex overflow-hidden">
                   <div className="w-1/3 border-r border-slate-800 overflow-y-auto custom-scrollbar bg-slate-900/50">
-                      {syncLogs.length === 0 ? <div className="p-8 text-center text-slate-600 text-[10px] font-mono uppercase tracking-widest">Awaiting traffic...</div> : syncLogs.map(log => (
-                          <div key={log.id} onClick={() => setSelectedLog(log)} className={`p-4 border-b border-slate-800 cursor-pointer hover:bg-slate-800 transition ${selectedLog?.id === log.id ? 'bg-slate-800 border-l-4 border-l-green-500' : ''}`}>
-                              <div className="flex justify-between items-center mb-1.5">
-                                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter ${log.action.includes('Write') ? 'bg-blue-900 text-blue-300' : 'bg-green-900 text-green-300'}`}>
-                                      {log.action.includes('Write') ? 'PUSH_TX' : 'PULL_REQ'}
+                      {networkLogs.length === 0 ? <div className="p-8 text-center text-slate-600 text-[10px] font-mono uppercase tracking-widest">Awaiting traffic...</div> : networkLogs.map(log => (
+                          <div key={log.id} onClick={() => setSelectedNetworkLog(log)} className={`p-3 border-b border-slate-800 cursor-pointer hover:bg-slate-800 transition ${selectedNetworkLog?.id === log.id ? 'bg-slate-800 border-l-2 border-l-green-500' : ''}`}>
+                              <div className="flex justify-between items-center mb-1">
+                                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter ${log.method === 'GET' ? 'bg-blue-900 text-blue-300' : log.method === 'DELETE' ? 'bg-red-900 text-red-300' : 'bg-orange-900 text-orange-300'}`}>
+                                      {log.method}
                                   </span>
-                                  <span className="text-[9px] text-slate-500 font-mono">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                                  <span className={`text-[9px] font-mono ${log.status === 200 ? 'text-green-500' : 'text-red-500'}`}>{log.status}</span>
                               </div>
-                              <div className="text-[10px] text-slate-300 font-mono truncate">{log.action}</div>
+                              <div className="text-[9px] text-slate-400 font-mono truncate" title={log.url}>{log.url.split('/api')[1] || log.url}</div>
+                              <div className="text-[8px] text-slate-600 mt-1 text-right">{log.timestamp.toLocaleTimeString()}</div>
                           </div>
                       ))}
                   </div>
                   <div className="w-2/3 bg-black p-6 overflow-auto custom-scrollbar">
-                      {selectedLog ? (
-                          <div className="font-mono text-[11px] leading-relaxed">
-                              <div className="mb-6 pb-3 border-b border-slate-800 flex justify-between items-start">
+                      {selectedNetworkLog ? (
+                          <div className="font-mono text-[11px] leading-relaxed space-y-4">
+                              <div className="pb-3 border-b border-slate-800 flex justify-between items-start">
                                   <div>
-                                    <span className="text-slate-500 block mb-1 uppercase text-[9px] font-black tracking-widest">Transaction Hash</span>
-                                    <span className="text-white font-bold text-xs">{selectedLog.id}</span>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className="text-slate-500 block mb-1 uppercase text-[9px] font-black tracking-widest">Origin</span>
-                                    <span className="text-green-500 font-bold">{selectedLog.username}</span>
+                                    <span className="text-slate-500 block mb-1 uppercase text-[9px] font-black tracking-widest">Endpoint</span>
+                                    <span className="text-white font-bold text-xs break-all">{selectedNetworkLog.url}</span>
                                   </div>
                               </div>
-                              <div className="text-green-400 whitespace-pre-wrap">{selectedLog.details}</div>
+                              {selectedNetworkLog.payload && (
+                                  <div>
+                                      <span className="text-blue-500 block mb-1 uppercase text-[9px] font-black tracking-widest">Payload Sent</span>
+                                      <div className="text-blue-300 whitespace-pre-wrap">{JSON.stringify(selectedNetworkLog.payload, null, 2)}</div>
+                                  </div>
+                              )}
+                              <div>
+                                  <span className="text-green-500 block mb-1 uppercase text-[9px] font-black tracking-widest">Response</span>
+                                  <div className="text-green-400 whitespace-pre-wrap">{JSON.stringify(selectedNetworkLog.response, null, 2)}</div>
+                              </div>
                           </div>
                       ) : (
                         <div className="h-full flex flex-col items-center justify-center text-slate-800 text-center px-10">
                             <ScanLine size={48} className="mb-4 opacity-10 animate-pulse"/>
-                            <p className="font-mono text-[10px] uppercase tracking-[0.3em] opacity-30 italic">Initialize analyzer scan...</p>
+                            <p className="font-mono text-[10px] uppercase tracking-[0.3em] opacity-30 italic">Select a packet to inspect payload...</p>
                         </div>
                       )}
                   </div>

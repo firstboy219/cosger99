@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { IncomeItem } from '../types';
 import { formatCurrency } from '../services/financeUtils';

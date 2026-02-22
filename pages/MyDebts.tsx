@@ -472,11 +472,23 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
             // Generate installments after successful save
             const finalDebt = savedItem;
 
-            // V50.21 CRITICAL FIX: DELETE all old installments for this debt_id from cloud FIRST
+            // CLEAN SLATE PROTOCOL: DELETE all old installments for this debt FIRST
             // This prevents data doubling when editing an existing debt with new step-up schedule
-            const existingInstallmentsForDebt = debtInstallments.filter(i => i.debtId === finalDebt.id);
-            if (editingId && existingInstallmentsForDebt.length > 0) {
-                for (const oldInst of existingInstallmentsForDebt) {
+            // We delete ALL known installments (both from local state AND local DB)
+            const allKnownInstallments = [
+                ...debtInstallments.filter(i => i.debtId === finalDebt.id),
+                ...(getUserData(userId).debtInstallments || []).filter((i: any) => i.debtId === finalDebt.id)
+            ];
+            // Deduplicate by ID
+            const uniqueInstIds = new Set<string>();
+            const installmentsToDelete = allKnownInstallments.filter(i => {
+                if (uniqueInstIds.has(i.id)) return false;
+                uniqueInstIds.add(i.id);
+                return true;
+            });
+
+            if (installmentsToDelete.length > 0) {
+                for (const oldInst of installmentsToDelete) {
                     try {
                         await deleteFromCloud(userId, 'debtInstallments', oldInst.id);
                     } catch (e) {
@@ -485,23 +497,30 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
                 }
             }
 
+            // IMPORTANT: Ensure the debt passed to generateInstallmentsForDebt has the
+            // FULL stepUpSchedule array (not just the first element's amount as monthlyPayment)
+            const debtForGeneration: DebtItem = {
+                ...finalDebt,
+                stepUpSchedule: finalStepUpSchedule.length > 0 ? finalStepUpSchedule : finalDebt.stepUpSchedule
+            };
+
             // Now generate fresh installments using the correct step-up ranges
-            const newInstallments = generateInstallmentsForDebt(finalDebt, [], true);
+            const newInstallments = generateInstallmentsForDebt(debtForGeneration, [], true);
             
             if (newInstallments.length > 0 && setDebtInstallments) {
-              // Replace installments for this debt (local state)
+              // Replace installments for this debt (local state) - clean slate
               setDebtInstallments(prev => {
                 const otherInstallments = prev.filter(i => i.debtId !== finalDebt.id);
                 return [...otherInstallments, ...newInstallments];
               });
 
-              // Save to local DB
+              // Save to local DB - clean slate
               const userData = getUserData(userId);
-              const otherInstLocal = (userData.debtInstallments || []).filter(i => i.debtId !== finalDebt.id);
+              const otherInstLocal = (userData.debtInstallments || []).filter((i: any) => i.debtId !== finalDebt.id);
               saveUserData(userId, { debtInstallments: [...otherInstLocal, ...newInstallments] });
 
-              // Sync installments to cloud in batches (limit to first 6 to avoid rate limiting)
-              for (let idx = 0; idx < Math.min(newInstallments.length, 6); idx++) {
+              // Sync installments to cloud (sync up to 12 to cover typical tenor)
+              for (let idx = 0; idx < Math.min(newInstallments.length, 12); idx++) {
                 try {
                   await saveItemToCloud('debtInstallments', {
                     ...newInstallments[idx],

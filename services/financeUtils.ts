@@ -43,8 +43,10 @@ export const calculatePMT = (rate: number, nper: number, pv: number): number => 
   return isFinite(pmt) ? pmt : 0;
 };
 
-export const formatCurrency = (amount: number): string => {
-  const safeAmount = isNaN(amount) || !isFinite(amount) ? 0 : amount;
+export const formatCurrency = (amount: number | string): string => {
+  // SAFETY NET: Always coerce to Number first to handle string values from DB
+  const numAmount = typeof amount === 'string' ? Number(amount.replace(/[^0-9.\-]+/g, '')) : Number(amount);
+  const safeAmount = isNaN(numAmount) || !isFinite(numAmount) ? 0 : numAmount;
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
@@ -127,11 +129,12 @@ export const generateInstallmentsForDebt = (
     } else if (typeof debt.stepUpSchedule === 'string') {
         try { stepUpScheduleRaw = JSON.parse(debt.stepUpSchedule); } catch(e) { console.error("StepUp Parse Error", e); }
     }
-    // Normalize every entry to { mulai, akhir, cicilan } for the loop below
+    // Normalize every entry to CONSISTENT keys { startMonth, endMonth, amount }
+    // This fixes the property-name mismatch that caused .find() to always return undefined
     const stepUpSchedule = stepUpScheduleRaw.map((r: any) => ({
-        mulai: Number(r.startMonth ?? r.start_month ?? r.mulai ?? 0),
-        akhir: Number(r.endMonth ?? r.end_month ?? r.akhir ?? 0),
-        cicilan: Number(r.amount ?? r.cicilan ?? 0)
+        startMonth: Number(r.startMonth ?? r.start_month ?? r.mulai ?? 0),
+        endMonth: Number(r.endMonth ?? r.end_month ?? r.akhir ?? 0),
+        amount: Number(r.amount ?? r.cicilan ?? 0)
     }));
 
     // --- CALCULATE ANNUITY FIXED PAYMENT (If needed) ---
@@ -164,10 +167,11 @@ export const generateInstallmentsForDebt = (
             // Default amount from main field if no range matches
             monthlyAmount = Number(debt.monthlyPayment || 0);
             
-            // Find active range
-            const activeRange = stepUpSchedule.find((range: any) => i >= Number(range.startMonth) && i <= Number(range.endMonth));
+            // CRITICAL FIX: Use .find() with the CORRECT normalized keys (startMonth/endMonth/amount)
+            // Previously this used mismatched keys causing .find() to always return undefined
+            const activeRange = stepUpSchedule.find(range => i >= range.startMonth && i <= range.endMonth);
             if (activeRange) {
-                monthlyAmount = Number(activeRange.amount);
+                monthlyAmount = activeRange.amount;
             }
 
             // In Step Up, typically interest is Effective (based on remaining balance)
@@ -292,7 +296,7 @@ export const generateGlobalProjection = (
         tempDebtsStd.forEach(d => {
             if (d.isPaid) return;
             
-            let pay = d.monthlyPayment;
+            let pay = Number(d.monthlyPayment || 0);
             
             // Handle Strategies in Projection
             if (d.normalizedStrategy === 'STEPUP' && d.parsedStepUp.length > 0) {
@@ -349,7 +353,7 @@ export const generateGlobalProjection = (
 
             // Mandatory Minimums
             targets.forEach(d => {
-                let pay = d.monthlyPayment;
+                let pay = Number(d.monthlyPayment || 0);
                 if ((d.normalizedStrategy === 'STEPUP') && d.parsedStepUp.length > 0) {
                     const absMonth = d.monthsPassedStart + m + 1;
                     const range = d.parsedStepUp.find((r: any) => absMonth >= Number(r.startMonth) && absMonth <= Number(r.endMonth));
@@ -395,7 +399,7 @@ export const generateGlobalProjection = (
 
             tempDebtsAcc.forEach(d => {
                 if (d.isPaid) return;
-                let pay = d.monthlyPayment;
+                let pay = Number(d.monthlyPayment || 0);
                 if ((d.normalizedStrategy === 'STEPUP') && d.parsedStepUp.length > 0) {
                     const absMonth = d.monthsPassedStart + m + 1;
                     const range = d.parsedStepUp.find((r: any) => absMonth >= Number(r.startMonth) && absMonth <= Number(r.endMonth));
@@ -488,7 +492,8 @@ export const generateCrossingAnalysis = (
     const data = [];
     
     // Living Cost (Non-Debt Allocations)
-    const monthlyLivingCost = expenses.filter(e => e.category !== 'debt').reduce((a,b) => a + b.amount, 0);
+    // CRITICAL FIX: Wrap every .amount in Number() to prevent string concatenation
+    const monthlyLivingCost = expenses.filter(e => e.category !== 'debt').reduce((a,b) => a + Number(b.amount || 0), 0);
 
     for (let i = 0; i <= LIMIT; i++) {
         const date = new Date(today.getFullYear(), today.getMonth() + i, 1);
@@ -502,10 +507,10 @@ export const generateCrossingAnalysis = (
             const currentSimDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
             
             if (currentSimDate >= startDate && currentSimDate <= endDate) {
-                let pay = d.monthlyPayment;
+                // CRITICAL FIX: Always coerce to Number to prevent string concatenation
+                let pay = Number(d.monthlyPayment || 0);
                 // Step Up Logic for Crossing
                 const monthsSinceStart = getMonthDiff(startDate, currentSimDate) + 1;
-                // Fix for TS overlap error: cast to string or normalize
                 let strategy = (d.interestStrategy || '').toUpperCase();
                 if (strategy === 'STEP_UP') strategy = 'STEPUP';
 
@@ -514,21 +519,21 @@ export const generateCrossingAnalysis = (
                     if (Array.isArray(d.stepUpSchedule)) parsedStepUp = d.stepUpSchedule;
                     else if (typeof d.stepUpSchedule === 'string') try { parsedStepUp = JSON.parse(d.stepUpSchedule); } catch(e) {}
 
-                    const range = parsedStepUp.find((r: any) => monthsSinceStart >= Number(r.startMonth) && monthsSinceStart <= Number(r.endMonth));
-                    if (range) pay = Number(range.amount);
+                    const range = parsedStepUp.find((r: any) => monthsSinceStart >= Number(r.startMonth || 0) && monthsSinceStart <= Number(r.endMonth || 0));
+                    if (range) pay = Number(range.amount || range.cicilan || 0);
                 }
-                totalDebtPayment += pay;
+                totalDebtPayment += Number(pay);
             }
         });
 
-        const totalExpense = monthlyLivingCost + totalDebtPayment;
-        const isDanger = totalExpense > income;
+        const totalExpense = Number(monthlyLivingCost) + Number(totalDebtPayment);
+        const isDanger = totalExpense > Number(income || 0);
 
         data.push({
             name: label,
-            Income: income,
-            Debt: totalDebtPayment,
-            TotalExpense: totalExpense,
+            Income: Number(income || 0),
+            Debt: Number(totalDebtPayment || 0),
+            TotalExpense: Number(totalExpense || 0),
             isDanger
         });
     }

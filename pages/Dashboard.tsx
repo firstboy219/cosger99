@@ -156,9 +156,9 @@ export default function Dashboard({
     const livingCost = allocations.filter(a => a.category !== 'debt').reduce((a, b) => a + Number(b.amount || 0), 0);
     const totalLivingCost = livingCost > 0 ? livingCost : (Number(income || 0) * 0.5); 
 
-    const totalExpense = monthlyDebtObligation + totalLivingCost;
-    const netCashflow = Number(income || 0) - totalExpense;
-    const dsr = Number(income || 0) > 0 ? (monthlyDebtObligation / Number(income || 0)) * 100 : 0;
+    const totalExpense = Number(monthlyDebtObligation) + Number(totalLivingCost);
+    const netCashflow = Number(income || 0) - Number(totalExpense);
+    const dsr = Number(income || 0) > 0 ? (Number(monthlyDebtObligation) / Number(income || 0)) * 100 : 0;
     
     const totalLiquid = sinkingFunds.reduce((a, b) => a + Number(b.currentAmount || 0), 0);
     const runway = totalExpense > 0 ? totalLiquid / totalExpense : 0;
@@ -186,7 +186,7 @@ export default function Dashboard({
   useEffect(() => {
       const projection = generateGlobalProjection(debts, extraPayment, 'snowball', freedomMode);
       setFreedomMatrix(projection);
-      const crossing = generateCrossingAnalysis(Number(income || 0), debts, allocations);
+      const crossing = generateCrossingAnalysis(Number(income) || 0, debts, allocations);
       setCrossingData(crossing);
   }, [debts, income, allocations, extraPayment, freedomMode]);
 
@@ -246,9 +246,9 @@ export default function Dashboard({
 
   // --- STRUCTURE DATA ---
   const structureData = [
-      { name: 'Kebutuhan', value: metrics.livingCost * 0.7, color: COLORS.needs, percent: 0 }, 
-      { name: 'Keinginan', value: metrics.livingCost * 0.3, color: COLORS.wants, percent: 0 },
-      { name: 'Cicilan Hutang', value: metrics.monthlyDebtObligation, color: COLORS.debt, percent: 0 },
+      { name: 'Kebutuhan', value: Number(metrics.livingCost || 0) * 0.7, color: COLORS.needs, percent: 0 }, 
+      { name: 'Keinginan', value: Number(metrics.livingCost || 0) * 0.3, color: COLORS.wants, percent: 0 },
+      { name: 'Cicilan Hutang', value: Number(metrics.monthlyDebtObligation || 0), color: COLORS.debt, percent: 0 },
   ];
   const totalStructure = structureData.reduce((a,b)=>a+b.value,0);
   structureData.forEach(item => { item.percent = totalStructure > 0 ? Math.round((item.value / totalStructure) * 100) : 0; });
@@ -703,7 +703,7 @@ export default function Dashboard({
                     <YAxis tickFormatter={(val) => `${val/1000000}jt`} tick={{fontSize: 10, fill: '#94a3b8'}} tickLine={false} axisLine={false} />
                     <Tooltip 
                       contentStyle={{borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', fontSize: '12px', padding: '8px 12px'}} 
-                      formatter={(val:number) => formatCurrency(val)}
+                      formatter={(val: any) => formatCurrency(Number(val || 0))}
                     />
                     <Legend verticalAlign="top" height={36} iconType="circle" />
                     <Line type="monotone" dataKey="Biasa" stroke="#cbd5e1" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} name="Jalur Biasa" />
@@ -781,7 +781,7 @@ export default function Dashboard({
                     <YAxis tickFormatter={(val: number) => `${(val/1000000).toFixed(0)}jt`} tick={{fontSize: 9, fill: '#94a3b8'}} tickLine={false} axisLine={false} width={45} />
                     <Tooltip 
                       contentStyle={{borderRadius: '12px', fontSize: '11px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', padding: '8px 12px'}} 
-                      formatter={(val: number, name: string) => [formatCurrency(val), name]}
+                      formatter={(val: any, name: string) => [formatCurrency(Number(val || 0)), name]}
                       labelStyle={{fontSize: '10px', fontWeight: 'bold', color: '#475569', marginBottom: '4px'}}
                     />
                     <Legend verticalAlign="top" iconType="circle" height={36} wrapperStyle={{fontSize: '10px', fontWeight: 'bold'}}/>

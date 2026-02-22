@@ -6,7 +6,10 @@ import {
   TrendingUp, AlertTriangle, ChevronRight, Calculator, Lock, Zap, Sparkles, X,
   BarChart3, Calendar, Target, Users, ArrowDown, Star, Clock, DollarSign,
   ChevronDown, Play, Shield, Eye, Percent, Banknote, LineChart, Flame,
-  Award, Heart, Menu, ArrowUpRight, MousePointer, RefreshCw
+  Award, Heart, Menu, ArrowUpRight, MousePointer, RefreshCw,
+  Smartphone, Wifi, WifiOff, Layers, FileText, Receipt, Landmark, 
+  CircleDollarSign, ArrowDownUp, GitCompare, Lightbulb, BookOpen,
+  CreditCard, Home, Car, BadgePercent, Megaphone
 } from 'lucide-react';
 import { formatCurrency } from '../services/financeUtils';
 import { getConfig } from '../services/mockDb';
@@ -243,6 +246,158 @@ function FAQItem({ q, a, open, onClick }: { q: string; a: string; open: boolean;
   );
 }
 
+/* ─── Strategy Comparison Card ─── */
+function StrategyCard({ title, subtitle, desc, icon: Icon, color, pros, cons, example }: {
+  title: string; subtitle: string; desc: string; icon: any; color: 'amber' | 'blue';
+  pros: string[]; cons: string[]; example: { debts: string[]; saved: string };
+}) {
+  const { ref, inView } = useInView(0.15);
+  const colorMap = {
+    amber: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', ring: 'bg-amber-100', accent: 'bg-amber-600' },
+    blue: { bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', ring: 'bg-blue-100', accent: 'bg-blue-600' },
+  };
+  const c = colorMap[color];
+
+  return (
+    <div
+      ref={ref}
+      className={`bg-white p-8 rounded-3xl border ${c.border} shadow-sm hover:shadow-xl transition-all duration-500 ${inView ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'}`}
+    >
+      <div className="flex items-center gap-3 mb-5">
+        <div className={`w-12 h-12 ${c.bg} ${c.text} rounded-2xl flex items-center justify-center`}>
+          <Icon size={24} />
+        </div>
+        <div>
+          <h3 className="font-bold text-lg text-slate-900">{title}</h3>
+          <p className={`text-xs font-bold ${c.text}`}>{subtitle}</p>
+        </div>
+      </div>
+      <p className="text-sm text-slate-500 leading-relaxed mb-6">{desc}</p>
+
+      <div className="space-y-2 mb-5">
+        {pros.map((p, i) => (
+          <div key={i} className="flex items-start gap-2 text-sm">
+            <CheckCircle2 size={15} className="text-emerald-500 mt-0.5 flex-shrink-0" />
+            <span className="text-slate-600">{p}</span>
+          </div>
+        ))}
+        {cons.map((c2, i) => (
+          <div key={i} className="flex items-start gap-2 text-sm">
+            <AlertTriangle size={15} className="text-amber-400 mt-0.5 flex-shrink-0" />
+            <span className="text-slate-400">{c2}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className={`p-4 ${c.bg} rounded-xl border ${c.border}`}>
+        <p className={`text-[10px] font-bold ${c.text} uppercase tracking-wider mb-2`}>Contoh Urutan Pelunasan</p>
+        <div className="space-y-1.5">
+          {example.debts.map((d, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs text-slate-600">
+              <span className={`w-5 h-5 ${c.accent} text-white rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0`}>{i + 1}</span>
+              {d}
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 pt-3 border-t border-dashed border-slate-200/80 text-center">
+          <p className="text-[10px] text-slate-400 uppercase font-bold">Estimasi Hemat Bunga</p>
+          <p className={`text-xl font-black ${c.text}`}>{example.saved}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Tool Showcase Card ─── */
+function ToolShowcase({ icon: Icon, title, desc, tags, color, visual }: {
+  icon: any; title: string; desc: string; tags: string[]; color: string; visual: string;
+}) {
+  const { ref, inView } = useInView(0.1);
+  const colorMap: Record<string, { bg: string; text: string; tagBg: string; tagText: string; barColor: string }> = {
+    blue: { bg: 'bg-blue-50', text: 'text-blue-600', tagBg: 'bg-blue-50', tagText: 'text-blue-600', barColor: '#3b82f6' },
+    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600', tagBg: 'bg-emerald-50', tagText: 'text-emerald-600', barColor: '#10b981' },
+    amber: { bg: 'bg-amber-50', text: 'text-amber-600', tagBg: 'bg-amber-50', tagText: 'text-amber-600', barColor: '#f59e0b' },
+    rose: { bg: 'bg-rose-50', text: 'text-rose-600', tagBg: 'bg-rose-50', tagText: 'text-rose-600', barColor: '#f43f5e' },
+  };
+  const c = colorMap[color] || colorMap.blue;
+
+  const renderVisual = () => {
+    if (visual === 'chart') return (
+      <div className="flex items-end gap-1.5 h-16">
+        {[40, 65, 50, 80, 70, 90, 55, 75].map((h, i) => (
+          <div key={i} className="flex-1 rounded-t-md transition-all duration-500" style={{ height: `${h}%`, background: i === 5 ? c.barColor : `${c.barColor}33`, animationDelay: `${i * 80}ms` }} />
+        ))}
+      </div>
+    );
+    if (visual === 'calc') return (
+      <div className="space-y-2">
+        {['DP Bank: Rp 100jt', '+ Notaris: Rp 7.5jt', '+ Asuransi: Rp 5.2jt'].map((line, i) => (
+          <div key={i} className={`text-[10px] font-mono px-2.5 py-1.5 rounded-md ${i === 0 ? 'bg-slate-100 text-slate-500' : 'bg-amber-50 text-amber-700 border border-amber-100'}`}>
+            {line}
+          </div>
+        ))}
+        <div className="text-[10px] font-mono font-bold px-2.5 py-1.5 rounded-md bg-slate-900 text-white">= Total: Rp 120.2jt</div>
+      </div>
+    );
+    if (visual === 'receipt') return (
+      <div className="space-y-1.5">
+        {['Makan Siang - Rp 35.000', 'Bensin - Rp 50.000', 'Kopi - Rp 28.000'].map((line, i) => (
+          <div key={i} className="flex items-center gap-2 text-[10px]">
+            <span className={`w-1.5 h-1.5 rounded-full ${i === 2 ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+            <span className="text-slate-500 font-mono">{line}</span>
+            <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded ${i === 2 ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+              {i === 2 ? 'Keinginan' : 'Kebutuhan'}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+    if (visual === 'calendar') return (
+      <div className="grid grid-cols-7 gap-0.5">
+        {Array.from({ length: 28 }).map((_, i) => {
+          const isPayday = [4, 11, 18, 25].includes(i);
+          const isPaid = [4, 11].includes(i);
+          return (
+            <div key={i} className={`w-full aspect-square rounded-md text-[8px] flex items-center justify-center font-bold ${
+              isPayday ? (isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700') : 'bg-slate-50 text-slate-300'
+            }`}>
+              {i + 1}
+            </div>
+          );
+        })}
+      </div>
+    );
+    return null;
+  };
+
+  return (
+    <div
+      ref={ref}
+      className={`bg-white p-6 md:p-8 rounded-3xl border border-slate-100 hover:border-slate-200 shadow-sm hover:shadow-xl transition-all duration-500 group ${inView ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}
+    >
+      <div className="flex flex-col md:flex-row gap-6">
+        <div className="flex-1">
+          <div className={`inline-flex items-center gap-2 w-12 h-12 ${c.bg} ${c.text} rounded-2xl justify-center mb-4 group-hover:scale-110 transition-transform`}>
+            <Icon size={24} />
+          </div>
+          <h3 className="text-xl font-bold text-slate-900 mb-2">{title}</h3>
+          <p className="text-sm text-slate-500 leading-relaxed mb-4">{desc}</p>
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag, i) => (
+              <span key={i} className={`px-3 py-1 ${c.tagBg} ${c.tagText} text-[10px] font-bold rounded-full uppercase tracking-wider`}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="w-full md:w-48 flex-shrink-0 bg-slate-50 rounded-xl p-4 border border-slate-100">
+          {renderVisual()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    MAIN LANDING PAGE
    ═══════════════════════════════════════════════════════════════════ */
@@ -309,6 +464,9 @@ export default function LandingPage() {
     { name: 'Budi Santoso', role: 'Karyawan Swasta, Jakarta', text: 'Dulu saya bayar cicilan asal-asalan. Setelah pakai Paydone, saya sadar bisa hemat Rp 47 juta bunga KPR dengan strategi Avalanche. Luar biasa!', avatar: 100, rating: 5 },
     { name: 'Sari Dewi', role: 'Freelancer, Bandung', text: 'Fitur allocation-nya bikin saya disiplin. Sekarang gaji langsung ter-split otomatis ke kebutuhan, keinginan, dan cicilan. Stress berkurang drastis.', avatar: 200, rating: 5 },
     { name: 'Andi Pratama', role: 'Pengusaha UMKM, Surabaya', text: 'Simulator realita-nya eye-opening banget. Ternyata DP rumah bukan cuma 20%, ada biaya tersembunyi hampir Rp 20 juta yang tidak pernah dibilang bank.', avatar: 300, rating: 5 },
+    { name: 'Rina Kusuma', role: 'Dokter, Yogyakarta', text: 'Kalender saktinya sangat membantu. Dulu sering lupa tanggal jatuh tempo, sekarang semua terjadwal rapi. Auto-marking fiturnya brilliant.', avatar: 400, rating: 5 },
+    { name: 'Hendra Wijaya', role: 'PNS, Medan', text: 'Family mode-nya game changer. Istri dan saya sekarang punya visibility yang sama soal keuangan keluarga. Tidak ada lagi yang disembunyikan.', avatar: 500, rating: 5 },
+    { name: 'Maya Putri', role: 'Content Creator, Bali', text: 'Sebagai freelancer dengan income tidak tetap, fitur multi-income dan smart allocation sangat membantu. Akhirnya bisa nabung konsisten tiap bulan.', avatar: 600, rating: 5 },
   ];
 
   const faqs = [
@@ -318,6 +476,9 @@ export default function LandingPage() {
     { q: 'Bagaimana AI Strategist bekerja?', a: 'AI kami menganalisa total hutang, suku bunga, sisa tenor, dan profil penghasilan Anda. Kemudian merekomendasikan urutan pelunasan optimal - apakah Snowball (dari terkecil) atau Avalanche (dari bunga tertinggi) - beserta proyeksi waktu dan penghematan.' },
     { q: 'Bisa digunakan untuk keluarga?', a: 'Ya! Fitur Family Mode memungkinkan Anda mengelola keuangan bersama pasangan atau anggota keluarga. Setiap orang memiliki akun terpisah namun bisa melihat gambaran finansial keluarga secara keseluruhan.' },
     { q: 'Apakah perlu koneksi internet?', a: 'Tidak selalu. Paydone bekerja secara offline-first. Data disimpan lokal dan akan sync otomatis saat koneksi tersedia. Anda tetap bisa input pengeluaran dan melihat dashboard tanpa internet.' },
+    { q: 'Apa bedanya Snowball dan Avalanche?', a: 'Snowball melunasi hutang dari nominal terkecil dulu untuk membangun momentum psikologis. Avalanche melunasi dari bunga tertinggi dulu untuk menghemat uang secara matematis. AI kami menganalisa profil Anda dan merekomendasikan yang paling cocok.' },
+    { q: 'Berapa banyak hutang yang bisa ditrack?', a: 'Unlimited. Tidak ada batasan jumlah hutang, transaksi harian, atau rekening yang bisa Anda masukkan. Pakai sepuasnya tanpa khawatir limit.' },
+    { q: 'Bisa lihat proyeksi kapan hutang lunas?', a: 'Ya! Financial Freedom Calculator menghitung proyeksi waktu pelunasan semua hutang, berapa bunga yang bisa dihemat, dan kapan Anda mencapai financial freedom berdasarkan data riil Anda.' },
   ];
 
   const comparisonTabs = [
@@ -451,7 +612,8 @@ export default function LandingPage() {
             <a href="#simulator" className="hover:text-brand-600 transition">Simulator</a>
             <a href="#features" className="hover:text-brand-600 transition">Fitur</a>
             <a href="#comparison" className="hover:text-brand-600 transition">Perbandingan</a>
-            <a href="#how-it-works" className="hover:text-brand-600 transition">Cara Kerja</a>
+            <a href="#strategy" className="hover:text-brand-600 transition">Strategi AI</a>
+            <a href="#tools" className="hover:text-brand-600 transition">Tools</a>
             <a href="#faq" className="hover:text-brand-600 transition">FAQ</a>
           </div>
           
@@ -476,7 +638,8 @@ export default function LandingPage() {
                 { href: '#simulator', label: 'Simulator' },
                 { href: '#features', label: 'Fitur' },
                 { href: '#comparison', label: 'Perbandingan' },
-                { href: '#how-it-works', label: 'Cara Kerja' },
+                { href: '#strategy', label: 'Strategi AI' },
+                { href: '#tools', label: 'Tools' },
                 { href: '#faq', label: 'FAQ' },
               ].map(item => (
                 <a
@@ -803,6 +966,323 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ═══ 5B. SNOWBALL vs AVALANCHE STRATEGY ═══ */}
+      <section className="py-24 bg-white" id="strategy" style={{ scrollMarginTop: '100px' }}>
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <span className="text-brand-600 font-bold text-sm uppercase tracking-wider">AI Strategy Engine</span>
+            <h2 className="text-3xl md:text-4xl font-black text-slate-900 mt-3 mb-4">
+              2 Strategi Pelunasan, <span className="text-brand-600">1 Rekomendasi AI</span>
+            </h2>
+            <p className="text-slate-500 leading-relaxed">
+              Tidak ada solusi satu ukuran untuk semua. AI kami menganalisa profil Anda dan merekomendasikan strategi yang paling cocok.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            {/* Snowball */}
+            <StrategyCard
+              title="Snowball Method"
+              subtitle="Kemenangan Psikologis"
+              desc="Lunasi hutang terkecil dulu. Setiap hutang yang lunas memberikan momentum dan motivasi untuk melanjutkan ke hutang berikutnya."
+              icon={Flame}
+              color="amber"
+              pros={['Motivasi tinggi dari quick wins', 'Cocok untuk yang butuh dorongan psikologis', 'Jumlah tagihan berkurang cepat']}
+              cons={['Total bunga bisa lebih besar', 'Secara matematis bukan yang terhemat']}
+              example={{ debts: ['KTA Rp 5jt (lunas bulan ke-3)', 'Kartu Kredit Rp 15jt (lunas bulan ke-9)', 'KKB Rp 120jt (lunas bulan ke-48)'], saved: 'Rp 8.2 Juta' }}
+            />
+            {/* Avalanche */}
+            <StrategyCard
+              title="Avalanche Method"
+              subtitle="Optimasi Matematis"
+              desc="Lunasi hutang dengan bunga tertinggi dulu. Secara matematis, ini menghemat total uang paling banyak dalam jangka panjang."
+              icon={TrendingUp}
+              color="blue"
+              pros={['Total bunga yang dibayar paling kecil', 'Secara matematis paling efisien', 'Hemat jutaan rupiah jangka panjang']}
+              cons={['Butuh disiplin tinggi di awal', 'Quick wins lebih lambat terasa']}
+              example={{ debts: ['Kartu Kredit 2.5%/bln (lunas bulan ke-6)', 'KTA 1.8%/bln (lunas bulan ke-18)', 'KPR 0.9%/bln (lunas bulan ke-60)'], saved: 'Rp 23.7 Juta' }}
+            />
+          </div>
+
+          <div className="mt-12 max-w-3xl mx-auto">
+            <div className="bg-slate-900 rounded-2xl p-8 md:p-10 text-center relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-48 h-48 bg-brand-500 rounded-full blur-[100px] opacity-20" />
+              <div className="absolute bottom-0 right-0 w-48 h-48 bg-indigo-500 rounded-full blur-[100px] opacity-15" />
+              <div className="relative z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-brand-500/20 border border-brand-400/30 rounded-full text-xs font-bold text-brand-300 mb-5">
+                  <BrainCircuit size={14} />
+                  Powered by AI
+                </div>
+                <h3 className="text-xl md:text-2xl font-black text-white mb-3">Bingung Pilih yang Mana?</h3>
+                <p className="text-slate-400 text-sm mb-6 max-w-lg mx-auto leading-relaxed">
+                  Cukup input data hutang Anda, AI kami akan menganalisa dan merekomendasikan strategi terbaik beserta proyeksi waktu dan penghematan bunga secara detail.
+                </p>
+                <Link to="/register" className="inline-flex items-center gap-2 px-8 py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-full transition-all shadow-lg shadow-brand-600/25 hover:scale-[1.02] active:scale-[0.98]">
+                  <BrainCircuit size={16} />
+                  Coba AI Strategist Gratis
+                  <ArrowRight size={14} />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 5C. COMPLETE TOOLS SHOWCASE ═══ */}
+      <section className="py-24 bg-slate-50" id="tools" style={{ scrollMarginTop: '100px' }}>
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <span className="text-brand-600 font-bold text-sm uppercase tracking-wider">All-in-One Platform</span>
+            <h2 className="text-3xl md:text-4xl font-black text-slate-900 mt-3 mb-4">
+              10+ Tools Keuangan dalam <span className="text-brand-600">Satu Aplikasi</span>
+            </h2>
+            <p className="text-slate-500 leading-relaxed">
+              Tidak perlu spreadsheet terpisah, tidak perlu 5 aplikasi berbeda. Semua yang Anda butuhkan untuk mengelola keuangan ada di sini.
+            </p>
+          </div>
+
+          {/* Tool Grid - 2 column layout with visual previews */}
+          <div className="grid lg:grid-cols-2 gap-6 mb-12">
+            <ToolShowcase
+              icon={BarChart3}
+              title="Dashboard Interaktif"
+              desc="Grafik DSR, crossing analysis income vs expense, health score, dan progress pelunasan. Semua data real-time dalam satu layar."
+              tags={['Real-time', 'Grafik', 'Health Score']}
+              color="blue"
+              visual="chart"
+            />
+            <ToolShowcase
+              icon={Calculator}
+              title="Simulator Realita"
+              desc="Hitung biaya tersembunyi KPR, KKB, KTA lengkap. Bandingkan bank A vs bank B. Lihat total cost of ownership yang sebenarnya."
+              tags={['Perbandingan', 'Hidden Cost', 'Multi-Bank']}
+              color="emerald"
+              visual="calc"
+            />
+            <ToolShowcase
+              icon={Receipt}
+              title="Catatan Harian Cerdas"
+              desc="Input pengeluaran harian secepat chat. Auto-kategorisasi Kebutuhan vs Keinginan. Lihat pola pengeluaran mingguan & bulanan."
+              tags={['Quick Input', 'Auto-Kategori', 'Pola']}
+              color="amber"
+              visual="receipt"
+            />
+            <ToolShowcase
+              icon={Calendar}
+              title="Kalender Sakti"
+              desc="Kalender visual 3 bulan ke depan. Lihat semua jatuh tempo cicilan. Auto-marking pembayaran dan tabel cicilan dengan filter lengkap."
+              tags={['Visual', '3 Bulan', 'Auto-Mark']}
+              color="rose"
+              visual="calendar"
+            />
+          </div>
+
+          {/* Mini tool cards - the rest */}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { icon: PieChart, title: 'Smart Allocation', desc: 'Split otomatis gaji ke kebutuhan, keinginan, cicilan, dan tabungan', color: 'text-indigo-600 bg-indigo-50' },
+              { icon: Target, title: 'Sinking Fund', desc: 'Dana cadangan visual untuk DP rumah, liburan, atau dana darurat', color: 'text-teal-600 bg-teal-50' },
+              { icon: LineChart, title: 'Financial Freedom', desc: 'Hitung kapan Anda bisa pensiun dan berapa yang dibutuhkan', color: 'text-emerald-600 bg-emerald-50' },
+              { icon: Users, title: 'Family Mode', desc: 'Kelola keuangan bersama pasangan dengan dashboard gabungan', color: 'text-rose-600 bg-rose-50' },
+              { icon: CircleDollarSign, title: 'Income Manager', desc: 'Multi-income support: gaji, freelance, bisnis, investasi', color: 'text-blue-600 bg-blue-50' },
+              { icon: FileText, title: 'Activity Log', desc: 'Riwayat lengkap semua transaksi dan perubahan data', color: 'text-slate-600 bg-slate-100' },
+              { icon: Landmark, title: 'Multi Bank Account', desc: 'Hubungkan beberapa rekening untuk tracking saldo terintegrasi', color: 'text-amber-600 bg-amber-50' },
+              { icon: BookOpen, title: 'Planning Board', desc: 'Buat rencana keuangan jangka pendek dan panjang dengan milestone', color: 'text-cyan-600 bg-cyan-50' },
+            ].map((tool, i) => {
+              const toolView = useInView(0.1);
+              return (
+                <div
+                  key={i}
+                  ref={toolView.ref}
+                  className={`flex gap-4 items-start p-5 bg-white rounded-2xl border border-slate-100 hover:border-slate-200 hover:shadow-lg transition-all duration-500 cursor-default ${toolView.inView ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'}`}
+                  style={{ transitionDelay: `${i * 60}ms` }}
+                >
+                  <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${tool.color}`}>
+                    <tool.icon size={20} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm mb-1">{tool.title}</h4>
+                    <p className="text-xs text-slate-400 leading-relaxed">{tool.desc}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="text-center mt-12">
+            <Link to="/register" className="inline-flex items-center gap-2 px-8 py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-full transition-all shadow-xl hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98]">
+              Akses Semua Tools Gratis
+              <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 5D. SECURITY & TRUST ═══ */}
+      <section className="py-24 bg-white">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            <div>
+              <span className="text-brand-600 font-bold text-sm uppercase tracking-wider">Keamanan Data</span>
+              <h2 className="text-3xl md:text-4xl font-black text-slate-900 mt-3 mb-6">
+                Data Anda, <span className="text-brand-600">Kendali Anda</span>
+              </h2>
+              <p className="text-slate-500 leading-relaxed mb-8">
+                Kami membangun {appName} dengan prinsip privacy-first. Data keuangan Anda tidak pernah dijual, dibagikan, atau digunakan untuk keperluan pihak ketiga.
+              </p>
+
+              <div className="space-y-5">
+                {[
+                  { icon: Lock, title: 'Offline-First Architecture', desc: 'Data disimpan lokal di perangkat Anda terlebih dahulu. Aplikasi berfungsi penuh tanpa internet.' },
+                  { icon: Shield, title: 'Enkripsi End-to-End', desc: 'Sync ke cloud menggunakan enkripsi standar industri. Hanya Anda yang bisa membaca data Anda.' },
+                  { icon: Eye, title: 'Tanpa Akses Perbankan', desc: 'Kami tidak pernah meminta akses ke rekening bank Anda. Input data secara manual, kontrol penuh di tangan Anda.' },
+                  { icon: RefreshCw, title: 'Export & Delete Kapanpun', desc: 'Anda bisa mengexport atau menghapus semua data Anda kapan saja. Tidak ada lock-in.' },
+                ].map((item, i) => {
+                  const secView = useInView(0.1);
+                  return (
+                    <div
+                      key={i}
+                      ref={secView.ref}
+                      className={`flex gap-4 transition-all duration-500 ${secView.inView ? 'translate-x-0 opacity-100' : '-translate-x-8 opacity-0'}`}
+                      style={{ transitionDelay: `${i * 100}ms` }}
+                    >
+                      <div className="flex-shrink-0 w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                        <item.icon size={22} />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 mb-1">{item.title}</h4>
+                        <p className="text-sm text-slate-500 leading-relaxed">{item.desc}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Visual Trust Badges */}
+            <div className="relative">
+              <div className="absolute inset-0 bg-emerald-500/5 rounded-[2rem] rotate-2 blur-xl" />
+              <div className="relative bg-white border border-slate-100 rounded-[2rem] p-8 md:p-10 shadow-xl">
+                <div className="grid grid-cols-2 gap-5">
+                  {[
+                    { icon: WifiOff, label: 'Offline First', value: '100%', desc: 'Bekerja tanpa internet' },
+                    { icon: Lock, label: 'Data Encrypted', value: 'AES-256', desc: 'Standar industri' },
+                    { icon: Smartphone, label: 'Device Storage', value: 'Local', desc: 'Data di perangkat Anda' },
+                    { icon: Shield, label: 'Zero Bank Access', value: '0', desc: 'Tidak ada akses rekening' },
+                  ].map((badge, i) => (
+                    <div key={i} className="text-center p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/50 transition-all duration-300 group">
+                      <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mx-auto mb-3 shadow-sm group-hover:shadow-md transition-all">
+                        <badge.icon size={22} className="text-emerald-600" />
+                      </div>
+                      <p className="text-2xl font-black text-slate-900 mb-0.5">{badge.value}</p>
+                      <p className="text-xs font-bold text-slate-600 mb-1">{badge.label}</p>
+                      <p className="text-[10px] text-slate-400">{badge.desc}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-3">
+                  <CheckCircle2 size={20} className="text-emerald-600 flex-shrink-0" />
+                  <p className="text-xs text-emerald-700 leading-relaxed">
+                    <span className="font-bold">Komitmen Kami:</span> {appName} tidak akan pernah menjual, membagikan, atau menggunakan data keuangan Anda untuk keperluan iklan atau pihak ketiga.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 5E. PRICING / FREE FOREVER ═══ */}
+      <section className="py-24 bg-slate-50" id="pricing" style={{ scrollMarginTop: '100px' }}>
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <span className="text-brand-600 font-bold text-sm uppercase tracking-wider">Pricing</span>
+            <h2 className="text-3xl md:text-4xl font-black text-slate-900 mt-3 mb-4">
+              Gratis. Titik.
+            </h2>
+            <p className="text-slate-500 leading-relaxed">
+              Tidak ada paywall, tidak ada trial 14 hari, tidak ada fitur yang disembunyikan. Semua tools di atas bisa Anda akses tanpa bayar sepeser pun.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            {/* Free Plan */}
+            <div className="relative bg-white p-8 md:p-10 rounded-3xl border-2 border-brand-200 shadow-xl">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-full uppercase tracking-wider shadow-lg">
+                Selamanya Gratis
+              </div>
+              <div className="text-center mb-8 pt-4">
+                <p className="text-5xl font-black text-slate-900">Rp 0</p>
+                <p className="text-sm text-slate-400 mt-1">per bulan, selamanya</p>
+              </div>
+              <div className="space-y-3 mb-8">
+                {[
+                  'Dashboard interaktif & analisis',
+                  'AI Debt Strategist',
+                  'Simulator biaya tersembunyi',
+                  'Kalender cicilan visual',
+                  'Smart allocation & budgeting',
+                  'Catatan pengeluaran harian',
+                  'Financial freedom calculator',
+                  'Sinking fund manager',
+                  'Family mode (multi-user)',
+                  'Cloud sync terenkripsi',
+                  'Unlimited hutang & transaksi',
+                ].map((f, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <CheckCircle2 size={16} className="text-brand-600 flex-shrink-0" />
+                    <span className="text-sm text-slate-600">{f}</span>
+                  </div>
+                ))}
+              </div>
+              <Link to="/register" className="w-full flex items-center justify-center gap-2 py-4 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-brand-600/20 hover:shadow-brand-600/30 active:scale-[0.98]">
+                Daftar Gratis Sekarang
+                <ArrowRight size={16} />
+              </Link>
+            </div>
+
+            {/* Why Free */}
+            <div className="flex flex-col gap-6">
+              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+                    <Lightbulb size={20} />
+                  </div>
+                  <h4 className="font-bold text-slate-900">Kenapa Gratis?</h4>
+                </div>
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  Misi kami adalah membantu sebanyak mungkin orang Indonesia terbebas dari jeratan hutang. Akses ke tools keuangan berkualitas seharusnya bukan privilege golongan tertentu.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                    <Shield size={20} />
+                  </div>
+                  <h4 className="font-bold text-slate-900">Tanpa Iklan, Tanpa Data Selling</h4>
+                </div>
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  Kami tidak memasang iklan dan tidak menjual data Anda. Revenue kami di masa depan akan berasal dari fitur premium opsional yang tidak mengurangi fitur gratis.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+                    <Megaphone size={20} />
+                  </div>
+                  <h4 className="font-bold text-slate-900">Roadmap Terbuka</h4>
+                </div>
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  Fitur baru dikembangkan berdasarkan masukan pengguna. Anda bisa request fitur dan vote prioritas pengembangan melalui sistem tiket built-in.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ═══ 6. HOW IT WORKS ═══ */}
       <section className="py-24 bg-white" id="how-it-works" style={{ scrollMarginTop: '100px' }}>
         <div className="max-w-6xl mx-auto px-6">
@@ -879,9 +1359,9 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {testimonials.map((t, i) => (
-              <TestimonialCard key={i} {...t} delay={i * 150} />
+              <TestimonialCard key={i} {...t} delay={i * 100} />
             ))}
           </div>
         </div>

@@ -220,13 +220,16 @@ export default function ServerTerminal() {
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
         try {
-            const res = await fetch(`${baseUrl}/api/admin/files/create`, {
+            // V50.21: Use versions/save API instead of files/create
+            const res = await fetch(`${baseUrl}/api/admin/versions/save`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: {
+                    ...getHeaders(adminId),
+                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || ''
+                },
                 body: JSON.stringify({
-                    filename: newVersionName,
-                    content: newVersionContent,
-                    secret: 'gen-lang-client-066244752'
+                    label: newVersionName,
+                    content: newVersionContent
                 })
             });
 
@@ -547,14 +550,16 @@ export default function ServerTerminal() {
                 fetchVersions();
             }
 
-            // STEP 2: WRITE FILE (Overwriting)
-            const writeRes = await fetch(`${baseUrl}/api/admin/files/create`, {
+            // STEP 2: WRITE FILE (Overwriting) - V50.21: Use versions/save API
+            const writeRes = await fetch(`${baseUrl}/api/admin/versions/save`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: {
+                    ...getHeaders(adminId),
+                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || ''
+                },
                 body: JSON.stringify({
-                    filename: editorFileName,
-                    content: editorCode,
-                    secret: 'gen-lang-client-066244752'
+                    label: editorFileName,
+                    content: editorCode
                 })
             });
             

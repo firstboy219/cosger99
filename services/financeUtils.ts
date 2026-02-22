@@ -119,13 +119,20 @@ export const generateInstallmentsForDebt = (
     const monthlyRate = (annualRate / 100) / 12;
 
     // --- PREPARE DATA FOR STEP UP ---
-    // QA FIX: Handle both Array and String JSON (Robust Parsing)
-    let stepUpSchedule: any[] = [];
+    // CRITICAL FIX: Normalize keys from ANY format (camelCase, snake_case, Indonesian)
+    // Backend may return: { startMonth, endMonth, amount } OR { mulai, akhir, cicilan } OR { start_month, end_month, amount }
+    let stepUpScheduleRaw: any[] = [];
     if (Array.isArray(debt.stepUpSchedule)) {
-        stepUpSchedule = debt.stepUpSchedule;
+        stepUpScheduleRaw = debt.stepUpSchedule;
     } else if (typeof debt.stepUpSchedule === 'string') {
-        try { stepUpSchedule = JSON.parse(debt.stepUpSchedule); } catch(e) { console.error("StepUp Parse Error", e); }
+        try { stepUpScheduleRaw = JSON.parse(debt.stepUpSchedule); } catch(e) { console.error("StepUp Parse Error", e); }
     }
+    // Normalize every entry to { mulai, akhir, cicilan } for the loop below
+    const stepUpSchedule = stepUpScheduleRaw.map((r: any) => ({
+        mulai: Number(r.startMonth ?? r.start_month ?? r.mulai ?? 0),
+        akhir: Number(r.endMonth ?? r.end_month ?? r.akhir ?? 0),
+        cicilan: Number(r.amount ?? r.cicilan ?? 0)
+    }));
 
     // --- CALCULATE ANNUITY FIXED PAYMENT (If needed) ---
     // PMT Formula: P * (r(1+r)^n) / ((1+r)^n - 1)

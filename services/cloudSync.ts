@@ -68,33 +68,106 @@ export const pullUserDataFromCloud = async (userId: string, tokenOverride?: stri
         const userData = getUserData(userId); 
 
         // Core Data - Update Local Reference
-        if (data.debts) userData.debts = data.debts;
-        if (data.incomes) userData.incomes = data.incomes;
-        if (data.dailyExpenses) userData.dailyExpenses = data.dailyExpenses;
-        if (data.debtInstallments) userData.debtInstallments = data.debtInstallments;
-        if (data.paymentRecords) userData.paymentRecords = data.paymentRecords;
-        if (data.tasks) userData.tasks = data.tasks;
-        if (data.sinkingFunds) userData.sinkingFunds = data.sinkingFunds;
-        if (data.bankAccounts) userData.bankAccounts = data.bankAccounts;
+        // CRITICAL: Handle both camelCase AND snake_case keys from backend
+        // The backend may return snake_case (daily_expenses) or camelCase (dailyExpenses)
+        const resolve = (camel: string, snake: string) => data[camel] || data[snake];
         
-        // Global/Admin Data
-        if (data.tickets) db.tickets = data.tickets;
-        if (data.banks) db.banks = data.banks;
-        if (data.config) db.config = { ...db.config, ...data.config };
-        if (data.qaScenarios) db.qaScenarios = data.qaScenarios;
-        if (data.baConfigurations) db.baConfigurations = data.baConfigurations;
-        // Note: Users are usually not fully synced to client for security, but if backend sends them:
-        if (data.users) db.users = data.users;
+        const debtsData = resolve('debts', 'debts');
+        const incomesData = resolve('incomes', 'incomes');
+        const dailyExpensesData = resolve('dailyExpenses', 'daily_expenses');
+        const debtInstallmentsData = resolve('debtInstallments', 'debt_installments');
+        const paymentRecordsData = resolve('paymentRecords', 'payment_records');
+        const tasksData = resolve('tasks', 'tasks');
+        const sinkingFundsData = resolve('sinkingFunds', 'sinking_funds');
+        const bankAccountsData = resolve('bankAccounts', 'bank_accounts');
+        
+        // V50.18 Protocol 2: Backend returns complex columns as JSON objects.
+        // Ensure we do NOT JSON.parse() them again to prevent TypeError/White Screen.
+        // The safe approach: if it's already an object/array, leave it alone.
+        const safeJsonField = (arr: any[], fields: string[]): any[] => {
+            if (!Array.isArray(arr)) return arr;
+            return arr.map(item => {
+                const safe = { ...item };
+                fields.forEach(f => {
+                    if (f in safe && typeof safe[f] === 'string') {
+                        try { safe[f] = JSON.parse(safe[f]); } catch { /* leave as string */ }
+                    }
+                    // Already object? Leave it untouched.
+                });
+                return safe;
+            });
+        };
+        
+        if (debtsData) userData.debts = safeJsonField(debtsData, ['stepUpSchedule']);
+        if (incomesData) userData.incomes = incomesData;
+        if (dailyExpensesData) userData.dailyExpenses = dailyExpensesData;
+        if (debtInstallmentsData) userData.debtInstallments = debtInstallmentsData;
+        if (paymentRecordsData) userData.paymentRecords = paymentRecordsData;
+        if (tasksData) userData.tasks = tasksData;
+        if (sinkingFundsData) userData.sinkingFunds = sinkingFundsData;
+        if (bankAccountsData) userData.bankAccounts = bankAccountsData;
+        
+        // V50.21: Activity Logs from cloud (merge with local, deduplicate by id)
+        const activityLogsData = resolve('activityLogs', 'activity_logs');
+        if (activityLogsData && Array.isArray(activityLogsData)) {
+            const existingIds = new Set((db.logs || []).map((l: any) => l.id));
+            const newLogs = activityLogsData.filter((l: any) => !existingIds.has(l.id));
+            db.logs = [...(db.logs || []), ...newLogs].sort((a: any, b: any) => 
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            ).slice(0, 200); // Cap at 200
+        }
+        
+        // Global/Admin Data (handle both camelCase and snake_case)
+        const ticketsData = resolve('tickets', 'tickets');
+        const banksData = resolve('banks', 'banks');
+        const configData = data.config;
+        const qaScenariosData = resolve('qaScenarios', 'qa_scenarios');
+        const baConfigurationsData = resolve('baConfigurations', 'ba_configurations');
+        
+        if (ticketsData) db.tickets = safeJsonField(ticketsData, ['fixLogs', 'backupData']);
+        if (banksData) db.banks = banksData;
+        if (configData) db.config = { ...db.config, ...configData };
+        if (qaScenariosData) db.qaScenarios = safeJsonField(qaScenariosData, ['payload']);
+        if (baConfigurationsData) db.baConfigurations = baConfigurationsData;
+        // Merge users from cloud into local DB (upsert to avoid overwriting local-only users)
+        if (data.users && Array.isArray(data.users)) {
+            const existingIds = new Set((db.users || []).map((u: any) => u.id));
+            data.users.forEach((cloudUser: any) => {
+                if (existingIds.has(cloudUser.id)) {
+                    db.users = (db.users || []).map((u: any) => u.id === cloudUser.id ? { ...u, ...cloudUser } : u);
+                } else {
+                    db.users = [...(db.users || []), cloudUser];
+                }
+            });
+        }
+        
+        // Also ensure current user exists in db.users (critical for Profile page)
+        if (userId && db.users) {
+            const currentUserExists = db.users.some((u: any) => u.id === userId);
+            if (!currentUserExists) {
+                // Create a minimal user entry so Profile doesn't crash
+                db.users.push({
+                    id: userId,
+                    username: 'User',
+                    email: '',
+                    role: 'user' as const,
+                    status: 'active' as const,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                });
+            }
+        }
 
         // Handle Allocations (Map to Object or Array depending on local schema preference)
         // Ensure local schema supports flat array for allocations if that's what server returns
-        if (Array.isArray(data.allocations)) {
+        const allocationsData = resolve('allocations', 'allocations');
+        if (Array.isArray(allocationsData)) {
             // Update root allocation cache (Admin View)
-            db.allocations = data.allocations;
+            db.allocations = allocationsData;
             
             // Re-map flat array to month-key object for User UI efficiency
             const allocMap: Record<string, any[]> = {};
-            data.allocations.forEach((a: any) => {
+            allocationsData.forEach((a: any) => {
                 const key = a.monthKey || 'general';
                 if (!allocMap[key]) allocMap[key] = [];
                 allocMap[key].push(a);
@@ -115,6 +188,49 @@ export const pullUserDataFromCloud = async (userId: string, tokenOverride?: stri
         dispatchNetworkLog('GET', '/api/sync', 500, { error: e.message });
         return { success: false, error: e.message };
     }
+};
+
+/**
+ * V50.21 Protocol 2: Payload Sanitizer
+ * - Coerce boolean fields explicitly to true/false (backend uses ?? operator)
+ * - Ensure JSON object fields are NOT double-stringified
+ * - Ensure array fields (stepUpSchedule) remain intact as full arrays
+ */
+const sanitizePayloadForV50 = (payload: any): any => {
+    const sanitized = { ...payload };
+    
+    // Boolean coercion (V50.21 uses ?? to read these, so explicit true/false required)
+    const booleanFields = ['isRecurring', 'isTransferred', 'isRolledBack', 'isNegativeCase'];
+    booleanFields.forEach(field => {
+        if (field in sanitized) {
+            sanitized[field] = sanitized[field] === true || sanitized[field] === 'true' ? true : false;
+        }
+    });
+    
+    // JSON object/array fields: ensure they are native objects, NOT double-stringified strings.
+    // V50.21 backend expects these as pure JSON objects/arrays in the body.
+    // If they are strings, parse them ONCE. If already objects/arrays, leave them alone.
+    const jsonFields = ['stepUpSchedule', 'payload', 'badges', 'fixLogs', 'backupData'];
+    jsonFields.forEach(field => {
+        if (field in sanitized) {
+            if (typeof sanitized[field] === 'string') {
+                try {
+                    sanitized[field] = JSON.parse(sanitized[field]);
+                } catch {
+                    // Leave as string if it's not valid JSON
+                }
+            }
+            // Final guard: if stepUpSchedule exists but is not an array, wrap or default it
+            if (field === 'stepUpSchedule' && sanitized[field] !== undefined && sanitized[field] !== null) {
+                if (!Array.isArray(sanitized[field])) {
+                    console.warn('[CloudSync] stepUpSchedule is not an array after sanitization, resetting to []');
+                    sanitized[field] = [];
+                }
+            }
+        }
+    });
+    
+    return sanitized;
 };
 
 // --- UNIVERSAL CRUD: WRITE OPERATIONS ---
@@ -146,8 +262,8 @@ export const saveItemToCloud = async (collection: string, item: any, isNew: bool
     try {
         const options = tokenOverride ? { headers: { 'x-session-token': tokenOverride, 'Authorization': `Bearer ${tokenOverride}` } } : {};
         
-        // Prepare Payload: Strip internal fields like _deleted
-        const payload = { ...item };
+        // Prepare Payload: Strip internal fields and apply V50.18 sanitization
+        const payload = sanitizePayloadForV50({ ...item });
         delete payload._deleted;
         
         // 1. API CALL
@@ -217,6 +333,36 @@ export const saveItemToCloud = async (collection: string, item: any, isNew: bool
     } catch (e: any) {
         console.error(`CRUD Error ${collection}:`, e.message);
         dispatchNetworkLog(isNew ? 'POST' : 'PUT', path, 500, { error: e.message }, item);
+        
+        // FALLBACK: Save to local DB even if cloud fails (offline resilience)
+        try {
+            const db = getDB();
+            const activeUserId = item.userId;
+            if (activeUserId && db.userData?.[activeUserId]) {
+                const userSpecificData = db.userData[activeUserId] as any;
+                if (collection === 'allocations') {
+                    if (!userSpecificData.allocations || Array.isArray(userSpecificData.allocations)) {
+                        userSpecificData.allocations = {};
+                    }
+                    const monthKey = item.monthKey || 'general';
+                    const monthList = userSpecificData.allocations[monthKey] || [];
+                    const cleanList = monthList.filter((i: any) => i.id !== item.id);
+                    userSpecificData.allocations[monthKey] = [...cleanList, item];
+                } else if (userSpecificData[collection] && Array.isArray(userSpecificData[collection])) {
+                    if (isNew) {
+                        userSpecificData[collection] = [item, ...userSpecificData[collection]];
+                    } else {
+                        userSpecificData[collection] = userSpecificData[collection].map((i: any) => i.id === item.id ? item : i);
+                    }
+                } else {
+                    userSpecificData[collection] = [item];
+                }
+                saveDB(db);
+            }
+        } catch (localErr) {
+            console.error(`Local fallback save also failed for ${collection}:`, localErr);
+        }
+        
         return { success: false, error: e.message };
     }
 };

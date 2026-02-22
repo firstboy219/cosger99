@@ -233,12 +233,20 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
   const handleEdit = (debt: DebtItem) => {
       setEditingId(debt.id);
       
+      // V50.21: Backend returns stepUpSchedule as a JSON array (not string).
+      // Handle both cases robustly to prevent data loss.
       let parsedSchedule: StepUpRange[] = [];
       if (debt.stepUpSchedule) {
           if (Array.isArray(debt.stepUpSchedule)) {
-              parsedSchedule = debt.stepUpSchedule;
+              // Already an array - deep clone to avoid mutation
+              parsedSchedule = debt.stepUpSchedule.map(s => ({ ...s }));
           } else if (typeof debt.stepUpSchedule === 'string') {
-              try { parsedSchedule = JSON.parse(debt.stepUpSchedule); } catch(e) {}
+              try { 
+                  const parsed = JSON.parse(debt.stepUpSchedule);
+                  parsedSchedule = Array.isArray(parsed) ? parsed : [];
+              } catch(e) {
+                  console.warn('[v0] Failed to parse stepUpSchedule string:', e);
+              }
           }
       }
 
@@ -256,13 +264,15 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
       });
 
       if (parsedSchedule.length > 0) {
+          // DEFENSIVE: Use optional chaining + fallback to prevent crash
+          // when properties are undefined (e.g., snake_case mismatch from SQLite)
           setStepUpRows(parsedSchedule.map(s => ({
-              start: s.startMonth.toString(),
-              end: s.endMonth.toString(),
-              amount: s.amount.toString()
+              start: (s?.startMonth ?? s?.['start_month'] ?? 1).toString(),
+              end: (s?.endMonth ?? s?.['end_month'] ?? 12).toString(),
+              amount: (s?.amount ?? s?.['cicilan'] ?? 0).toString()
           })));
       } else {
-          setStepUpRows([{ start: '1', end: '12', amount: debt.monthlyPayment.toString() }]);
+          setStepUpRows([{ start: '1', end: '12', amount: (debt.monthlyPayment ?? 0).toString() }]);
       }
 
       setActiveTab('form');
@@ -431,17 +441,26 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
 
     try {
         const { monthsPassed: _mp, ...debtWithoutMonthsPassed } = newDebt;
+        // V50.21 Protocol: Send stepUpSchedule as a native array (NOT stringified).
+        // sanitizePayloadForV50() in cloudSync.ts handles JSON field normalization.
+        // Double-stringify causes backend to store only the first element or a raw string.
         const payload = {
             ...debtWithoutMonthsPassed,
-            stepUpSchedule: JSON.stringify(finalStepUpSchedule)
+            stepUpSchedule: finalStepUpSchedule
         };
 
         const result = await saveItemToCloud('debts', payload, !editingId);
 
         if (result.success) {
             const savedItem = result.data || newDebt;
+            // V50.21: Backend returns stepUpSchedule as JSON object already.
+            // Only parse if it's somehow still a string (backward compat).
             if (typeof savedItem.stepUpSchedule === 'string') {
                 try { savedItem.stepUpSchedule = JSON.parse(savedItem.stepUpSchedule); } catch(e) {}
+            }
+            // Final safety: ensure it's always an array
+            if (savedItem.stepUpSchedule && !Array.isArray(savedItem.stepUpSchedule)) {
+                savedItem.stepUpSchedule = [];
             }
 
             if (strategy === 'background') {
@@ -452,11 +471,25 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
 
             // Generate installments after successful save
             const finalDebt = savedItem;
+
+            // V50.21 CRITICAL FIX: DELETE all old installments for this debt_id from cloud FIRST
+            // This prevents data doubling when editing an existing debt with new step-up schedule
             const existingInstallmentsForDebt = debtInstallments.filter(i => i.debtId === finalDebt.id);
-            const newInstallments = generateInstallmentsForDebt(finalDebt, existingInstallmentsForDebt, true);
+            if (editingId && existingInstallmentsForDebt.length > 0) {
+                for (const oldInst of existingInstallmentsForDebt) {
+                    try {
+                        await deleteFromCloud(userId, 'debtInstallments', oldInst.id);
+                    } catch (e) {
+                        console.warn('[v0] Failed to delete old installment:', oldInst.id, e);
+                    }
+                }
+            }
+
+            // Now generate fresh installments using the correct step-up ranges
+            const newInstallments = generateInstallmentsForDebt(finalDebt, [], true);
             
             if (newInstallments.length > 0 && setDebtInstallments) {
-              // Replace installments for this debt
+              // Replace installments for this debt (local state)
               setDebtInstallments(prev => {
                 const otherInstallments = prev.filter(i => i.debtId !== finalDebt.id);
                 return [...otherInstallments, ...newInstallments];
@@ -467,8 +500,8 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
               const otherInstLocal = (userData.debtInstallments || []).filter(i => i.debtId !== finalDebt.id);
               saveUserData(userId, { debtInstallments: [...otherInstLocal, ...newInstallments] });
 
-              // Sync each installment to cloud (batch - first 3 to avoid rate limiting, rest silently)
-              for (let idx = 0; idx < Math.min(newInstallments.length, 3); idx++) {
+              // Sync installments to cloud in batches (limit to first 6 to avoid rate limiting)
+              for (let idx = 0; idx < Math.min(newInstallments.length, 6); idx++) {
                 try {
                   await saveItemToCloud('debtInstallments', {
                     ...newInstallments[idx],
@@ -517,8 +550,8 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
           try { schedule = JSON.parse(debt.stepUpSchedule); } catch(e) {}
       }
 
-      const currentPeriod = schedule.find(s => monthsPassed >= s.startMonth && monthsPassed <= s.endMonth);
-      return currentPeriod ? currentPeriod.amount : debt.monthlyPayment;
+      const currentPeriod = schedule.find(s => monthsPassed >= (s?.startMonth ?? 0) && monthsPassed <= (s?.endMonth ?? 0));
+      return currentPeriod ? (currentPeriod.amount ?? debt.monthlyPayment) : debt.monthlyPayment;
   };
 
   // Get installments for expanded view

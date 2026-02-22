@@ -398,6 +398,24 @@ export default function AdminSettings() {
                             </button>
                         </div>
 
+                        {/* V50.21: SHOW DETAILED LOGS TOGGLE */}
+                        <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 flex items-center justify-between group hover:border-blue-300 transition-all">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors"><Activity size={24}/></div>
+                                <div>
+                                    <h4 className="font-black text-slate-800 text-sm uppercase">Tampilkan Detail Log ke Users</h4>
+                                    <p className="text-xs text-slate-500 mt-1">User biasa dapat melihat payload & response di halaman Riwayat Aktivitas.</p>
+                                </div>
+                            </div>
+                            <button 
+                                type="button" 
+                                onClick={() => setConfig({...config, showDetailedLogsToUsers: !config.showDetailedLogsToUsers})}
+                                className={`p-1 rounded-full transition-colors ${config.showDetailedLogsToUsers ? 'text-blue-600' : 'text-slate-300'}`}
+                            >
+                                {config.showDetailedLogsToUsers ? <ToggleRight size={48}/> : <ToggleLeft size={48}/>}
+                            </button>
+                        </div>
+
                         <div>
                             <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Global Announcement Message</label>
                             <textarea className="w-full border-2 border-slate-100 p-4 rounded-2xl h-32 focus:border-brand-500 transition outline-none text-sm leading-relaxed" value={config.globalAnnouncement || ''} onChange={e => setConfig({...config, globalAnnouncement: e.target.value})} placeholder="Pesan penting yang akan muncul di dashboard seluruh user..." />

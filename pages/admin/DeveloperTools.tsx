@@ -2,9 +2,53 @@
 import React, { useState, useEffect } from 'react';
 import { getConfig } from '../../services/mockDb';
 import { getHeaders } from '../../services/cloudSync';
-import { Copy, Check, Server, Database, FileCode, Terminal, Cloud, Container, Settings, Lock, RefreshCw, AlertTriangle, CheckCircle2, ArrowRight, ShieldCheck, Cpu, Activity, Globe, DownloadCloud, UploadCloud, Save, History } from 'lucide-react';
+import { Copy, Check, Server, Database, FileCode, Terminal, Cloud, Container, Settings, Lock, RefreshCw, AlertTriangle, CheckCircle2, ArrowRight, ShieldCheck, Cpu, Activity, Globe, DownloadCloud, UploadCloud, Save, History, RotateCcw, Play } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GOLDEN_SERVER_JS } from '../../services/serverTemplate';
+
+// === V50.21 VERSION CONTROL API FUNCTIONS ===
+
+// 1. Save the currently running server.cjs as a version snapshot (no content sent)
+const saveCurrentVersion = async (backendUrl: string, labelName: string, adminId: string) => {
+    const res = await fetch(`${backendUrl}/api/admin/versions/save`, {
+        method: 'POST',
+        headers: {
+            ...getHeaders(adminId),
+            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || ''
+        },
+        body: JSON.stringify({ label: labelName })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+};
+
+// 2. Create a new version file from the editor UI content (sends label + content)
+const createNewVersion = async (backendUrl: string, labelName: string, codeContent: string, adminId: string) => {
+    const res = await fetch(`${backendUrl}/api/admin/versions/save`, {
+        method: 'POST',
+        headers: {
+            ...getHeaders(adminId),
+            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || ''
+        },
+        body: JSON.stringify({ label: labelName, content: codeContent })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+};
+
+// 3. Restore a version from the gallery by filename
+const restoreVersion = async (backendUrl: string, targetFilename: string, adminId: string) => {
+    const res = await fetch(`${backendUrl}/api/admin/versions/restore`, {
+        method: 'POST',
+        headers: {
+            ...getHeaders(adminId),
+            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || ''
+        },
+        body: JSON.stringify({ filename: targetFilename })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+};
 
 export default function DeveloperTools() {
   const [activeTab, setActiveTab] = useState<'aws' | 'server_code'>('aws');
@@ -19,7 +63,9 @@ export default function DeveloperTools() {
   // V50.00 Versioning State
   const [versions, setVersions] = useState<any[]>([]);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isRestoringVersion, setIsRestoringVersion] = useState<string | null>(null);
   const [draftLabel, setDraftLabel] = useState('');
+  const [versionToast, setVersionToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   
   const navigate = useNavigate();
 
@@ -39,6 +85,14 @@ export default function DeveloperTools() {
     fetchVersions();
   }, []);
 
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (versionToast) {
+      const t = setTimeout(() => setVersionToast(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [versionToast]);
+
   const fetchVersions = async () => {
       try {
           const res = await fetch(`${currentBackendUrl}/api/admin/versions?secret=gen-lang-client-0662447520`, {
@@ -53,30 +107,56 @@ export default function DeveloperTools() {
       }
   };
 
-  const saveDraft = async () => {
-      if (!draftLabel) return alert("Please enter a label for this draft.");
+  // V50.21: Save the content from the editor UI as a new version file
+  const handleCreateNewVersion = async () => {
+      if (!draftLabel.trim()) {
+          setVersionToast({ text: 'Masukkan label versi terlebih dahulu.', type: 'error' });
+          return;
+      }
       setIsSavingDraft(true);
       try {
-          const res = await fetch(`${currentBackendUrl}/api/admin/versions/save`, {
-              method: 'POST',
-              headers: getHeaders(adminId),
-              body: JSON.stringify({
-                  label: draftLabel,
-                  content: serverContent,
-                  secret: 'gen-lang-client-0662447520'
-              })
-          });
-          if (res.ok) {
-              alert("Draft saved successfully!");
-              setDraftLabel('');
-              fetchVersions();
-          } else {
-              alert("Failed to save draft.");
-          }
-      } catch (e) {
-          alert("Error saving draft.");
+          await createNewVersion(currentBackendUrl, draftLabel.trim(), serverContent, adminId);
+          setVersionToast({ text: `Versi "${draftLabel}" berhasil disimpan dari editor.`, type: 'success' });
+          setDraftLabel('');
+          fetchVersions();
+      } catch (e: any) {
+          setVersionToast({ text: `Gagal menyimpan versi: ${e.message}`, type: 'error' });
       } finally {
           setIsSavingDraft(false);
+      }
+  };
+
+  // V50.21: Save the currently running server.cjs (snapshot, no content)
+  const handleSaveCurrentRunning = async () => {
+      if (!draftLabel.trim()) {
+          setVersionToast({ text: 'Masukkan label untuk snapshot.', type: 'error' });
+          return;
+      }
+      setIsSavingDraft(true);
+      try {
+          await saveCurrentVersion(currentBackendUrl, draftLabel.trim(), adminId);
+          setVersionToast({ text: `Snapshot "${draftLabel}" berhasil disimpan dari server aktif.`, type: 'success' });
+          setDraftLabel('');
+          fetchVersions();
+      } catch (e: any) {
+          setVersionToast({ text: `Gagal menyimpan snapshot: ${e.message}`, type: 'error' });
+      } finally {
+          setIsSavingDraft(false);
+      }
+  };
+
+  // V50.21: Restore a version from the gallery
+  const handleRestoreVersion = async (filename: string) => {
+      if (!confirm(`Restore versi "${filename}" sebagai server aktif? Server akan di-restart.`)) return;
+      setIsRestoringVersion(filename);
+      try {
+          await restoreVersion(currentBackendUrl, filename, adminId);
+          setVersionToast({ text: `Versi "${filename}" berhasil di-restore. Server restarting...`, type: 'success' });
+          fetchVersions();
+      } catch (e: any) {
+          setVersionToast({ text: `Gagal restore: ${e.message}`, type: 'error' });
+      } finally {
+          setIsRestoringVersion(null);
       }
   };
 
@@ -214,6 +294,15 @@ pm2 save
 
   return (
     <div className="space-y-6 h-full flex flex-col">
+      {/* Version Toast */}
+      {versionToast && (
+        <div className={`fixed top-4 right-4 z-[200] flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-lg border text-sm font-semibold animate-fade-in ${
+          versionToast.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'
+        }`}>
+          {versionToast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+          {versionToast.text}
+        </div>
+      )}
       <div className="flex flex-col gap-4">
         <div className="flex justify-between items-start">
             <div>
@@ -317,11 +406,20 @@ pm2 save
                                       className="bg-transparent border-none text-xs text-white px-2 py-1 w-32 focus:outline-none"
                                   />
                                   <button 
-                                      onClick={saveDraft} 
+                                      onClick={handleCreateNewVersion} 
                                       disabled={isSavingDraft}
+                                      title="Save editor content as new version"
                                       className="bg-brand-600 hover:bg-brand-500 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 transition"
                                   >
                                       <Save size={12}/> {isSavingDraft ? '...' : 'SAVE'}
+                                  </button>
+                                  <button 
+                                      onClick={handleSaveCurrentRunning} 
+                                      disabled={isSavingDraft}
+                                      title="Snapshot the running server.cjs"
+                                      className="bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1 transition"
+                                  >
+                                      <Play size={12}/> {isSavingDraft ? '...' : 'SNAP'}
                                   </button>
                               </div>
                               <button onClick={() => handleCopy(serverContent)} className="text-blue-400 hover:text-white transition flex items-center gap-1"><Copy size={12}/> Copy</button>
@@ -367,6 +465,24 @@ pm2 save
                                           <span className="text-[9px] text-slate-500 font-mono">{v.deepScan.percentage}% Match</span>
                                       </div>
                                   )}
+                                  {/* V50.21: Restore button */}
+                                  <button
+                                      onClick={() => handleRestoreVersion(v.filename)}
+                                      disabled={isRestoringVersion === v.filename || v.isActive}
+                                      className={`mt-3 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-bold transition ${
+                                          v.isActive 
+                                              ? 'bg-green-900/20 text-green-500 cursor-default' 
+                                              : 'bg-slate-800 text-slate-300 hover:bg-brand-600 hover:text-white'
+                                      }`}
+                                  >
+                                      {isRestoringVersion === v.filename ? (
+                                          <><RefreshCw size={10} className="animate-spin"/> Restoring...</>
+                                      ) : v.isActive ? (
+                                          <><CheckCircle2 size={10}/> Active</>
+                                      ) : (
+                                          <><RotateCcw size={10}/> Restore</>
+                                      )}
+                                  </button>
                               </div>
                           ))}
                       </div>

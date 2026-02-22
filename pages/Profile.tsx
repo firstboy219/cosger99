@@ -51,17 +51,35 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
     if (currentUserId) {
       const loadUser = () => {
           const users = getAllUsers();
-          const found = users.find(u => u.id === currentUserId);
-          if (found) {
-            setUser(found);
-            setFormData(prev => ({ 
-                ...prev, 
-                username: found.username, 
-                email: found.email,
-                bigWhyUrl: found.bigWhyUrl || '',
-                financialFreedomTarget: found.financialFreedomTarget || 3000000000 // Default 3M
-            }));
+          let found = users.find(u => u.id === currentUserId);
+          
+          // Fallback: If user not found in local DB, create a minimal entry
+          // This can happen if the sync response didn't include users array
+          if (!found) {
+              found = {
+                  id: currentUserId,
+                  username: 'User',
+                  email: '',
+                  role: 'user' as const,
+                  status: 'active' as const,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  badges: [],
+                  financialFreedomTarget: 3000000000
+              };
+              // Persist this fallback user so subsequent lookups work
+              const { addUser } = require('../services/mockDb');
+              addUser(found);
           }
+          
+          setUser(found);
+          setFormData(prev => ({ 
+              ...prev, 
+              username: found!.username, 
+              email: found!.email,
+              bigWhyUrl: found!.bigWhyUrl || '',
+              financialFreedomTarget: found!.financialFreedomTarget || 3000000000
+          }));
       };
 
       loadUser();

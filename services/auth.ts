@@ -1,14 +1,13 @@
 
 import { api } from './api';
 import { pullUserDataFromCloud } from './cloudSync';
+import { getDB, saveDB, addUser, getAllUsers } from './mockDb';
+import { User } from '../types';
 
 export const handleLoginFlow = async (credentials: any) => {
-    console.log("🚀 Starting Login Flow...");
+    console.log("Starting Login Flow...");
     
     // 1. LOGIN REQUEST
-    // Note: api.post uses getAuthHeaders which reads from localStorage.
-    // Since we are logging in, we might have stale tokens or no tokens.
-    // The backend /auth/login endpoint typically doesn't require auth headers, or ignores them.
     const res = await api.post('/auth/login', credentials);
     
     // Support multiple response structures (e.g. root user obj or data.user)
@@ -28,24 +27,51 @@ export const handleLoginFlow = async (credentials: any) => {
     localStorage.setItem('paydone_session_token', token);
     localStorage.setItem('paydone_active_user', user.id);
     
-    console.log("✅ Session Saved.");
+    // 3. SAVE USER TO LOCAL DB (Critical for Profile page and other lookups)
+    const normalizedUser: User = {
+        id: user.id,
+        username: user.username || user.name || user.email?.split('@')[0] || 'User',
+        email: user.email || '',
+        role: user.role || 'user',
+        status: user.status || 'active',
+        createdAt: user.createdAt || user.created_at || new Date().toISOString(),
+        updatedAt: user.updatedAt || user.updated_at || new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        photoUrl: user.photoUrl || user.photo_url || '',
+        sessionToken: token,
+        parentUserId: user.parentUserId || user.parent_user_id || null,
+        badges: user.badges || [],
+        riskProfile: user.riskProfile || user.risk_profile,
+        bigWhyUrl: user.bigWhyUrl || user.big_why_url || '',
+        financialFreedomTarget: user.financialFreedomTarget || user.financial_freedom_target || 3000000000
+    };
+    
+    // Upsert user in local DB
+    const existingUsers = getAllUsers();
+    const existingIdx = existingUsers.findIndex(u => u.id === user.id);
+    if (existingIdx >= 0) {
+        // Update existing
+        const db = getDB();
+        db.users = db.users.map(u => u.id === user.id ? { ...u, ...normalizedUser } : u);
+        saveDB(db);
+    } else {
+        // Add new
+        addUser(normalizedUser);
+    }
 
-    // 3. HYDRATE DATA (The Missing Step!)
-    // Triggers the "Dual Engine" to pull Debts, Incomes, etc.
+    // 4. HYDRATE DATA (Pull all user-specific data from cloud)
     if (user.role !== 'admin') {
         try {
-            console.log("🚀 Starting Hydration...");
-            // Force a sync call using the new token to ensure we have access
+            console.log("Starting Hydration...");
             const result = await pullUserDataFromCloud(user.id, token);
             
             if (result.success) {
-                console.log("✅ Hydration Complete. Data Synced.");
+                console.log("Hydration Complete. Data Synced.");
             } else {
-                console.warn("⚠️ Hydration Warning:", result.error);
+                console.warn("Hydration Warning:", result.error);
             }
         } catch (err) {
-            console.error("❌ Hydration Failed:", err);
-            // We do not throw here, as login was successful. The dashboard will retry sync.
+            console.error("Hydration Failed:", err);
         }
     }
 

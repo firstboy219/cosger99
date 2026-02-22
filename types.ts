@@ -94,6 +94,9 @@ export interface AppConfig extends SyncMetadata {
     globalAnnouncement?: string; 
     globalAnnouncementType?: 'info' | 'warning' | 'alert';
     
+    // Activity Logs (V50.21)
+    showDetailedLogsToUsers?: boolean;
+    
     // Nested Logic
     systemRules?: SystemRules; 
     advancedConfig?: AdvancedConfig; 
@@ -408,4 +411,9 @@ export interface LogItem {
   action: string; 
   details: string; 
   category: 'System' | 'Finance' | 'AI' | 'Security';
+  // V50.21: Extended fields for backend sync & detailed logging
+  payload?: any;      // Request payload (may be redacted by backend)
+  response?: any;     // Response data (may be redacted by backend)
+  status?: 'success' | 'error' | 'warning' | 'info';
+  userId?: string;
 }

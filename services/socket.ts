@@ -4,15 +4,34 @@ import { getConfig } from './mockDb';
 let socket: WebSocket | null = null;
 let keepAliveInterval: any = null;
 let reconnectTimeout: any = null;
+let currentUserId: string | null = null;
+
+// Debounce timer for Realtime Sync mode (Protocol 3, Rule 2)
+let realtimeDebounceTimer: any = null;
+const REALTIME_DEBOUNCE_MS = 2000; // Min 2 seconds between fetches
 
 type MessageHandler = (data: any) => void;
 const handlers: Set<MessageHandler> = new Set();
 
 /**
- * CONNECT (SNIPER MODE)
- * Backend V34/V42 requires userId in query param to whitelist the connection.
- * Anonymous connections are rejected.
- * Forces WSS if window is HTTPS.
+ * V50.18 Protocol 3: Get sync mode from config
+ * Returns 'realtime' or 'local-first'
+ */
+const getSyncMode = (): 'realtime' | 'local-first' => {
+    try {
+        const config = getConfig();
+        const strategy = config.advancedConfig?.syncStrategy || 'background';
+        return strategy === 'realtime' ? 'realtime' : 'local-first';
+    } catch {
+        return 'local-first';
+    }
+};
+
+/**
+ * CONNECT (V50.18 Compliant)
+ * - Backend requires userId in query param to whitelist the connection.
+ * - Anonymous connections are rejected.
+ * - Forces WSS if window is HTTPS.
  */
 export const connectWebSocket = (userId: string) => {
     if (socket?.readyState === WebSocket.OPEN) return;
@@ -21,35 +40,27 @@ export const connectWebSocket = (userId: string) => {
         return;
     }
 
+    currentUserId = userId;
+
     const config = getConfig();
     let backendUrl = config.backendUrl;
     
     if (!backendUrl) {
-        console.debug("[WS] No backend URL configured. WebSocket disabled.");
         return;
     }
     
-    // Remove trailing slash
     backendUrl = backendUrl.replace(/\/$/, '');
 
-    // 1. Determine Protocol (Secure WebSocket if on HTTPS)
     const isSecure = window.location.protocol === 'https:' || backendUrl.startsWith('https:');
     const protocol = isSecure ? 'wss:' : 'ws:';
-
-    // 2. Extract Host
     let host = backendUrl.replace(/^https?:\/\//, '');
-    
-    // 3. Construct V42 Compliant URL
-    // Pattern: wss://[HOST]/ws?userId=[USER_ID]
     const wsUrl = `${protocol}//${host}/ws?userId=${userId}`;
-
-    console.log(`[WS] Connecting to V42 Secure Stream: ${wsUrl}`);
 
     try {
         socket = new WebSocket(wsUrl);
 
         socket.onopen = () => {
-            console.log('[WS] V42 Handshake Success');
+            console.log('[WS] V50.18 Handshake Success');
             startKeepAlive();
             if (reconnectTimeout) clearTimeout(reconnectTimeout);
         };
@@ -57,10 +68,45 @@ export const connectWebSocket = (userId: string) => {
         socket.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                // Broadcast to internal listeners
+                
+                // V50.18 Protocol 3 - EVENT FILTERING (Rule 1):
+                // Ignore events that belong to a different user (prevent Ghost Updates)
+                if (data.userId && data.userId !== currentUserId) {
+                    return; // Silently discard - not our data
+                }
+                
+                // PONG responses from server heartbeat - just acknowledge
+                if (data.type === 'PONG' || data.type === 'pong') {
+                    return;
+                }
+                
+                // V50.18 Protocol 3 - SYNC MODE AWARENESS (Rule 2):
+                const syncMode = getSyncMode();
+                
+                if (data.type === 'CRUD_UPDATE' || data.type === 'BULK_SYNC') {
+                    if (syncMode === 'local-first') {
+                        // Local-First mode: Mark "need_sync" flag in background
+                        // without aggressively re-rendering the UI
+                        window.dispatchEvent(new CustomEvent('PAYDONE_NEED_SYNC', {
+                            detail: { table: data.table, type: data.type, timestamp: Date.now() }
+                        }));
+                        return; // Do NOT propagate to UI handlers
+                    }
+                    
+                    if (syncMode === 'realtime') {
+                        // Realtime mode: Debounce min 2 seconds to prevent infinite loop
+                        if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
+                        realtimeDebounceTimer = setTimeout(() => {
+                            handlers.forEach(h => h(data));
+                        }, REALTIME_DEBOUNCE_MS);
+                        return;
+                    }
+                }
+
+                // For all other message types, broadcast immediately
                 handlers.forEach(h => h(data));
-            } catch (e) {
-                // Ignore non-json heartbeats
+            } catch {
+                // Ignore non-json heartbeats / malformed messages
             }
         };
 
@@ -69,8 +115,7 @@ export const connectWebSocket = (userId: string) => {
             stopKeepAlive();
             socket = null;
             
-            // Auto Reconnect Strategy (Exponential Backoff could be applied here)
-            // Do not reconnect if it was a normal closure (e.g. logout)
+            // Auto Reconnect: Do not reconnect on normal closure (logout)
             if (event.code !== 1000) { 
                 reconnectTimeout = setTimeout(() => connectWebSocket(userId), 5000);
             }
@@ -78,7 +123,6 @@ export const connectWebSocket = (userId: string) => {
 
         socket.onerror = (error) => {
             console.warn('[WS] Error:', error);
-            // Allow onclose to handle cleanup
         };
 
     } catch (e) {
@@ -91,8 +135,10 @@ export const disconnectWebSocket = () => {
         socket.close(1000, "User Logout");
         socket = null;
     }
+    currentUserId = null;
     stopKeepAlive();
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
 };
 
 export const onMessage = (handler: MessageHandler) => {
@@ -102,14 +148,18 @@ export const onMessage = (handler: MessageHandler) => {
     };
 };
 
-// --- HEARTBEAT ---
+/**
+ * V50.18 Protocol 3 - HEARTBEAT (Terminator Protocol):
+ * Backend kills connections with no activity in 30 seconds.
+ * We send PING every 25 seconds to stay alive (safe margin).
+ */
 const startKeepAlive = () => {
     stopKeepAlive();
     keepAliveInterval = setInterval(() => {
         if (socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: 'PING' }));
         }
-    }, 30000); // 30s Ping
+    }, 25000); // 25s - safe margin before 30s Terminator
 };
 
 const stopKeepAlive = () => {

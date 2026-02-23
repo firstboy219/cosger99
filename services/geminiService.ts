@@ -2,6 +2,55 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { DebtItem, Opportunity, TaskItem } from "../types";
 import { getConfig, getAgentConfig } from "./mockDb";
 
+// --- AI LIMIT ERROR (402 Handling) ---
+export class AILimitError extends Error {
+  constructor(message?: string) {
+    super(message || 'Kuota AI Anda telah habis. Silakan upgrade paket untuk melanjutkan.');
+    this.name = 'AILimitError';
+  }
+}
+
+/**
+ * Backend AI Proxy: Mencoba hit backend /api/ai/analyze terlebih dahulu.
+ * - Jika 402 → throw AILimitError (kuota habis, perlu upgrade).
+ * - Jika error lain → fallback ke Google GenAI langsung (client-side).
+ */
+const callBackendAI = async (payload: { prompt: string; model?: string; systemInstruction?: string; responseJson?: boolean }): Promise<string> => {
+  const config = getConfig();
+  const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+  const userId = localStorage.getItem('paydone_active_user') || '';
+  const token = localStorage.getItem('paydone_session_token') || '';
+
+  try {
+    const res = await fetch(`${baseUrl}/api/ai/analyze`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': userId,
+        'x-session-token': token,
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 402) {
+      throw new AILimitError();
+    }
+
+    if (!res.ok) {
+      throw new Error(`Backend AI error: ${res.status}`);
+    }
+
+    const data = await res.json();
+    return data.result || data.text || JSON.stringify(data);
+  } catch (e: any) {
+    // Re-throw 402 errors — must not fallback
+    if (e instanceof AILimitError) throw e;
+    // All other errors → fallback to direct GenAI
+    throw new Error('FALLBACK_TO_CLIENT');
+  }
+};
+
 const getAgent = (id: string) => {
     const agent = getAgentConfig(id);
     return {
@@ -78,14 +127,24 @@ export const parseTransactionAI = async (input: string, context?: any) => {
 };
 
 export const analyzeDebtStrategy = async (debts: DebtItem[], language: string) => {
-    // Initialization of AI client
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const agent = getAgent('debt_strategist');
+    const prompt = `Debts: ${JSON.stringify(debts)}\nLang: ${language}`;
+
+    // Try backend first (handles 402 quota limit)
+    try {
+        const text = await callBackendAI({ prompt, model: agent.model, systemInstruction: agent.systemInstruction, responseJson: true });
+        const parsed = JSON.parse(text);
+        return parsed;
+    } catch (e: any) {
+        if (e instanceof AILimitError) throw e; // propagate 402
+    }
+
+    // Fallback: direct client-side GenAI
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Calling generateContent with correct parameters
     const response = await ai.models.generateContent({
         model: agent.model,
-        contents: `Debts: ${JSON.stringify(debts)}\nLang: ${language}`,
+        contents: prompt,
         config: { 
             systemInstruction: agent.systemInstruction,
             responseMimeType: "application/json"
@@ -137,15 +196,26 @@ export const findFinancialOpportunities = async (debts: DebtItem[], income: numb
 // Implement missing sendChatMessage function for the AI Strategist chat
 /**
  * CHAT SERVICE: Chat umum dengan konteks finansial.
+ * Flow: Backend /api/ai/analyze → 402 = AILimitError → else fallback ke client GenAI.
  */
 export const sendChatMessage = async (message: string, language: string, context: string): Promise<string> => {
+    const prompt = `CONTEXT: ${context}\nLANG: ${language}\nUSER: ${message}`;
+    const systemInstruction = "Anda adalah asisten keuangan pribadi yang cerdas dan ramah dari Paydone.id.";
+
+    // Try backend first (handles 402 quota limit)
+    try {
+        return await callBackendAI({ prompt, model: 'gemini-3-flash-preview', systemInstruction });
+    } catch (e: any) {
+        if (e instanceof AILimitError) throw e; // propagate 402
+    }
+
+    // Fallback: direct client-side GenAI
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `CONTEXT: ${context}\nLANG: ${language}\nUSER: ${message}`,
-            config: { systemInstruction: "Anda adalah asisten keuangan pribadi yang cerdas dan ramah dari Paydone.id." }
+            contents: prompt,
+            config: { systemInstruction }
         });
         return response.text || "";
     } catch (e) {

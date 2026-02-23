@@ -6,6 +6,7 @@ import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, S
 import { formatCurrency } from '../services/financeUtils';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import FeatureGate from '../components/FeatureGate';
 
 interface ProfileProps {
   currentUserId: string | null;
@@ -275,6 +276,7 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
           <div className="lg:col-span-1 space-y-8">
               
               {/* REKENING BANK */}
+              <FeatureGate featureKey="bank_accounts" fallback="lock" title="Dompet & Bank">
               <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6">
                   <div className="flex justify-between items-center mb-6">
                       <h3 className="font-bold text-slate-900 flex items-center gap-2"><CreditCard size={18} className="text-blue-600"/> Dompet & Bank</h3>
@@ -303,6 +305,7 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
                       )}
                   </div>
               </div>
+              </FeatureGate>
 
               {/* BADGES */}
               <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6">

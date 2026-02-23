@@ -7,6 +7,7 @@ import { getConfig } from '../services/mockDb';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import { parseTransactionAI } from '../services/geminiService';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import FeatureGate from '../components/FeatureGate';
 import { PieChart as RechartsPie, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 // --- SCROLL REVEAL ---
@@ -647,6 +648,7 @@ export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onTogg
 
                {/* SINKING FUNDS */}
                <Reveal delay={200}>
+                 <FeatureGate featureKey="sinking_fund" fallback="lock" title="Kantong Dana">
                  <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
                    <div className="flex justify-between items-center mb-4">
                        <h3 className="text-xs font-black text-slate-900 flex items-center gap-2 uppercase tracking-widest">
@@ -748,6 +750,7 @@ export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onTogg
                        )}
                    </div>
                  </div>
+                 </FeatureGate>
                </Reveal>
            </div>
 

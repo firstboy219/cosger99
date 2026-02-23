@@ -17,7 +17,12 @@ const RESOURCE_MAP: Record<string, string> = {
     banks: 'admin/banks',
     baConfigurations: 'admin/ba-configurations',
     bankAccounts: 'bank-accounts',
-    users: 'users'
+    users: 'users',
+    packages: 'packages',
+    paymentMethods: 'payment-methods',
+    promos: 'promos',
+    subscriptions: 'subscriptions',
+    notifications: 'notifications'
 };
 
 // Map for Secure Delete (Must match SQL Table Names)
@@ -34,7 +39,12 @@ const SQL_TABLE_MAP: Record<string, string> = {
     aiAgents: 'ai_agents',
     qaScenarios: 'qa_scenarios',
     bankAccounts: 'bank_accounts',
-    users: 'users'
+    users: 'users',
+    packages: 'packages',
+    paymentMethods: 'payment_methods',
+    promos: 'promos',
+    subscriptions: 'subscriptions',
+    notifications: 'notifications'
 };
 
 const dispatchNetworkLog = (method: string, url: string, status: number, response: any, payload?: any) => {
@@ -129,6 +139,23 @@ export const pullUserDataFromCloud = async (userId: string, tokenOverride?: stri
         if (configData) db.config = { ...db.config, ...configData };
         if (qaScenariosData) db.qaScenarios = safeJsonField(qaScenariosData, ['payload']);
         if (baConfigurationsData) db.baConfigurations = baConfigurationsData;
+
+        // V50.34 Freemium Hydration
+        const packagesData = resolve('packages', 'packages');
+        const paymentMethodsData = resolve('paymentMethods', 'payment_methods');
+        const promosData = resolve('promos', 'promos');
+        const subscriptionsData = resolve('subscriptions', 'subscriptions');
+        const notificationsData = resolve('notifications', 'notifications');
+        const activeFeaturesData = resolve('activeFeatures', 'active_features');
+        const subscriptionStatusData = resolve('subscriptionStatus', 'subscription_status');
+
+        if (packagesData && Array.isArray(packagesData)) db.packages = safeJsonField(packagesData, ['features']);
+        if (paymentMethodsData && Array.isArray(paymentMethodsData)) db.paymentMethods = paymentMethodsData;
+        if (promosData && Array.isArray(promosData)) db.promos = promosData;
+        if (subscriptionsData && Array.isArray(subscriptionsData)) db.subscriptions = subscriptionsData;
+        if (notificationsData && Array.isArray(notificationsData)) db.notifications = notificationsData;
+        if (activeFeaturesData && typeof activeFeaturesData === 'object') db.activeFeatures = activeFeaturesData;
+        if (subscriptionStatusData && typeof subscriptionStatusData === 'object') db.subscriptionStatus = subscriptionStatusData;
         // Merge users from cloud into local DB (upsert to avoid overwriting local-only users)
         if (data.users && Array.isArray(data.users)) {
             const existingIds = new Set((db.users || []).map((u: any) => u.id));
@@ -386,6 +413,8 @@ export const deleteFromCloud = async (userId: string, collection: string, id: st
     }
 
     try {
+        // V50.35 TAHAP 2: DELETE with secure headers
+        // api.delete() automatically includes x-user-id and x-session-token headers
         // 1. API CALL
         await api.delete(path);
         

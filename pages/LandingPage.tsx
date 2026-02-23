@@ -9,11 +9,12 @@ import {
   Award, Heart, Menu, ArrowUpRight, MousePointer, RefreshCw,
   Smartphone, Wifi, WifiOff, Layers, FileText, Receipt, Landmark, 
   CircleDollarSign, ArrowDownUp, GitCompare, Lightbulb, BookOpen,
-  CreditCard, Home, Car, BadgePercent, Megaphone
+  CreditCard, Home, Car, BadgePercent, Megaphone, Loader2, Mail
 } from 'lucide-react';
 import { formatCurrency } from '../services/financeUtils';
 import { getConfig } from '../services/mockDb';
-import { AppConfig } from '../types';
+import { api } from '../services/api';
+import { AppConfig, FreemiumPackage } from '../types';
 
 /* ─── Animated Counter Hook ─── */
 function useCountUp(target: number, duration = 1500, trigger = true) {
@@ -408,6 +409,16 @@ export default function LandingPage() {
   const [openFAQ, setOpenFAQ] = useState<number | null>(0);
   const [activeTab, setActiveTab] = useState(0);
 
+  // Newsletter Lead State
+  const [leadEmail, setLeadEmail] = useState('');
+  const [leadLoading, setLeadLoading] = useState(false);
+  const [leadSuccess, setLeadSuccess] = useState(false);
+  const [leadError, setLeadError] = useState('');
+
+  // Dynamic Packages from backend
+  const [packages, setPackages] = useState<FreemiumPackage[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(true);
+
   // Hero Calculator State
   const [debtAmount, setDebtAmount] = useState(100000000);
   const [monthlyPay, setMonthlyPay] = useState(2500000);
@@ -440,6 +451,41 @@ export default function LandingPage() {
       document.documentElement.style.scrollBehavior = 'auto';
     };
   }, []);
+
+  // Fetch packages
+  useEffect(() => {
+    const loadPackages = async () => {
+      try {
+        const data = await api.get('/sales/packages');
+        setPackages(data.packages || data || []);
+      } catch (e) {
+        console.warn('[LandingPage] Failed to load packages', e);
+      } finally {
+        setPackagesLoading(false);
+      }
+    };
+    loadPackages();
+  }, []);
+
+  // Newsletter lead handler
+  const handleLeadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLeadError('');
+    if (!leadEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(leadEmail)) {
+      setLeadError('Masukkan email yang valid.');
+      return;
+    }
+    setLeadLoading(true);
+    try {
+      await api.post('/leads', { email: leadEmail.trim() });
+      setLeadSuccess(true);
+      setLeadEmail('');
+    } catch (e: any) {
+      setLeadError(e.message || 'Gagal mendaftar. Coba lagi nanti.');
+    } finally {
+      setLeadLoading(false);
+    }
+  };
 
   const appName = config.appName || 'Paydone.id';
   const appLogo = config.appLogoUrl;
@@ -613,7 +659,8 @@ export default function LandingPage() {
             <a href="#features" className="hover:text-brand-600 transition">Fitur</a>
             <a href="#comparison" className="hover:text-brand-600 transition">Perbandingan</a>
             <a href="#strategy" className="hover:text-brand-600 transition">Strategi AI</a>
-            <a href="#tools" className="hover:text-brand-600 transition">Tools</a>
+            <a href="#pricing" className="hover:text-brand-600 transition">Pricing</a>
+            <Link to="/blog" className="hover:text-brand-600 transition">Blog</Link>
             <a href="#faq" className="hover:text-brand-600 transition">FAQ</a>
           </div>
           
@@ -1192,94 +1239,159 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ═══ 5E. PRICING / FREE FOREVER ═══ */}
+      {/* ═══ 5E. PRICING / DYNAMIC PACKAGES ═══ */}
       <section className="py-24 bg-slate-50" id="pricing" style={{ scrollMarginTop: '100px' }}>
-        <div className="max-w-5xl mx-auto px-6">
+        <div className="max-w-6xl mx-auto px-6">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <span className="text-brand-600 font-bold text-sm uppercase tracking-wider">Pricing</span>
             <h2 className="text-3xl md:text-4xl font-black text-slate-900 mt-3 mb-4">
-              Gratis. Titik.
+              Pilih Paket yang Sesuai
             </h2>
             <p className="text-slate-500 leading-relaxed">
-              Tidak ada paywall, tidak ada trial 14 hari, tidak ada fitur yang disembunyikan. Semua tools di atas bisa Anda akses tanpa bayar sepeser pun.
+              Mulai gratis selamanya. Upgrade kapanpun untuk fitur premium tanpa batas.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            {/* Free Plan */}
-            <div className="relative bg-white p-8 md:p-10 rounded-3xl border-2 border-brand-200 shadow-xl">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-full uppercase tracking-wider shadow-lg">
-                Selamanya Gratis
-              </div>
-              <div className="text-center mb-8 pt-4">
-                <p className="text-5xl font-black text-slate-900">Rp 0</p>
-                <p className="text-sm text-slate-400 mt-1">per bulan, selamanya</p>
-              </div>
-              <div className="space-y-3 mb-8">
-                {[
-                  'Dashboard interaktif & analisis',
-                  'AI Debt Strategist',
-                  'Simulator biaya tersembunyi',
-                  'Kalender cicilan visual',
-                  'Smart allocation & budgeting',
-                  'Catatan pengeluaran harian',
-                  'Financial freedom calculator',
-                  'Sinking fund manager',
-                  'Family mode (multi-user)',
-                  'Cloud sync terenkripsi',
-                  'Unlimited hutang & transaksi',
-                ].map((f, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <CheckCircle2 size={16} className="text-brand-600 flex-shrink-0" />
-                    <span className="text-sm text-slate-600">{f}</span>
-                  </div>
-                ))}
-              </div>
-              <Link to="/register" className="w-full flex items-center justify-center gap-2 py-4 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-brand-600/20 hover:shadow-brand-600/30 active:scale-[0.98]">
-                Daftar Gratis Sekarang
-                <ArrowRight size={16} />
-              </Link>
+          {packagesLoading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="animate-spin text-brand-600" size={32} />
             </div>
-
-            {/* Why Free */}
-            <div className="flex flex-col gap-6">
-              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
-                    <Lightbulb size={20} />
+          ) : packages.length > 0 ? (
+            <div className={`grid gap-8 max-w-5xl mx-auto ${packages.length === 1 ? 'max-w-md' : packages.length === 2 ? 'md:grid-cols-2 max-w-3xl' : packages.length >= 3 ? 'md:grid-cols-2 lg:grid-cols-3' : ''}`}>
+              {packages.filter(p => p.is_active).map((pkg, i) => {
+                const isFree = pkg.is_default_free || pkg.price === 0;
+                const isPremium = !isFree;
+                return (
+                  <div
+                    key={pkg.id}
+                    className={`relative bg-white p-8 md:p-10 rounded-3xl shadow-xl transition-all hover:shadow-2xl hover:-translate-y-1 ${
+                      isPremium ? 'border-2 border-brand-400 ring-4 ring-brand-100' : 'border-2 border-slate-200'
+                    }`}
+                  >
+                    {isPremium && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-full uppercase tracking-wider shadow-lg">
+                        Recommended
+                      </div>
+                    )}
+                    {isFree && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-full uppercase tracking-wider shadow-lg">
+                        Selamanya Gratis
+                      </div>
+                    )}
+                    <div className="text-center mb-8 pt-4">
+                      <h3 className="text-lg font-black text-slate-900 mb-2 uppercase tracking-wider">{pkg.name}</h3>
+                      <p className="text-4xl font-black text-slate-900">
+                        {isFree ? 'Rp 0' : formatCurrency(pkg.price)}
+                      </p>
+                      <p className="text-sm text-slate-400 mt-1">
+                        {isFree ? 'per bulan, selamanya' : 'per bulan'}
+                      </p>
+                      {pkg.description && <p className="text-xs text-slate-500 mt-2">{pkg.description}</p>}
+                    </div>
+                    <div className="space-y-3 mb-8">
+                      <div className="flex items-center gap-3">
+                        <CheckCircle2 size={16} className="text-brand-600 flex-shrink-0" />
+                        <span className="text-sm text-slate-600">
+                          {pkg.ai_limit <= 0 ? 'Unlimited AI Strategist' : `${pkg.ai_limit} AI Hits / bulan`}
+                        </span>
+                      </div>
+                      {pkg.features && Object.entries(pkg.features).filter(([, v]) => v).map(([key]) => (
+                        <div key={key} className="flex items-center gap-3">
+                          <CheckCircle2 size={16} className="text-brand-600 flex-shrink-0" />
+                          <span className="text-sm text-slate-600">{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                        </div>
+                      ))}
+                      {pkg.features && Object.entries(pkg.features).filter(([, v]) => !v).slice(0, 3).map(([key]) => (
+                        <div key={key} className="flex items-center gap-3 opacity-40">
+                          <X size={16} className="text-slate-400 flex-shrink-0" />
+                          <span className="text-sm text-slate-400 line-through">{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <Link
+                      to="/register"
+                      className={`w-full flex items-center justify-center gap-2 py-4 font-bold text-sm rounded-xl transition-all shadow-lg active:scale-[0.98] ${
+                        isPremium
+                          ? 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand-600/20'
+                          : 'bg-slate-900 hover:bg-slate-800 text-white'
+                      }`}
+                    >
+                      {isFree ? 'Daftar Gratis' : 'Pilih Paket Ini'}
+                      <ArrowRight size={16} />
+                    </Link>
                   </div>
-                  <h4 className="font-bold text-slate-900">Kenapa Gratis?</h4>
+                );
+              })}
+            </div>
+          ) : (
+            /* Fallback static pricing if no packages from backend */
+            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+              <div className="relative bg-white p-8 md:p-10 rounded-3xl border-2 border-brand-200 shadow-xl">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-full uppercase tracking-wider shadow-lg">
+                  Selamanya Gratis
                 </div>
-                <p className="text-sm text-slate-500 leading-relaxed">
-                  Misi kami adalah membantu sebanyak mungkin orang Indonesia terbebas dari jeratan hutang. Akses ke tools keuangan berkualitas seharusnya bukan privilege golongan tertentu.
-                </p>
+                <div className="text-center mb-8 pt-4">
+                  <p className="text-5xl font-black text-slate-900">Rp 0</p>
+                  <p className="text-sm text-slate-400 mt-1">per bulan, selamanya</p>
+                </div>
+                <div className="space-y-3 mb-8">
+                  {[
+                    'Dashboard interaktif & analisis',
+                    'AI Debt Strategist',
+                    'Simulator biaya tersembunyi',
+                    'Kalender cicilan visual',
+                    'Smart allocation & budgeting',
+                    'Catatan pengeluaran harian',
+                    'Cloud sync terenkripsi',
+                  ].map((f, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <CheckCircle2 size={16} className="text-brand-600 flex-shrink-0" />
+                      <span className="text-sm text-slate-600">{f}</span>
+                    </div>
+                  ))}
+                </div>
+                <Link to="/register" className="w-full flex items-center justify-center gap-2 py-4 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-brand-600/20 active:scale-[0.98]">
+                  Daftar Gratis Sekarang <ArrowRight size={16} />
+                </Link>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
-                    <Shield size={20} />
+              <div className="flex flex-col gap-6">
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+                      <Lightbulb size={20} />
+                    </div>
+                    <h4 className="font-bold text-slate-900">Kenapa Gratis?</h4>
                   </div>
-                  <h4 className="font-bold text-slate-900">Tanpa Iklan, Tanpa Data Selling</h4>
+                  <p className="text-sm text-slate-500 leading-relaxed">
+                    Misi kami adalah membantu sebanyak mungkin orang Indonesia terbebas dari jeratan hutang.
+                  </p>
                 </div>
-                <p className="text-sm text-slate-500 leading-relaxed">
-                  Kami tidak memasang iklan dan tidak menjual data Anda. Revenue kami di masa depan akan berasal dari fitur premium opsional yang tidak mengurangi fitur gratis.
-                </p>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
-                    <Megaphone size={20} />
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                      <Shield size={20} />
+                    </div>
+                    <h4 className="font-bold text-slate-900">Tanpa Iklan, Tanpa Data Selling</h4>
                   </div>
-                  <h4 className="font-bold text-slate-900">Roadmap Terbuka</h4>
+                  <p className="text-sm text-slate-500 leading-relaxed">
+                    Revenue kami akan berasal dari fitur premium opsional yang tidak mengurangi fitur gratis.
+                  </p>
                 </div>
-                <p className="text-sm text-slate-500 leading-relaxed">
-                  Fitur baru dikembangkan berdasarkan masukan pengguna. Anda bisa request fitur dan vote prioritas pengembangan melalui sistem tiket built-in.
-                </p>
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+                      <Megaphone size={20} />
+                    </div>
+                    <h4 className="font-bold text-slate-900">Roadmap Terbuka</h4>
+                  </div>
+                  <p className="text-sm text-slate-500 leading-relaxed">
+                    Fitur baru dikembangkan berdasarkan masukan pengguna. Vote prioritas pengembangan melalui tiket.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </section>
 
@@ -1387,6 +1499,53 @@ export default function LandingPage() {
                 onClick={() => setOpenFAQ(openFAQ === i ? null : i)}
               />
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 9B. NEWSLETTER LEAD CAPTURE ═══ */}
+      <section className="py-20 bg-white">
+        <div className="max-w-3xl mx-auto px-6 text-center">
+          <div className="bg-slate-50 border border-slate-200 rounded-3xl p-10 md:p-14">
+            <div className="w-14 h-14 bg-brand-50 text-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <Mail size={28} />
+            </div>
+            <h2 className="text-2xl md:text-3xl font-black text-slate-900 mb-3 text-balance">
+              Dapatkan Tips Keuangan Eksklusif
+            </h2>
+            <p className="text-slate-500 text-sm md:text-base leading-relaxed mb-8 max-w-lg mx-auto">
+              Bergabunglah dengan newsletter kami. Dapatkan insight strategi pelunasan hutang, tips budgeting, dan update fitur terbaru langsung di inbox Anda.
+            </p>
+            {leadSuccess ? (
+              <div className="flex items-center justify-center gap-3 px-6 py-4 bg-green-50 border border-green-200 rounded-xl mx-auto max-w-md">
+                <CheckCircle2 size={20} className="text-green-600 flex-shrink-0" />
+                <p className="text-sm font-bold text-green-700">Terima kasih! Email Anda telah terdaftar.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleLeadSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+                <div className="flex-1 relative">
+                  <input
+                    type="email"
+                    value={leadEmail}
+                    onChange={(e) => { setLeadEmail(e.target.value); setLeadError(''); }}
+                    placeholder="Masukkan email Anda..."
+                    className={`w-full px-5 py-4 rounded-xl border-2 text-sm font-medium outline-none transition-all ${
+                      leadError ? 'border-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-100' : 'border-slate-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-100'
+                    }`}
+                  />
+                  {leadError && <p className="text-[11px] text-red-500 font-bold mt-1.5 text-left ml-1">{leadError}</p>}
+                </div>
+                <button
+                  type="submit"
+                  disabled={leadLoading}
+                  className="px-8 py-4 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-brand-600/20 active:scale-[0.97] disabled:opacity-60 flex items-center justify-center gap-2 flex-shrink-0"
+                >
+                  {leadLoading ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                  Berlangganan
+                </button>
+              </form>
+            )}
+            <p className="text-[11px] text-slate-400 mt-4">Tanpa spam. Berhenti berlangganan kapan saja.</p>
           </div>
         </div>
       </section>

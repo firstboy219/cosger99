@@ -15,7 +15,7 @@ declare global {
 }
 
 interface LoginProps {
-  onLogin: (role: 'admin' | 'user', userId: string) => void;
+  onLogin: (role: 'admin' | 'user' | 'sales', userId: string) => void;
 }
 
 export default function Login({ onLogin }: LoginProps) {
@@ -108,7 +108,7 @@ export default function Login({ onLogin }: LoginProps) {
       }
 
       onLogin(user.role, user.id);
-      navigate(user.role === 'admin' ? '/admin' : '/app');
+      navigate(user.role === 'admin' ? '/admin' : user.role === 'sales' ? '/sales' : '/app');
 
     } catch (err: any) {
       setError(err.message);
@@ -136,7 +136,7 @@ export default function Login({ onLogin }: LoginProps) {
     try {
         const user = await handleLoginFlow({ email: username, password });
         onLogin(user.role, user.id);
-        navigate(user.role === 'admin' ? '/admin' : '/app');
+        navigate(user.role === 'admin' ? '/admin' : user.role === 'sales' ? '/sales' : '/app');
     } catch (err: any) {
         setError(err.message || "Login failed");
         setLoading(false);

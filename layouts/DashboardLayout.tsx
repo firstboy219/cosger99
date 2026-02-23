@@ -1,12 +1,14 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { NavLink, useLocation, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BrainCircuit, Wallet, Menu, X, Bell, LogOut, PieChart, CalendarDays, ClipboardList, List, TrendingUp, DollarSign, Receipt, History, Users, UserCog, Search, ChevronDown, Globe, AlertCircle, CheckCircle2, PiggyBank, AlarmClock, Copy, Sparkles, Zap, ChevronRight, Wifi, RefreshCw, AlertTriangle, CloudUpload, Bug, CloudDownload, Code, Database, Eye, Terminal, Send } from 'lucide-react';
+import { LayoutDashboard, BrainCircuit, Wallet, Menu, X, Bell, LogOut, PieChart, CalendarDays, ClipboardList, List, TrendingUp, DollarSign, Receipt, History, Users, UserCog, Search, ChevronDown, Globe, AlertCircle, CheckCircle2, PiggyBank, AlarmClock, Copy, Sparkles, Zap, ChevronRight, Wifi, RefreshCw, AlertTriangle, CloudUpload, Bug, CloudDownload, Code, Database, Eye, Terminal, Send, Megaphone, Info, Gift, ShieldAlert, ArrowRight, FileText } from 'lucide-react';
 import { useTranslation } from '../services/translationService';
-import { getUserData, getAllUsers, getConfig } from '../services/mockDb';
-import { DebtItem, SinkingFund, TaskItem, User, AppConfig } from '../types';
+import { getUserData, getAllUsers, getConfig, getDB, saveDB } from '../services/mockDb';
+import { DebtItem, SinkingFund, TaskItem, User, AppConfig, AppNotification } from '../types';
 import { formatCurrency } from '../services/financeUtils';
 import { pullUserDataFromCloud } from '../services/cloudSync';
+import { api } from '../services/api';
+import GracePeriodBanner from '../components/GracePeriodBanner';
 
 // --- MODERN SIDEBAR ITEM ---
 interface SidebarItemProps {
@@ -55,14 +57,6 @@ interface DashboardLayoutProps {
   hasUnsavedChanges?: boolean;
 }
 
-interface Notification {
-    id: string;
-    type: 'warning' | 'success' | 'info' | 'alarm';
-    title: string;
-    message: string;
-    date: string;
-}
-
 export default function DashboardLayout({ onLogout, userId, syncStatus, onManualSync, hasUnsavedChanges }: DashboardLayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { t, language, setLanguage } = useTranslation();
@@ -76,8 +70,10 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [nextBill, setNextBill] = useState<{name: string, days: number, amount: number} | null>(null);
   const [notifMenuOpen, setNotifMenuOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
+  
+  const unreadCount = useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
 
   const [isPulling, setIsPulling] = useState(false);
   const [pullResult, setPullResult] = useState<{ status: 'success' | 'error', data: any } | null>(null);
@@ -125,6 +121,61 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       }
   }, [userId]);
 
+  // V50.35 TAHAP 5: Hydrate notifications from local DB + fetch from backend
+  useEffect(() => {
+    const loadNotifs = async () => {
+      const db = getDB();
+      
+      // First, try to fetch from backend
+      try {
+        const backendNotifs = await api.get('/notifications').catch(() => null);
+        if (Array.isArray(backendNotifs)) {
+          db.notifications = backendNotifs;
+          saveDB(db);
+        }
+      } catch {
+        // Silently fail - use local DB
+      }
+      
+      const allNotifs = Array.isArray(db.notifications) 
+        ? db.notifications.filter((n: AppNotification) => n.user_id === userId || !n.user_id)
+        : [];
+      setNotifications(allNotifs.sort((a: AppNotification, b: AppNotification) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+    };
+    
+    loadNotifs();
+    window.addEventListener('PAYDONE_DB_UPDATE', loadNotifs);
+    // V50.35 TAHAP 5: Listen for real-time notifications via WebSocket
+    window.addEventListener('PAYDONE_NOTIFICATION', loadNotifs);
+    
+    return () => {
+      window.removeEventListener('PAYDONE_DB_UPDATE', loadNotifs);
+      window.removeEventListener('PAYDONE_NOTIFICATION', loadNotifs);
+    };
+  }, [userId]);
+
+  const markAsRead = useCallback(async (notifId: string) => {
+    // Optimistic update
+    setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, is_read: true } : n));
+    // Update local DB
+    const db = getDB();
+    db.notifications = (db.notifications || []).map((n: AppNotification) => n.id === notifId ? { ...n, is_read: true } : n);
+    saveDB(db);
+    // Sync to backend
+    try { await api.put(`/notifications/${notifId}/read`, {}); } catch { /* ignore */ }
+  }, []);
+
+  const markAllAsRead = useCallback(async () => {
+    const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id);
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    const db = getDB();
+    db.notifications = (db.notifications || []).map((n: AppNotification) => ({ ...n, is_read: true }));
+    saveDB(db);
+    for (const id of unreadIds) {
+      try { await api.put(`/notifications/${id}/read`, {}); } catch { /* ignore */ }
+    }
+  }, [notifications]);
+
   const handleManualPull = async () => {
       setIsPulling(true);
       const result = await pullUserDataFromCloud(userId);
@@ -152,7 +203,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       { title: 'Overview', items: [{ to: '/app', icon: LayoutDashboard, label: t("nav.dashboard") }, { to: '/app/ai-strategist', icon: BrainCircuit, label: t("nav.ai_strategist"), badge: 'AI' }, { to: '/app/planning', icon: ClipboardList, label: t("nav.planning") }] },
       { title: 'Management', items: [{ to: '/app/my-debts', icon: List, label: t("nav.my_debts") }, { to: '/app/allocation', icon: PieChart, label: t("nav.allocation") }, { to: '/app/calendar', icon: CalendarDays, label: t("nav.calendar") }] },
       { title: 'Tracker', items: [{ to: '/app/income', icon: DollarSign, label: t("nav.income") }, { to: '/app/expenses', icon: Receipt, label: t("nav.expenses") }, { to: '/app/financial-freedom', icon: TrendingUp, label: t("nav.freedom") }] },
-      { title: 'Account', items: [{ to: '/app/logs', icon: History, label: t("nav.history") }, { to: '/app/profile', icon: UserCog, label: t("nav.profile") }] }
+      { title: 'Account', items: [{ to: '/app/logs', icon: History, label: t("nav.history") }, { to: '/app/profile', icon: UserCog, label: t("nav.profile") }, { to: '/app/upgrade', icon: Zap, label: 'Upgrade', badge: 'PRO' }, { to: '/app/billing', icon: FileText, label: 'Billing' }] }
   ], [t]);
 
   const filteredMenu = useMemo(() => {
@@ -250,6 +301,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       )}
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        <GracePeriodBanner />
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-8 z-20 shadow-sm">
           <div className="flex items-center gap-4">
             <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden text-slate-500 hover:text-slate-900"><Menu size={20} /></button>
@@ -293,7 +345,81 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
                {langMenuOpen && (<div className="absolute right-0 top-full mt-2 w-32 bg-white border border-slate-200 shadow-xl rounded-xl py-1 z-50 animate-fade-in-up"><button onClick={() => { setLanguage('id'); setLangMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"><span>Indonesia</span>{language === 'id' && <CheckCircle2 size={14} className="text-brand-600"/>}</button><button onClick={() => { setLanguage('en'); setLangMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"><span>English</span>{language === 'en' && <CheckCircle2 size={14} className="text-brand-600"/>}</button></div>)}
             </div>
 
-            <button onClick={() => setNotifMenuOpen(!notifMenuOpen)} className={`p-2 rounded-full transition-colors ${notifMenuOpen ? 'bg-brand-50 text-brand-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}><Bell size={18} /></button>
+            <div className="relative" ref={notifRef}>
+              <button onClick={() => setNotifMenuOpen(!notifMenuOpen)} className={`p-2 rounded-full transition-colors relative ${notifMenuOpen ? 'bg-brand-50 text-brand-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}>
+                <Bell size={18} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4.5 h-4.5 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center min-w-[18px] h-[18px] border-2 border-white shadow-sm">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Notification Popover */}
+              {notifMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white border border-slate-200 shadow-2xl rounded-2xl z-50 overflow-hidden" style={{ animation: 'fadeInUp 0.15s ease-out' }}>
+                  <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/50">
+                    <h4 className="text-sm font-bold text-slate-900">Notifikasi</h4>
+                    {unreadCount > 0 && (
+                      <button onClick={markAllAsRead} className="text-[10px] font-bold text-brand-600 hover:text-brand-700 transition">Tandai semua dibaca</button>
+                    )}
+                  </div>
+                  <div className="max-h-[360px] overflow-y-auto custom-scrollbar">
+                    {notifications.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center px-6">
+                        <Bell size={32} className="text-slate-200 mb-3" />
+                        <p className="text-sm font-bold text-slate-400">Belum ada notifikasi</p>
+                        <p className="text-[11px] text-slate-300 mt-1">Notifikasi dari sistem dan promo akan muncul di sini.</p>
+                      </div>
+                    ) : (
+                      notifications.slice(0, 20).map(notif => {
+                        const NotifIcon = notif.type === 'promo' ? Gift : notif.type === 'warning' ? ShieldAlert : notif.type === 'system' ? AlertCircle : Info;
+                        const iconColor = notif.type === 'promo' ? 'text-amber-600 bg-amber-50' : notif.type === 'warning' ? 'text-red-600 bg-red-50' : notif.type === 'system' ? 'text-slate-600 bg-slate-100' : 'text-blue-600 bg-blue-50';
+                        const timeAgo = (() => {
+                          const diff = Date.now() - new Date(notif.created_at).getTime();
+                          const mins = Math.floor(diff / 60000);
+                          if (mins < 60) return `${mins}m lalu`;
+                          const hours = Math.floor(mins / 60);
+                          if (hours < 24) return `${hours}j lalu`;
+                          return `${Math.floor(hours / 24)}h lalu`;
+                        })();
+
+                        return (
+                          <div
+                            key={notif.id}
+                            onClick={() => { markAsRead(notif.id); if (notif.action_url) navigate(notif.action_url); }}
+                            className={`flex gap-3 px-5 py-3.5 border-b border-slate-50 cursor-pointer transition-colors hover:bg-slate-50 ${!notif.is_read ? 'bg-brand-50/30' : ''}`}
+                          >
+                            <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center ${iconColor}`}>
+                              {notif.image_url ? (
+                                <img src={notif.image_url} alt="" className="w-9 h-9 rounded-xl object-cover" />
+                              ) : (
+                                <NotifIcon size={16} />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className={`text-xs leading-snug ${!notif.is_read ? 'font-bold text-slate-900' : 'font-medium text-slate-600'}`}>{notif.title}</p>
+                                {!notif.is_read && <div className="w-2 h-2 bg-brand-500 rounded-full flex-shrink-0 mt-1" />}
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">{notif.message}</p>
+                              <p className="text-[10px] text-slate-300 mt-1">{timeAgo}</p>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  {notifications.length > 0 && (
+                    <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 text-center">
+                      <button onClick={() => { setNotifMenuOpen(false); navigate('/app/logs'); }} className="text-[11px] font-bold text-brand-600 hover:text-brand-700 transition flex items-center gap-1 mx-auto">
+                        Lihat semua riwayat <ArrowRight size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

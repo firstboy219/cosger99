@@ -1,11 +1,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { DebtItem, TaskItem } from '../types';
-import { analyzeDebtStrategy, sendChatMessage } from '../services/geminiService';
+import { analyzeDebtStrategy, sendChatMessage, AILimitError } from '../services/geminiService';
 import { getConfig } from '../services/mockDb';
-import { BrainCircuit, Sparkles, Send, Bot, CheckCircle, ListPlus, User, RefreshCw, Zap, Briefcase, ChevronDown } from 'lucide-react';
+import { BrainCircuit, Sparkles, Send, Bot, CheckCircle, ListPlus, User, RefreshCw, Zap, Briefcase, ChevronDown, Lock, ArrowRight, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from '../services/translationService';
 
 interface AIStrategistProps {
@@ -36,6 +36,7 @@ export default function AIStrategist({ debts, onAddTasks }: AIStrategistProps) {
   const [showPlanForm, setShowPlanForm] = useState(false);
   const [suggestedActions, setSuggestedActions] = useState<SuggestedAction[]>([]);
   const [aiConfig, setAiConfig] = useState<any>({});
+  const [aiLimitReached, setAiLimitReached] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -92,7 +93,12 @@ export default function AIStrategist({ debts, onAddTasks }: AIStrategistProps) {
           setTimeout(() => setShowPlanForm(true), 1000);
         }
     } catch (e: any) {
-        setMessages([{ role: 'model', content: "Maaf, terjadi kesalahan saat menganalisa. " + e.message, timestamp: new Date() }]);
+        if (e instanceof AILimitError) {
+            setAiLimitReached(true);
+            setMessages([{ role: 'model', content: "Kuota AI Anda telah habis bulan ini. Upgrade ke paket Premium untuk melanjutkan konsultasi tanpa batas.", timestamp: new Date() }]);
+        } else {
+            setMessages([{ role: 'model', content: "Maaf, terjadi kesalahan saat menganalisa. " + e.message, timestamp: new Date() }]);
+        }
     } finally {
         setLoading(false);
         setAnalysisStep('');
@@ -114,8 +120,13 @@ export default function AIStrategist({ debts, onAddTasks }: AIStrategistProps) {
         const context = getContextString();
         const reply = await sendChatMessage(userMsg, language, context);
         setMessages(prev => [...prev, { role: 'model', content: reply, timestamp: new Date() }]);
-    } catch (e) {
-        setMessages(prev => [...prev, { role: 'model', content: "Maaf, koneksi ke AI terputus.", timestamp: new Date() }]);
+    } catch (e: any) {
+        if (e instanceof AILimitError) {
+            setAiLimitReached(true);
+            setMessages(prev => [...prev, { role: 'model', content: "Kuota AI Anda telah habis bulan ini. Upgrade ke paket Premium untuk melanjutkan konsultasi tanpa batas.", timestamp: new Date() }]);
+        } else {
+            setMessages(prev => [...prev, { role: 'model', content: "Maaf, koneksi ke AI terputus.", timestamp: new Date() }]);
+        }
     } finally {
         setLoading(false);
         setAnalysisStep('');
@@ -298,6 +309,26 @@ export default function AIStrategist({ debts, onAddTasks }: AIStrategistProps) {
         {/* INPUT AREA (FLOATING) */}
         {chatStarted && (
            <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-white via-white/90 to-transparent">
+             {aiLimitReached ? (
+               <div className="max-w-4xl mx-auto bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row items-center gap-4">
+                 <div className="flex items-center gap-3 flex-1">
+                   <div className="p-2.5 bg-amber-100 rounded-xl flex-shrink-0">
+                     <Lock size={20} className="text-amber-600" />
+                   </div>
+                   <div>
+                     <p className="font-bold text-slate-900 text-sm">Kuota AI Habis</p>
+                     <p className="text-xs text-slate-600 leading-relaxed">Anda telah mencapai batas penggunaan AI bulan ini. Upgrade untuk konsultasi tanpa batas.</p>
+                   </div>
+                 </div>
+                 <Link
+                   to="/app/profile"
+                   className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl hover:from-amber-600 hover:to-orange-600 shadow-lg shadow-amber-200/50 transition-all transform hover:scale-105 active:scale-95 text-sm whitespace-nowrap"
+                 >
+                   <ArrowRight size={16} />
+                   Upgrade Paket
+                 </Link>
+               </div>
+             ) : (
              <form onSubmit={handleSendMessage} className="relative max-w-4xl mx-auto shadow-2xl rounded-full">
                <input
                  type="text"
@@ -316,6 +347,7 @@ export default function AIStrategist({ debts, onAddTasks }: AIStrategistProps) {
                  {loading ? <RefreshCw size={20} className="animate-spin"/> : <Send size={20} className="ml-0.5" />}
                </button>
              </form>
+             )}
              <p className="text-center text-[10px] text-slate-400 mt-2 font-medium">
                 AI dapat membuat kesalahan. Pastikan cek kembali saran finansial.
              </p>

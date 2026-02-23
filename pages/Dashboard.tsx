@@ -18,6 +18,7 @@ import { generateDashboardSummary, parseTransactionAI } from '../services/gemini
 import { pullUserDataFromCloud } from '../services/cloudSync';
 import { getConfig } from '../services/mockDb';
 import LivingCostWidget from '../components/widgets/LivingCostWidget';
+import FeatureGate from '../components/FeatureGate';
 
 // --- ANIMATED COUNTER COMPONENT ---
 function AnimatedNumber({ value, duration = 1200, prefix = '', suffix = '' }: { value: number; duration?: number; prefix?: string; suffix?: string }) {
@@ -626,6 +627,7 @@ export default function Dashboard({
       {/* ============================================ */}
       {/* SECTION 5: FREEDOM MATRIX                    */}
       {/* ============================================ */}
+      <FeatureGate featureKey="freedom_matrix" fallback="lock" title="Freedom Matrix">
       <Reveal delay={150}>
         <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200 shadow-sm relative overflow-hidden">
           <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4 relative z-10">
@@ -723,6 +725,7 @@ export default function Dashboard({
           </div>
         </div>
       </Reveal>
+      </FeatureGate>
 
       {/* ============================================ */}
       {/* SECTION 6: ANALYSIS GRID                     */}
@@ -730,6 +733,7 @@ export default function Dashboard({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* CROSSING ANALYSIS - FIXED: Use ComposedChart for mixed Area+Line */}
+        <FeatureGate featureKey="crossing_analysis" fallback="lock" title="Crossing Analysis">
         <Reveal delay={100}>
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
             <div className="flex justify-between items-center mb-2">
@@ -805,6 +809,7 @@ export default function Dashboard({
             </div>
           </div>
         </Reveal>
+        </FeatureGate>
 
         {/* RIGHT COLUMN: DECISION + STRUCTURE */}
         <div className="space-y-6">

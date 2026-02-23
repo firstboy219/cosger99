@@ -2,7 +2,9 @@ import {
   User, DebtItem, IncomeItem, ExpenseItem, DailyExpense, 
   TaskItem, PaymentRecord, LogItem, AppConfig, AIAgent, 
   Ticket, QAScenario, DebtInstallment, SinkingFund, Badge,
-  BankData, SystemRules, AdvancedConfig, BankAccount
+  BankData, SystemRules, AdvancedConfig, BankAccount,
+  FreemiumPackage, PaymentMethod, Promo, Subscription, AppNotification,
+  SubscriptionStatus, ActiveFeatures, Content, Lead, ClientTelemetry
 } from '../types';
 
 export interface DBSchema {
@@ -23,6 +25,19 @@ export interface DBSchema {
   banks: BankData[];
   bankAccounts: BankAccount[]; // NEW
   baConfigurations?: any[];
+  // V50.34 Freemium tables
+  packages: FreemiumPackage[];
+  paymentMethods: PaymentMethod[];
+  promos: Promo[];
+  subscriptions: Subscription[];
+  notifications: AppNotification[];
+  // V50.35 TAHAP 1: New tables
+  contents: Content[];
+  leads: Lead[];
+  clientTelemetry: ClientTelemetry[];
+  // Computed freemium state (hydrated from sync)
+  activeFeatures?: ActiveFeatures;
+  subscriptionStatus?: SubscriptionStatus;
   // Map for user-specific data that might not be flat in this simple mock
   userData?: Record<string, UserData>; 
 }
@@ -112,7 +127,16 @@ export const getDB = (): DBSchema => {
       allocations: [],
       sinkingFunds: [],
       bankAccounts: [],
-      baConfigurations: []
+      baConfigurations: [],
+      packages: [],
+      paymentMethods: [],
+      promos: [],
+      subscriptions: [],
+      notifications: [],
+      // V50.35 TAHAP 1: Initialize new tables
+      contents: [],
+      leads: [],
+      clientTelemetry: []
     };
     saveDB(initialDB);
     return initialDB;

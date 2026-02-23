@@ -79,6 +79,41 @@ export const connectWebSocket = (userId: string) => {
                 if (data.type === 'PONG' || data.type === 'pong') {
                     return;
                 }
+
+                // V50.35 TAHAP 2: WebSocket Force Actions
+                // FORCE_LOGOUT: Server-side session revocation
+                if (data.type === 'FORCE_LOGOUT' && data.userId === currentUserId) {
+                    console.warn('[WS] FORCE_LOGOUT received - cleaning up session');
+                    // Clear local auth data
+                    localStorage.removeItem('paydone_session_token');
+                    localStorage.removeItem('paydone_active_user');
+                    localStorage.removeItem('paydone_user_role');
+                    // Dispatch logout event
+                    window.dispatchEvent(new CustomEvent('PAYDONE_FORCE_LOGOUT', { detail: data }));
+                    // Redirect to login immediately
+                    setTimeout(() => {
+                        window.location.href = '/#/login';
+                    }, 100);
+                    return;
+                }
+
+                // V50.35 TAHAP 2: FORCE_SYNC - Backend requests fresh sync
+                if (data.type === 'FORCE_SYNC' && data.userId === currentUserId) {
+                    console.log('[WS] FORCE_SYNC received - triggering background pull');
+                    // Dispatch custom event for App to catch and trigger sync
+                    window.dispatchEvent(new CustomEvent('PAYDONE_FORCE_SYNC', { 
+                        detail: { table: data.table, reason: data.reason } 
+                    }));
+                    return;
+                }
+
+                // V50.35 TAHAP 5: Real-time Notifications
+                if (data.type === 'NOTIFICATION' && (data.userId === currentUserId || !data.userId)) {
+                    console.log('[WS] Notification received:', data.title);
+                    // Dispatch event for UI to listen to and update notifications
+                    window.dispatchEvent(new CustomEvent('PAYDONE_NOTIFICATION', { detail: data }));
+                    return;
+                }
                 
                 // V50.18 Protocol 3 - SYNC MODE AWARENESS (Rule 2):
                 const syncMode = getSyncMode();

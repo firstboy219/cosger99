@@ -201,7 +201,7 @@ export interface User {
   username: string;
   email: string;
   password?: string; 
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'sales';
   status: 'active' | 'pending_verification' | 'inactive';
   lastLogin?: string; 
   parentUserId?: string | null; 
@@ -214,6 +214,11 @@ export interface User {
   bigWhyUrl?: string; 
   financialFreedomTarget?: number; 
   badges?: string[]; 
+  
+  // V50.34 Freemium fields (V50.35: TAHAP 1)
+  subscription_id?: string;
+  ai_hits_used?: number;
+  ai_last_reset_date?: string; // ISO String - when AI hits were last reset
   
   // Analytics Fields (Admin Dashboard)
   totalDebt?: number;
@@ -403,6 +408,79 @@ export interface PaymentRecord extends SyncMetadata {
   status: 'paid';
 }
 
+// ═══ V50.34 FREEMIUM / CRM TYPES ═══
+
+export interface FreemiumPackage extends SyncMetadata {
+  id: string;
+  name: string;
+  price: number;
+  ai_limit: number;
+  features: Record<string, boolean>;
+  is_active: boolean;
+  is_default_free: boolean;
+  description?: string;
+  badge_color?: string;
+}
+
+export interface PaymentMethod extends SyncMetadata {
+  id: string;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+  is_active: boolean;
+  logo_url?: string;
+}
+
+export interface Promo extends SyncMetadata {
+  id: string;
+  code: string;
+  discount_percentage: number;
+  discount_nominal: number;
+  valid_until: string;
+  quota: number;
+  target_user_id?: string;
+  image_url?: string;
+  description?: string;
+  is_active?: boolean; // V50.35: Track if promo is currently active
+}
+
+export interface Subscription extends SyncMetadata {
+  id: string;
+  user_id: string;
+  package_id: string;
+  payment_method_id?: string;
+  promo_id?: string;
+  amount_paid: number;
+  status: 'pending' | 'awaiting_payment' | 'verifying' | 'active' | 'expired' | 'rejected' | 'cancelled'; // V50.35: Added 'cancelled'
+  start_date: string;
+  end_date: string;
+  proof_of_payment?: string;
+  package_name?: string;
+  rejection_reason?: string;
+}
+
+export interface AppNotification extends SyncMetadata {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  type?: 'info' | 'promo' | 'warning' | 'system';
+  image_url?: string;
+  action_url?: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface SubscriptionStatus {
+  inGracePeriod: boolean;
+  daysLeftGrace: number;
+  isFreeTier: boolean;
+  currentPackage?: string;
+  expiryDate?: string;
+}
+
+export type ActiveFeatures = Record<string, boolean>;
+
 export interface LogItem {
   id: string;
   timestamp: string; 
@@ -416,4 +494,55 @@ export interface LogItem {
   response?: any;     // Response data (may be redacted by backend)
   status?: 'success' | 'error' | 'warning' | 'info';
   userId?: string;
+}
+
+// V50.35 TAHAP 1: CMS & Marketing Content
+export interface Content extends SyncMetadata {
+  id: string;
+  title: string;
+  content_type: 'article' | 'image' | 'video';
+  body?: string;
+  media_url?: string; // For images/videos
+  thumbnail_url?: string;
+  author_id?: string;
+  status: 'draft' | 'published' | 'archived';
+  created_at: string;
+  updated_at: string;
+  published_at?: string;
+  tags?: string[];
+  seo_title?: string;
+  seo_description?: string;
+  view_count?: number;
+}
+
+// V50.35 TAHAP 1: Newsletter Leads
+export interface Lead extends SyncMetadata {
+  id: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  company?: string;
+  source?: string; // Where the lead came from (landing_page, newsletter, etc.)
+  status: 'new' | 'contacted' | 'qualified' | 'converted' | 'unsubscribed';
+  created_at: string;
+  subscribed_at?: string;
+  converted_at?: string;
+  notes?: string;
+  tags?: string[];
+}
+
+// V50.35 TAHAP 1: Client Telemetry (App Analytics)
+export interface ClientTelemetry extends SyncMetadata {
+  id: string;
+  user_id?: string;
+  session_id: string;
+  event_type: string; // page_view, button_click, form_submit, etc.
+  event_name: string;
+  page_url?: string;
+  referrer_url?: string;
+  user_agent?: string;
+  ip_address?: string;
+  metadata?: Record<string, any>;
+  timestamp: string;
+  duration_ms?: number; // For events with duration
 }

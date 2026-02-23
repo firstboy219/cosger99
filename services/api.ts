@@ -1,5 +1,6 @@
 
 import { getConfig } from './mockDb';
+import { sanitizeDatePayload } from './dateUtils';
 
 const getBaseUrl = () => getConfig().backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
 
@@ -16,6 +17,8 @@ const getAuthHeaders = (endpoint?: string) => {
         'Content-Type': 'application/json',
         'x-user-id': userId,
         'x-session-token': token
+        // V50.35 TAHAP 2: GZIP & Time Sanitizer
+        // DO NOT override Accept-Encoding - let browser/fetch handle GZIP automatically
     };
 
     if (token) {
@@ -47,17 +50,44 @@ const stripRestrictedFieldsForPut = (body: any): any => {
     return sanitized;
 };
 
+// V50.35 TAHAP 2: Auth Storm Control
+let authStormActive = false;
+let authStormTimeout: any = null;
+
 const handleResponse = async (res: Response) => {
+    // V50.35 TAHAP 2: Auth Storm Interceptor
+    // If backend sends X-Auth-Status: Expired on 401, block all pending requests
     if (res.status === 401) {
-        // Auto-Logout trigger
-        console.warn(`Session expired (401) on ${res.url}. Redirecting...`);
-        localStorage.removeItem('paydone_session_token');
+        const authStatus = res.headers.get('X-Auth-Status');
         
-        // Prevent redirect loop if already on login
-        if (!window.location.hash.includes('login')) {
-            window.location.href = '/#/login';
+        if (authStatus === 'Expired' && !authStormActive) {
+            console.warn(`[Auth Storm] Session expired detected. Blocking subsequent requests.`);
+            authStormActive = true;
+            
+            // Clear auth data
+            localStorage.removeItem('paydone_session_token');
+            localStorage.removeItem('paydone_active_user');
+            localStorage.removeItem('paydone_user_role');
+            
+            // Dispatch logout event (let App component handle the redirect)
+            window.dispatchEvent(new CustomEvent('PAYDONE_AUTH_EXPIRED', { 
+                detail: { reason: 'X-Auth-Status: Expired' } 
+            }));
+            
+            // Redirect after short delay (allow other cleanup)
+            setTimeout(() => {
+                if (!window.location.hash.includes('login')) {
+                    window.location.href = '/#/login';
+                }
+            }, 200);
         }
+        
         throw new Error("UNAUTHORIZED");
+    }
+
+    // Clear auth storm flag on successful response
+    if (res.ok && authStormActive) {
+        authStormActive = false;
     }
 
     if (res.status === 404) {
@@ -91,11 +121,13 @@ export const api = {
     post: async (endpoint: string, body: any, options: RequestInit = {}) => {
         const url = `${getBaseUrl()}/api${endpoint}`;
         try {
+            // V50.35 TAHAP 2: Time Sanitizer - Format all dates to ISO
+            const sanitizedBody = sanitizeDatePayload(body);
             const res = await fetch(url, {
                 method: 'POST',
                 ...options,
                 headers: { ...getAuthHeaders(endpoint), ...options.headers },
-                body: JSON.stringify(body)
+                body: JSON.stringify(sanitizedBody)
             });
             return await handleResponse(res);
         } catch (e) {
@@ -104,9 +136,11 @@ export const api = {
     },
 
     // V50.18 Protocol 4: Strip restricted fields from PUT payload
+    // V50.35 TAHAP 2: Also sanitize dates to ISO format
     put: async (endpoint: string, body: any, options: RequestInit = {}) => {
         const url = `${getBaseUrl()}/api${endpoint}`;
-        const sanitizedBody = stripRestrictedFieldsForPut(body);
+        let sanitizedBody = stripRestrictedFieldsForPut(body);
+        sanitizedBody = sanitizeDatePayload(sanitizedBody);
         try {
             const res = await fetch(url, {
                 method: 'PUT',

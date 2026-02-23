@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import Toast, { useToast } from './components/Toast';
 import DashboardLayout from './layouts/DashboardLayout';
 import AdminLayout from './layouts/AdminLayout';
 import LandingPage from './pages/LandingPage';
@@ -23,6 +25,8 @@ import FinancialFreedom from './pages/FinancialFreedom';
 import UserManagement from './pages/admin/UserManagement';
 import FamilyManager from './pages/FamilyManager';
 import Profile from './pages/Profile';
+import UpgradePage from './pages/UpgradePage';
+import BillingPage from './pages/BillingPage';
 import AdminDashboard from './pages/admin/AdminDashboard'; 
 import AICenter from './pages/admin/AICenter';
 import SQLStudio from './pages/admin/SQLStudio';
@@ -32,6 +36,18 @@ import QAAnalyst from './pages/admin/QAAnalyst';
 import ServerCompare from './pages/admin/ServerCompare';
 import ServerTerminal from './pages/admin/ServerTerminal';
 import GitDeployment from './pages/admin/GitDeployment'; // IMPORT GIT DEPLOY
+import SalesLayout from './layouts/SalesLayout';
+import SalesOverview from './pages/sales/SalesOverview';
+import SalesPackages from './pages/sales/SalesPackages';
+import SalesPaymentMethods from './pages/sales/SalesPaymentMethods';
+import SalesTransactions from './pages/sales/SalesTransactions';
+import SalesUsers from './pages/sales/SalesUsers';
+import SalesPromos from './pages/sales/SalesPromos';
+import SalesContent from './pages/sales/SalesContent';
+import SalesEmailBlast from './pages/sales/SalesEmailBlast';
+import SalesReactivate from './pages/sales/SalesReactivate';
+import BlogPage from './pages/BlogPage';
+import BackendHealthCheck from './pages/admin/BackendHealthCheck';
 import SyncWatchdog from './components/SyncWatchdog';
 
 import { getConfig, saveConfig, getUserData, saveUserData, getAllUsers } from './services/mockDb';
@@ -44,8 +60,11 @@ import { I18nProvider } from './services/translationService';
 import { DebtItem, TaskItem, PaymentRecord, IncomeItem, ExpenseItem, DailyExpense, DebtInstallment, SinkingFund, BankAccount } from './types';
 
 export default function App() {
+  // V50.35 TAHAP 6: Toast notifications
+  const { toasts, add: addToast, remove: removeToast } = useToast();
+
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState<'user' | 'admin'>('user');
+  const [userRole, setUserRole] = useState<'user' | 'admin' | 'sales'>('user');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   const [debts, setDebts] = useState<DebtItem[]>([]);
@@ -75,6 +94,11 @@ export default function App() {
     const appName = config.appName || 'Paydone.id';
     const appDesc = config.appDescription || 'Financial Cockpit';
     document.title = `${appName} | ${appDesc}`;
+
+    // V50.35 TAHAP 2: Initialize Radar Telemetry (Anti Silent-Crash)
+    import('./services/telemetry').then(({ initializeRadarTelemetry }) => {
+      initializeRadarTelemetry();
+    });
 
     // Load global config from cloud on initial visit (not just admin settings)
     const loadCloudConfig = async () => {
@@ -107,6 +131,55 @@ export default function App() {
     window.addEventListener('PAYDONE_CONFIG_UPDATE', updateTitle);
     return () => window.removeEventListener('PAYDONE_CONFIG_UPDATE', updateTitle);
   }, []);
+
+  // V50.35 TAHAP 6: Listen for auth events and show toast notifications
+  useEffect(() => {
+    const handleAuthExpired = (e: Event) => {
+      addToast({
+        type: 'error',
+        title: 'Session Expired',
+        message: 'Your session has expired. Please log in again.',
+        duration: 5000,
+      });
+    };
+
+    const handleForceLogout = (e: Event) => {
+      addToast({
+        type: 'warning',
+        title: 'Logged Out',
+        message: 'You have been logged out from another device.',
+        duration: 5000,
+      });
+    };
+
+    const handleNotification = (e: CustomEvent) => {
+      const notif = e.detail;
+      addToast({
+        type: notif.type || 'info',
+        title: notif.title || 'Notification',
+        message: notif.message,
+        duration: notif.type === 'error' ? 7000 : 5000,
+      });
+    };
+
+    // V50.35 TAHAP 6: Hook-based toast trigger from any component
+    const handleAppToastShow = (e: CustomEvent) => {
+      const { type, title, message, duration } = e.detail;
+      addToast({ type, title, message, duration: duration || 5000 });
+    };
+
+    window.addEventListener('PAYDONE_AUTH_EXPIRED', handleAuthExpired);
+    window.addEventListener('PAYDONE_FORCE_LOGOUT', handleForceLogout);
+    window.addEventListener('PAYDONE_NOTIFICATION', handleNotification);
+    window.addEventListener('APP_TOAST_SHOW', handleAppToastShow);
+
+    return () => {
+      window.removeEventListener('PAYDONE_AUTH_EXPIRED', handleAuthExpired);
+      window.removeEventListener('PAYDONE_FORCE_LOGOUT', handleForceLogout);
+      window.removeEventListener('PAYDONE_NOTIFICATION', handleNotification);
+      window.removeEventListener('APP_TOAST_SHOW', handleAppToastShow);
+    };
+  }, [addToast]);
 
   const handleLogout = React.useCallback(() => {
     disconnectWebSocket(); 
@@ -261,7 +334,7 @@ export default function App() {
       }
   }, [currentUserId, isDataLoaded, debts, debtInstallments, incomes, tasks, dailyExpenses, paymentRecords, monthlyExpenses, sinkingFunds, bankAccounts]);
 
-  const handleLogin = React.useCallback((role: 'admin' | 'user', userId: string) => {
+  const handleLogin = React.useCallback((role: 'admin' | 'user' | 'sales', userId: string) => {
     setIsAuthenticated(true);
     setUserRole(role);
     setCurrentUserId(userId);
@@ -328,14 +401,27 @@ export default function App() {
     .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
   return (
-    <I18nProvider>
-      <Router>
+    <ErrorBoundary>
+      <I18nProvider>
+        <Router>
         {/* SYNC WATCHDOG - Global Component */}
         <SyncWatchdog />
+
+        {/* V50.35 TAHAP 6: Global Toast Container */}
+        <div className="fixed bottom-6 right-6 z-50 space-y-3 max-w-md">
+          {toasts.map(toast => (
+            <Toast
+              key={toast.id}
+              {...toast}
+              onClose={() => removeToast(toast.id)}
+            />
+          ))}
+        </div>
         
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/simulator" element={<Simulator />} />
+          <Route path="/blog" element={<BlogPage />} />
           <Route path="/login" element={<Login onLogin={handleLogin} />} />
           <Route path="/register" element={<Register />} />
 
@@ -371,6 +457,8 @@ export default function App() {
             <Route path="planning" element={<Planning tasks={tasks} debts={debts} debtInstallments={debtInstallments} setDebtInstallments={setDebtInstallments} allocations={monthlyExpenses[currentMonthKey] || []} onToggleTask={id => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: t.status === 'pending' ? 'completed' : 'pending' } : t))} onToggleAllocation={handleToggleAllocation} />} />
             <Route path="logs" element={<ActivityLogs userType="user" />} />
             <Route path="profile" element={<Profile currentUserId={currentUserId} bankAccounts={bankAccounts} setBankAccounts={setBankAccounts} />} />
+            <Route path="upgrade" element={<UpgradePage />} />
+            <Route path="billing" element={<BillingPage />} />
           </Route>
 
           <Route path="/admin" element={isAuthenticated && userRole === 'admin' ? <AdminLayout onLogout={handleLogout} /> : <Navigate to="/login" replace />}>
@@ -388,7 +476,21 @@ export default function App() {
             <Route path="qa" element={<QAAnalyst />} />
             <Route path="compare" element={<ServerCompare />} />
             <Route path="terminal" element={<ServerTerminal />} />
-            <Route path="git-deploy" element={<GitDeployment />} /> {/* NEW ROUTE */}
+            <Route path="git-deploy" element={<GitDeployment />} />
+            <Route path="health" element={<BackendHealthCheck />} />
+          </Route>
+
+          {/* SALES ROUTES */}
+          <Route path="/sales" element={isAuthenticated && userRole === 'sales' ? <SalesLayout onLogout={handleLogout} /> : <Navigate to="/login" replace />}>
+            <Route index element={<SalesOverview />} />
+            <Route path="packages" element={<SalesPackages />} />
+            <Route path="payment-methods" element={<SalesPaymentMethods />} />
+            <Route path="transactions" element={<SalesTransactions />} />
+            <Route path="users" element={<SalesUsers />} />
+            <Route path="promos" element={<SalesPromos />} />
+            <Route path="content" element={<SalesContent />} />
+            <Route path="email-blast" element={<SalesEmailBlast />} />
+            <Route path="reactivate" element={<SalesReactivate />} />
           </Route>
         </Routes>
 
@@ -405,6 +507,7 @@ export default function App() {
           </div>
         )}
       </Router>
-    </I18nProvider>
+      </I18nProvider>
+    </ErrorBoundary>
   );
 }

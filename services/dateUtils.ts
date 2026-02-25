@@ -112,10 +112,12 @@ export const sanitizeDatePayload = (obj: any, dateFields: string[] = []): any =>
   const result = { ...obj };
   
   // Common date field names to always check
+  // NOTE: dueDate / due_date is intentionally EXCLUDED.
+  // It represents a day-of-month integer (1-31), NOT a date timestamp.
   const commonDateFields = [
     'date', 'createdAt', 'created_at', 'updatedAt', 'updated_at',
     'deletedAt', 'deleted_at', 'startDate', 'start_date', 'endDate', 'end_date',
-    'dueDate', 'due_date', 'paidAt', 'paid_at', 'sentAt', 'sent_at',
+    'paidAt', 'paid_at', 'sentAt', 'sent_at',
     'validUntil', 'valid_until', 'subscriptAt', 'subscript_at',
     'timestamp', 'publishedAt', 'published_at', 'verifyAt', 'verify_at'
   ];

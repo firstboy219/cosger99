@@ -104,14 +104,14 @@ export default function UpgradePage() {
     setLoadingMethods(true);
     try {
       const data = await api.get('/payment-methods');
-      const methods = (data.paymentMethods || data.payment_methods || data || []).filter((m: PaymentMethod) => m.is_active);
+      const methods = (data.paymentMethods || data.payment_methods || data || []).filter((m: any) => m.is_active || m.isActive);
       setPaymentMethods(methods);
       const db = getDB();
       db.paymentMethods = methods;
       saveDB(db);
     } catch {
       const db = getDB();
-      setPaymentMethods((db.paymentMethods || []).filter((m: PaymentMethod) => m.is_active));
+      setPaymentMethods((db.paymentMethods || []).filter((m: any) => m.is_active || m.isActive));
     } finally {
       setLoadingMethods(false);
     }
@@ -512,7 +512,13 @@ export default function UpgradePage() {
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {paymentMethods.map(m => (
+                      {paymentMethods.map(m => {
+                        // Normalize camelCase/snake_case from backend
+                        const bankName = (m as any).bankName || m.bank_name || '';
+                        const accountNumber = (m as any).accountNumber || m.account_number || '';
+                        const accountName = (m as any).accountName || m.account_name || '';
+                        const logoUrl = (m as any).logoUrl || m.logo_url || '';
+                        return (
                         <button
                           key={m.id}
                           onClick={() => setSelectedMethod(m.id)}
@@ -525,16 +531,16 @@ export default function UpgradePage() {
                           <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
                             selectedMethod === m.id ? 'bg-brand-100' : 'bg-slate-100'
                           }`}>
-                            {m.logo_url ? (
-                              <img src={m.logo_url} alt={m.bank_name} className="w-8 h-8 object-contain" />
+                            {logoUrl ? (
+                              <img src={logoUrl} alt={bankName} className="w-8 h-8 object-contain" />
                             ) : (
                               <CreditCard size={20} className={selectedMethod === m.id ? 'text-brand-600' : 'text-slate-400'} />
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-bold text-sm text-slate-900">{m.bank_name}</p>
-                            <p className="text-xs text-slate-500 font-mono">{m.account_number}</p>
-                            <p className="text-[10px] text-slate-400">{m.account_name}</p>
+                            <p className="font-bold text-sm text-slate-900">{bankName}</p>
+                            <p className="text-xs text-slate-500 font-mono">{accountNumber}</p>
+                            <p className="text-[10px] text-slate-400">{accountName}</p>
                           </div>
                           {selectedMethod === m.id && (
                             <div className="w-6 h-6 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
@@ -542,7 +548,8 @@ export default function UpgradePage() {
                             </div>
                           )}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 

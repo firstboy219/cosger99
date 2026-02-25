@@ -1,5 +1,6 @@
 import { api } from './api';
 import { getDB, saveDB, getUserData } from './mockDb';
+import { addLogEntry } from './activityLogger';
 
 // Map internal collection names to API resource paths (hyphenated)
 const RESOURCE_MAP: Record<string, string> = {
@@ -155,7 +156,25 @@ export const pullUserDataFromCloud = async (userId: string, tokenOverride?: stri
         if (subscriptionsData && Array.isArray(subscriptionsData)) db.subscriptions = subscriptionsData;
         if (notificationsData && Array.isArray(notificationsData)) db.notifications = notificationsData;
         if (activeFeaturesData && typeof activeFeaturesData === 'object') db.activeFeatures = activeFeaturesData;
-        if (subscriptionStatusData && typeof subscriptionStatusData === 'object') db.subscriptionStatus = subscriptionStatusData;
+        // V50.36: Normalize subscriptionStatus from backend
+        // Backend shape: { packageId, status: { isFreeTier, inGracePeriod } } (nested)
+        // Frontend expects: { isFreeTier, inGracePeriod, currentPackage, ... } (flat)
+        if (subscriptionStatusData && typeof subscriptionStatusData === 'object') {
+            const nested = subscriptionStatusData.status;
+            if (nested && typeof nested === 'object') {
+                // Nested shape from backend - flatten it
+                db.subscriptionStatus = {
+                    isFreeTier: nested.isFreeTier ?? true,
+                    inGracePeriod: nested.inGracePeriod ?? false,
+                    daysLeftGrace: nested.daysLeftGrace ?? subscriptionStatusData.daysLeftGrace ?? 0,
+                    currentPackage: subscriptionStatusData.packageName || subscriptionStatusData.currentPackage || (nested.isFreeTier ? 'Free Plan' : 'Premium Plan'),
+                    expiryDate: subscriptionStatusData.expiryDate || subscriptionStatusData.endDate || undefined,
+                };
+            } else {
+                // Already flat shape - use as-is
+                db.subscriptionStatus = subscriptionStatusData;
+            }
+        }
         // Merge users from cloud into local DB (upsert to avoid overwriting local-only users)
         if (data.users && Array.isArray(data.users)) {
             const existingIds = new Set((db.users || []).map((u: any) => u.id));
@@ -355,6 +374,21 @@ export const saveItemToCloud = async (collection: string, item: any, isNew: bool
         saveDB(db);
 
         dispatchNetworkLog(isNew ? 'POST' : 'PUT', path, 200, result, payload);
+
+        // Auto-log activity for user-facing CRUD operations
+        const collectionLabels: Record<string, string> = {
+          debts: 'Hutang', incomes: 'Penghasilan', dailyExpenses: 'Pengeluaran Harian',
+          allocations: 'Alokasi', tasks: 'Tugas', sinkingFunds: 'Dana Darurat',
+          bankAccounts: 'Rekening Bank', debtInstallments: 'Cicilan',
+          paymentRecords: 'Catatan Pembayaran',
+        };
+        const label = collectionLabels[collection];
+        if (label) {
+          const actionVerb = isNew ? 'Menambah' : 'Mengubah';
+          const category = ['debts', 'incomes', 'dailyExpenses', 'allocations', 'debtInstallments', 'paymentRecords', 'sinkingFunds', 'bankAccounts'].includes(collection) ? 'Finance' : 'System';
+          addLogEntry('user', item.userId || 'unknown', `${actionVerb} ${label}`, `${actionVerb} data ${label.toLowerCase()} (${savedItem.id}).`, category as any);
+        }
+
         return { success: true, data: savedItem };
 
     } catch (e: any) {
@@ -450,6 +484,20 @@ export const deleteFromCloud = async (userId: string, collection: string, id: st
         saveDB(db);
         
         dispatchNetworkLog('DELETE', path, 200, { success: true });
+
+        // Auto-log delete activity
+        const deleteLabels: Record<string, string> = {
+          debts: 'Hutang', incomes: 'Penghasilan', dailyExpenses: 'Pengeluaran Harian',
+          allocations: 'Alokasi', tasks: 'Tugas', sinkingFunds: 'Dana Darurat',
+          bankAccounts: 'Rekening Bank', debtInstallments: 'Cicilan',
+          paymentRecords: 'Catatan Pembayaran',
+        };
+        const dlabel = deleteLabels[collection];
+        if (dlabel) {
+          const category = ['debts', 'incomes', 'dailyExpenses', 'allocations', 'debtInstallments', 'paymentRecords', 'sinkingFunds', 'bankAccounts'].includes(collection) ? 'Finance' : 'System';
+          addLogEntry('user', userId, `Menghapus ${dlabel}`, `Menghapus data ${dlabel.toLowerCase()} (${id}).`, category as any);
+        }
+
         return true;
     } catch (e: any) {
         console.error("Delete Failed:", e);

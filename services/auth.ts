@@ -2,6 +2,7 @@
 import { api } from './api';
 import { pullUserDataFromCloud } from './cloudSync';
 import { getDB, saveDB, addUser, getAllUsers } from './mockDb';
+import { recordActivityLog } from './activityLogger';
 import { User } from '../types';
 
 export const handleLoginFlow = async (credentials: any) => {
@@ -58,6 +59,15 @@ export const handleLoginFlow = async (credentials: any) => {
         // Add new
         addUser(normalizedUser);
     }
+
+    // 3b. LOG LOGIN ACTIVITY
+    recordActivityLog(
+      'Login Berhasil',
+      `User ${normalizedUser.username} berhasil login dari ${navigator.userAgent?.includes('Mobile') ? 'Mobile' : 'Desktop'}.`,
+      { email: normalizedUser.email },
+      { role: normalizedUser.role },
+      'success'
+    );
 
     // 4. HYDRATE DATA (Pull all user-specific data from cloud)
     if (user.role !== 'admin') {

@@ -198,7 +198,7 @@ function StepCard({ num, title, desc, icon: Icon, delay }: {
   );
 }
 
-/* ─── Testimonial Card ─── */
+/* ���── Testimonial Card ─── */
 function TestimonialCard({ name, role, text, avatar, rating, delay }: {
   name: string; role: string; text: string; avatar: number; rating: number; delay: number;
 }) {
@@ -452,12 +452,37 @@ export default function LandingPage() {
     };
   }, []);
 
-  // Fetch packages
+  // Smooth scroll helper for HashRouter (avoids # conflict)
+  const scrollToSection = (sectionId: string) => {
+    setMobileMenuOpen(false);
+    const el = document.getElementById(sectionId);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Normalize camelCase (V50.36 backend) or snake_case to FreemiumPackage shape
+  const normalizePackage = (raw: any): FreemiumPackage => ({
+    id: raw.id,
+    name: raw.name || '',
+    price: Number(raw.price) || 0,
+    ai_limit: raw.aiLimit ?? raw.ai_limit ?? 10,
+    features: raw.features || {},
+    is_active: raw.isActive ?? raw.is_active ?? true,
+    is_default_free: raw.isDefaultFree ?? raw.is_default_free ?? false,
+    description: raw.description || '',
+    badge_color: raw.badgeColor ?? raw.badge_color ?? '#3b82f6',
+  });
+
+  // Fetch packages from public endpoint
   useEffect(() => {
     const loadPackages = async () => {
       try {
-        const data = await api.get('/sales/packages');
-        setPackages(data.packages || data || []);
+        const data = await api.get('/packages');
+        const rawPkgs: any[] = Array.isArray(data) ? data : (data.packages || []);
+        const normalized = rawPkgs.map(normalizePackage);
+        // Only show active packages on landing page
+        setPackages(normalized.filter(p => p.is_active));
       } catch (e) {
         console.warn('[LandingPage] Failed to load packages', e);
       } finally {
@@ -655,13 +680,13 @@ export default function LandingPage() {
           </div>
           
           <div className="hidden lg:flex items-center gap-8 text-sm font-semibold text-slate-500">
-            <a href="#simulator" className="hover:text-brand-600 transition">Simulator</a>
-            <a href="#features" className="hover:text-brand-600 transition">Fitur</a>
-            <a href="#comparison" className="hover:text-brand-600 transition">Perbandingan</a>
-            <a href="#strategy" className="hover:text-brand-600 transition">Strategi AI</a>
-            <a href="#pricing" className="hover:text-brand-600 transition">Pricing</a>
+            <button onClick={() => scrollToSection('simulator')} className="hover:text-brand-600 transition cursor-pointer">Simulator</button>
+            <button onClick={() => scrollToSection('features')} className="hover:text-brand-600 transition cursor-pointer">Fitur</button>
+            <button onClick={() => scrollToSection('comparison')} className="hover:text-brand-600 transition cursor-pointer">Perbandingan</button>
+            <button onClick={() => scrollToSection('strategy')} className="hover:text-brand-600 transition cursor-pointer">Strategi AI</button>
+            <button onClick={() => scrollToSection('pricing')} className="hover:text-brand-600 transition cursor-pointer">Pricing</button>
             <Link to="/blog" className="hover:text-brand-600 transition">Blog</Link>
-            <a href="#faq" className="hover:text-brand-600 transition">FAQ</a>
+            <button onClick={() => scrollToSection('faq')} className="hover:text-brand-600 transition cursor-pointer">FAQ</button>
           </div>
           
           <div className="flex items-center gap-3">
@@ -682,21 +707,21 @@ export default function LandingPage() {
           <div className="lg:hidden bg-white border-t border-slate-100 shadow-xl">
             <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col gap-1">
               {[
-                { href: '#simulator', label: 'Simulator' },
-                { href: '#features', label: 'Fitur' },
-                { href: '#comparison', label: 'Perbandingan' },
-                { href: '#strategy', label: 'Strategi AI' },
-                { href: '#tools', label: 'Tools' },
-                { href: '#faq', label: 'FAQ' },
+                { id: 'simulator', label: 'Simulator' },
+                { id: 'features', label: 'Fitur' },
+                { id: 'comparison', label: 'Perbandingan' },
+                { id: 'strategy', label: 'Strategi AI' },
+                { id: 'pricing', label: 'Pricing' },
+                { id: 'tools', label: 'Tools' },
+                { id: 'faq', label: 'FAQ' },
               ].map(item => (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-brand-600 rounded-xl transition"
+                <button
+                  key={item.id}
+                  onClick={() => scrollToSection(item.id)}
+                  className="px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-brand-600 rounded-xl transition text-left"
                 >
                   {item.label}
-                </a>
+                </button>
               ))}
               <Link to="/login" onClick={() => setMobileMenuOpen(false)} className="px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 rounded-xl transition">
                 Masuk
@@ -740,10 +765,10 @@ export default function LandingPage() {
                 Mulai Strategi Sekarang
                 <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
               </Link>
-              <a href="#simulator" className="inline-flex items-center justify-center px-8 py-4 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:border-brand-200 hover:bg-brand-50 rounded-full transition-all shadow-sm group">
+              <button onClick={() => scrollToSection('simulator')} className="inline-flex items-center justify-center px-8 py-4 text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:border-brand-200 hover:bg-brand-50 rounded-full transition-all shadow-sm group">
                 <Play className="mr-2 h-4 w-4 text-brand-600 group-hover:scale-110 transition-transform" />
                 Coba Simulator
-              </a>
+              </button>
             </div>
             
             <div className="animate-slide-up-d4 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-6 pt-2">
@@ -898,7 +923,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ═══ 4. PROBLEM & SOLUTION (Tabbed Comparison) ═══ */}
+      {/* ══��� 4. PROBLEM & SOLUTION (Tabbed Comparison) ═══ */}
       <section className="py-24 bg-white" id="comparison" style={{ scrollMarginTop: '100px' }}>
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center max-w-2xl mx-auto mb-12">
@@ -1258,7 +1283,7 @@ export default function LandingPage() {
             </div>
           ) : packages.length > 0 ? (
             <div className={`grid gap-8 max-w-5xl mx-auto ${packages.length === 1 ? 'max-w-md' : packages.length === 2 ? 'md:grid-cols-2 max-w-3xl' : packages.length >= 3 ? 'md:grid-cols-2 lg:grid-cols-3' : ''}`}>
-              {packages.filter(p => p.is_active).map((pkg, i) => {
+              {packages.map((pkg, i) => {
                 const isFree = pkg.is_default_free || pkg.price === 0;
                 const isPremium = !isFree;
                 return (
@@ -1292,7 +1317,7 @@ export default function LandingPage() {
                       <div className="flex items-center gap-3">
                         <CheckCircle2 size={16} className="text-brand-600 flex-shrink-0" />
                         <span className="text-sm text-slate-600">
-                          {pkg.ai_limit <= 0 ? 'Unlimited AI Strategist' : `${pkg.ai_limit} AI Hits / bulan`}
+                          {(pkg.ai_limit === -1 || pkg.ai_limit >= 99999) ? 'Unlimited AI Strategist' : `${pkg.ai_limit} AI Hits / bulan`}
                         </span>
                       </div>
                       {pkg.features && Object.entries(pkg.features).filter(([, v]) => v).map(([key]) => (
@@ -1309,7 +1334,7 @@ export default function LandingPage() {
                       ))}
                     </div>
                     <Link
-                      to="/register"
+                      to={isFree ? '/register' : `/register?packageId=${pkg.id}`}
                       className={`w-full flex items-center justify-center gap-2 py-4 font-bold text-sm rounded-xl transition-all shadow-lg active:scale-[0.98] ${
                         isPremium
                           ? 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand-600/20'

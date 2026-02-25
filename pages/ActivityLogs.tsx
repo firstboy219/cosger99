@@ -1,34 +1,102 @@
 
 import React, { useEffect, useState } from 'react';
 import { getLogs } from '../services/activityLogger';
-import { getConfig } from '../services/mockDb';
+import { getConfig, getDB } from '../services/mockDb';
+import { api } from '../services/api';
 import { LogItem } from '../types';
-import { Clock, Shield, Zap, DollarSign, Activity, Search, Filter, ChevronDown, ChevronUp, CheckCircle2, XCircle, AlertTriangle, Info } from 'lucide-react';
+import { Clock, Shield, Zap, DollarSign, Activity, Search, Filter, ChevronDown, ChevronUp, CheckCircle2, XCircle, AlertTriangle, Info, Loader2, RefreshCw } from 'lucide-react';
 
 export default function ActivityLogs({ userType }: { userType: 'user' | 'admin' }) {
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [filter, setFilter] = useState('');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [loading, setLoading] = useState(true);
 
   // V50.21: Respect showDetailedLogsToUsers config
   const config = getConfig();
   const showDetails = userType === 'admin' || config.showDetailedLogsToUsers === true;
 
-  useEffect(() => {
-    const loadData = () => {
-        const data = getLogs(userType === 'user' ? 'user' : undefined);
-        setLogs(data);
-    };
+  const loadData = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      if (userType === 'admin') {
+        // Admin: Fetch from backend raw-sample endpoint
+        try {
+          const data = await api.get('/admin/raw-sample/activity_logs');
+          const rows: any[] = Array.isArray(data) ? data : (data.rows || data.data || []);
+          // Normalize backend rows (camelCase) to LogItem shape
+          const normalized: LogItem[] = rows.map((r: any) => ({
+            id: r.id || `log-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: r.timestamp || r.createdAt || r.created_at || new Date().toISOString(),
+            userType: 'admin',
+            username: r.username || r.userId || r.user_id || 'system',
+            userId: r.userId || r.user_id || '',
+            action: r.action || r.eventName || r.event_name || 'Unknown Action',
+            details: r.details || r.description || r.message || '',
+            category: r.category || 'System',
+            payload: r.payload ?? undefined,
+            response: r.response ?? undefined,
+            status: r.status || 'info',
+          }));
+          setLogs(normalized);
+        } catch (e) {
+          console.warn('[ActivityLogs] Admin fetch failed, falling back to local', e);
+          setLogs(getLogs());
+        }
+      } else {
+        // User: Read from local DB (hydrated from cloud sync activityLogs key)
+        const db = getDB();
+        const userId = localStorage.getItem('paydone_active_user') || '';
+        let localLogs: LogItem[] = Array.isArray(db.logs) ? db.logs : [];
+        // Filter to current user's logs
+        if (userId) {
+          localLogs = localLogs.filter(
+            (l: LogItem) => l.userType === 'user' || l.userId === userId || l.username === userId
+          );
+        }
+        // If local is empty, also try fetching from backend
+        if (localLogs.length === 0) {
+          try {
+            const data = await api.get('/activity-logs');
+            const rows: any[] = Array.isArray(data) ? data : (data.logs || data.data || []);
+            localLogs = rows.map((r: any) => ({
+              id: r.id || `log-${Math.random().toString(36).substr(2, 9)}`,
+              timestamp: r.timestamp || r.createdAt || r.created_at || new Date().toISOString(),
+              userType: 'user' as const,
+              username: r.username || r.userId || r.user_id || '',
+              userId: r.userId || r.user_id || '',
+              action: r.action || r.eventName || r.event_name || 'Unknown',
+              details: r.details || r.description || r.message || '',
+              category: r.category || 'System',
+              payload: r.payload ?? undefined,
+              response: r.response ?? undefined,
+              status: r.status || 'info',
+            }));
+          } catch {
+            // Stay with getLogs fallback
+            localLogs = getLogs('user');
+          }
+        }
+        setLogs(localLogs);
+      }
+    } catch (e) {
+      console.warn('[ActivityLogs] Load error', e);
+      setLogs(getLogs(userType === 'user' ? 'user' : undefined));
+    } finally {
+      setLoading(false);
+    }
+  }, [userType]);
 
+  useEffect(() => {
     loadData();
 
     const handleDbUpdate = () => {
-        loadData();
+      loadData();
     };
     window.addEventListener('PAYDONE_DB_UPDATE', handleDbUpdate);
     return () => window.removeEventListener('PAYDONE_DB_UPDATE', handleDbUpdate);
-  }, [userType]);
+  }, [loadData]);
 
   const getIcon = (category: string) => {
     switch(category) {
@@ -73,7 +141,12 @@ export default function ActivityLogs({ userType }: { userType: 'user' | 'admin' 
           <h2 className="text-2xl font-bold text-slate-900">Riwayat Aktivitas</h2>
           <p className="text-slate-500 text-sm">Catatan tindakan yang dilakukan oleh {userType === 'admin' ? 'sistem dan pengguna' : 'akun Anda'}.</p>
         </div>
-        <div className="text-xs text-slate-400 font-medium">{filteredLogs.length} entri</div>
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-slate-400 font-medium">{filteredLogs.length} entri</div>
+          <button onClick={loadData} className="p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition" title="Refresh">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -108,7 +181,12 @@ export default function ActivityLogs({ userType }: { userType: 'user' | 'admin' 
 
         {/* List */}
         <div className="divide-y divide-slate-100">
-          {filteredLogs.length === 0 ? (
+          {loading ? (
+            <div className="p-12 text-center text-slate-400">
+               <Loader2 size={32} className="mx-auto mb-4 animate-spin text-brand-600" />
+               <p className="text-sm font-medium">Memuat riwayat aktivitas...</p>
+            </div>
+          ) : filteredLogs.length === 0 ? (
             <div className="p-12 text-center text-slate-400">
                <Clock size={48} className="mx-auto mb-4 opacity-50" />
                <p>Belum ada aktivitas tercatat.</p>

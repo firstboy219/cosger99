@@ -2,11 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { User, Badge, BankAccount } from '../types';
 import { getAllUsers, updateUser, availableBadges } from '../services/mockDb';
-import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, Shield, Award, Target, Flag, Loader2, Copy, Plus, Trash2, Landmark, CreditCard, X, Image as ImageIcon, Briefcase, Clock } from 'lucide-react';
+import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, Shield, Award, Target, Flag, Loader2, Copy, Plus, Trash2, Landmark, CreditCard, X, Image as ImageIcon, Briefcase, Clock, Zap } from 'lucide-react';
 import { formatCurrency } from '../services/financeUtils';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import FeatureGate from '../components/FeatureGate';
+import { useFreemium } from '../services/freemiumStore';
+import { Link } from 'react-router-dom';
 
 interface ProfileProps {
   currentUserId: string | null;
@@ -16,6 +18,7 @@ interface ProfileProps {
 
 export default function Profile({ currentUserId, bankAccounts = [], setBankAccounts }: ProfileProps) {
   const [user, setUser] = useState<User | null>(null);
+  const { subscriptionStatus, isFreeTier } = useFreemium();
   
   // Unified Form State
   const [formData, setFormData] = useState({ 
@@ -267,6 +270,36 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
                       <p className="text-xl font-black text-green-600 capitalize">{user.status}</p>
                   </div>
               </div>
+          </div>
+
+          {/* V50.36: Active Plan Info */}
+          <div className="px-8 pb-6">
+            <div className={`flex items-center justify-between p-4 rounded-2xl border ${isFreeTier ? 'bg-slate-50 border-slate-200' : 'bg-gradient-to-r from-brand-50 to-indigo-50 border-brand-200'}`}>
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-xl ${isFreeTier ? 'bg-slate-200' : 'bg-brand-100'}`}>
+                  <Zap size={18} className={isFreeTier ? 'text-slate-500' : 'text-brand-600'} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Paket Aktif</p>
+                  <p className={`text-sm font-black ${isFreeTier ? 'text-slate-700' : 'text-brand-700'}`}>
+                    {isFreeTier ? 'Free Plan' : (subscriptionStatus.currentPackage || 'Premium Plan')}
+                  </p>
+                  {subscriptionStatus.expiryDate && !isFreeTier && (
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Berlaku s/d {new Date(subscriptionStatus.expiryDate).toLocaleDateString('id-ID')}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {isFreeTier && (
+                <Link
+                  to="/app/upgrade"
+                  className="px-4 py-2 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-brand-600 transition shadow-lg flex items-center gap-1.5"
+                >
+                  <Zap size={12} /> Upgrade
+                </Link>
+              )}
+            </div>
           </div>
       </div>
 

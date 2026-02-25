@@ -100,9 +100,11 @@ export default function SalesContent() {
   const loadArticles = useCallback(async () => {
     try {
       const data = await api.get('/sales/content');
-      setArticles(data.articles || data.content || data || []);
+      const raw = data.articles || data.content || data || [];
+      setArticles(Array.isArray(raw) ? raw : []);
     } catch (e) {
       console.warn('[SalesContent] Load error', e);
+      setArticles([]);
     } finally {
       setLoading(false);
     }
@@ -203,21 +205,24 @@ export default function SalesContent() {
 
       {/* Stats Bar */}
       <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: 'Total Konten', value: articles.length, color: 'bg-slate-100 text-slate-700' },
-          { label: 'Published', value: articles.filter(a => a.is_published).length, color: 'bg-green-50 text-green-700' },
-          { label: 'Draft', value: articles.filter(a => !a.is_published).length, color: 'bg-amber-50 text-amber-700' },
-        ].map(s => (
-          <div key={s.label} className={`${s.color} rounded-2xl px-5 py-4 text-center`}>
-            <p className="text-2xl font-black">{s.value}</p>
-            <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">{s.label}</p>
-          </div>
-        ))}
+        {(() => {
+          const safeArticles = Array.isArray(articles) ? articles : [];
+          return [
+            { label: 'Total Konten', value: safeArticles.length, color: 'bg-slate-100 text-slate-700' },
+            { label: 'Published', value: safeArticles.filter(a => a.is_published).length, color: 'bg-green-50 text-green-700' },
+            { label: 'Draft', value: safeArticles.filter(a => !a.is_published).length, color: 'bg-amber-50 text-amber-700' },
+          ].map(s => (
+            <div key={s.label} className={`${s.color} rounded-2xl px-5 py-4 text-center`}>
+              <p className="text-2xl font-black">{s.value}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">{s.label}</p>
+            </div>
+          ));
+        })()}
       </div>
 
       {/* Article Cards */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {articles.map(a => (
+        {(Array.isArray(articles) ? articles : []).map(a => (
           <div key={a.id} className={`bg-white border-2 rounded-2xl overflow-hidden transition-all hover:shadow-lg ${a.is_published ? 'border-slate-100' : 'border-slate-100 opacity-60'}`}>
             {(a.image_url || (a.content_type === 'image' && a.media_url)) && (
               <div className="h-40 bg-slate-100 overflow-hidden relative">

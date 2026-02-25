@@ -1,9 +1,10 @@
 
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Wallet, Loader2, Lock, User, Mail, CheckCircle, ArrowRight } from 'lucide-react';
+import { Wallet, Loader2, Lock, User, Mail, CheckCircle, ArrowRight, Shield } from 'lucide-react';
 import { addUser, getConfig } from '../services/mockDb';
 import { User as UserType } from '../types';
+import { setFreemiumData } from '../services/freemiumStore';
 
 export default function Register() {
   const [loading, setLoading] = useState(false);
@@ -42,10 +43,22 @@ export default function Register() {
         password: formData.password,
         role: 'user',
         status: 'pending_verification',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        subscription_id: 'pkg-free-default'
       };
       
       addUser(newUser);
+
+      // V50.36: Set default freemium state for new user (Free Plan)
+      setFreemiumData({
+        subscriptionStatus: {
+          inGracePeriod: false,
+          daysLeftGrace: 0,
+          isFreeTier: true,
+          currentPackage: 'Free',
+        }
+      });
+
       setLoading(false);
       setSuccess(true);
       

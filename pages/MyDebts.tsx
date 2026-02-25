@@ -258,7 +258,7 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
           monthlyInstallment: debt.monthlyPayment,
           startDate: debt.startDate ? new Date(debt.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0], 
           endDate: debt.endDate ? new Date(debt.endDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0], 
-          dueDate: debt.dueDate || 5,
+          dueDate: parseInt(String(debt.dueDate), 10) || 1,
           interestStrategy: (debt.interestStrategy as 'Fixed' | 'StepUp') || 'Fixed',
           stepUpSchedule: parsedSchedule
       });
@@ -419,7 +419,7 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
         
         startDate: formData.startDate, 
         endDate: formData.endDate,
-        dueDate: Number(formData.dueDate), 
+        dueDate: parseInt(String(formData.dueDate), 10) || 1, 
         interestStrategy: formData.interestStrategy,
         
         stepUpSchedule: finalStepUpSchedule, 

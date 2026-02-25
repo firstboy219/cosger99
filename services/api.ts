@@ -90,6 +90,18 @@ const handleResponse = async (res: Response) => {
         authStormActive = false;
     }
 
+    // V50.36: Intercept 403 Forbidden with upgrade_required action
+    if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        if (data.action === 'upgrade_required') {
+            window.dispatchEvent(new CustomEvent('PAYDONE_UPGRADE_REQUIRED', {
+                detail: { error: data.error, feature: data.feature || '' }
+            }));
+            throw new Error(data.error || 'Fitur terkunci. Upgrade diperlukan.');
+        }
+        throw new Error(data.error || data.message || `Forbidden (403)`);
+    }
+
     if (res.status === 404) {
         throw new Error(`Endpoint not found (404): ${res.url}`);
     }

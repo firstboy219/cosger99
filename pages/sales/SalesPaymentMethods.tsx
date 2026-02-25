@@ -19,16 +19,16 @@ export default function SalesPaymentMethods() {
   const [formLogoUrl, setFormLogoUrl] = useState('');
   const [formIsActive, setFormIsActive] = useState(true);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const data = await api.get('/payment-methods');
-        setMethods(data.paymentMethods || data.payment_methods || data || []);
-      } catch (e) { console.warn('[SalesPaymentMethods] Load error', e); }
-      finally { setLoading(false); }
-    };
-    load();
+  const loadMethods = useCallback(async () => {
+    try {
+      const data = await api.get('/sales/payment-methods');
+      const list = Array.isArray(data) ? data : (data.paymentMethods || data.payment_methods || []);
+      setMethods(list);
+    } catch (e) { console.warn('[SalesPaymentMethods] Load error', e); }
+    finally { setLoading(false); }
   }, []);
+
+  useEffect(() => { loadMethods(); }, [loadMethods]);
 
   const openCreate = () => {
     setEditing(null);
@@ -38,20 +38,31 @@ export default function SalesPaymentMethods() {
 
   const openEdit = (m: PaymentMethod) => {
     setEditing(m);
-    setFormBankName(m.bank_name); setFormAccountNumber(m.account_number); setFormAccountName(m.account_name);
-    setFormLogoUrl(m.logo_url || ''); setFormIsActive(m.is_active);
+    // Handle both camelCase and snake_case from backend
+    setFormBankName((m as any).bankName || m.bank_name || '');
+    setFormAccountNumber((m as any).accountNumber || m.account_number || '');
+    setFormAccountName((m as any).accountName || m.account_name || '');
+    setFormLogoUrl((m as any).logoUrl || m.logo_url || '');
+    setFormIsActive((m as any).isActive ?? m.is_active ?? true);
     setModalError(''); setShowModal(true);
   };
 
   const handleSave = useCallback(async () => {
     if (!formBankName.trim() || !formAccountNumber.trim()) { setModalError('Nama bank dan nomor rekening wajib diisi.'); return; }
     setSaving(true); setModalError('');
-    const payload = { bank_name: formBankName.trim(), account_number: formAccountNumber.trim(), account_name: formAccountName.trim(), logo_url: formLogoUrl.trim(), is_active: formIsActive };
+    // V50.36: Use camelCase keys & explicitly send boolean true for isActive
+    const payload = {
+      bankName: formBankName.trim(),
+      accountNumber: formAccountNumber.trim(),
+      accountName: formAccountName.trim(),
+      logoUrl: formLogoUrl.trim(),
+      isActive: Boolean(formIsActive),
+    };
     try {
-      if (editing) { await api.put(`/sales/payment-methods/${editing.id}`, payload); }
-      else { await api.post('/sales/payment-methods', payload); }
-      const data = await api.get('/payment-methods');
-      setMethods(data.paymentMethods || data.payment_methods || data || []);
+      // V50.36: Always use POST for UPSERT. Include id when editing.
+      const upsertPayload = editing ? { id: editing.id, ...payload } : payload;
+      await api.post('/sales/payment-methods', upsertPayload);
+      await loadMethods();
       setShowModal(false);
     } catch (e: any) { setModalError(e.message || 'Gagal menyimpan.'); }
     finally { setSaving(false); }
@@ -72,26 +83,35 @@ export default function SalesPaymentMethods() {
       </div>
 
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {methods.map(m => (
-          <div key={m.id} className={`bg-white border-2 rounded-2xl p-6 transition-all hover:shadow-lg ${m.is_active ? 'border-slate-100' : 'border-slate-100 opacity-50'}`}>
+        {methods.map(m => {
+          // Normalize camelCase/snake_case from backend
+          const bankName = (m as any).bankName || m.bank_name || '';
+          const accountNumber = (m as any).accountNumber || m.account_number || '';
+          const accountName = (m as any).accountName || m.account_name || '';
+          const logoUrl = (m as any).logoUrl || m.logo_url || '';
+          const isActive = (m as any).isActive ?? m.is_active ?? false;
+
+          return (
+          <div key={m.id} className={`bg-white border-2 rounded-2xl p-6 transition-all hover:shadow-lg ${isActive ? 'border-slate-100' : 'border-slate-100 opacity-50'}`}>
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
-                {m.logo_url ? <img src={m.logo_url} alt="" className="w-10 h-10 object-contain rounded-lg bg-slate-50 p-1" /> :
+                {logoUrl ? <img src={logoUrl} alt="" className="w-10 h-10 object-contain rounded-lg bg-slate-50 p-1" /> :
                   <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center"><CreditCard size={20} className="text-emerald-600" /></div>}
                 <div>
-                  <h3 className="font-black text-slate-900 text-sm">{m.bank_name}</h3>
-                  <p className="text-xs text-slate-500">{m.account_name}</p>
+                  <h3 className="font-black text-slate-900 text-sm">{bankName}</h3>
+                  <p className="text-xs text-slate-500">{accountName}</p>
                 </div>
               </div>
               <button onClick={() => openEdit(m)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"><Edit3 size={14} /></button>
             </div>
-            <p className="font-mono text-sm font-bold text-slate-700 bg-slate-50 px-3 py-2 rounded-lg">{m.account_number}</p>
+            <p className="font-mono text-sm font-bold text-slate-700 bg-slate-50 px-3 py-2 rounded-lg">{accountNumber}</p>
             <div className="mt-3 flex items-center gap-2 text-xs">
-              {m.is_active ? <span className="text-green-600 font-bold flex items-center gap-1"><Check size={12} /> Aktif</span> :
+              {isActive ? <span className="text-green-600 font-bold flex items-center gap-1"><Check size={12} /> Aktif</span> :
                 <span className="text-slate-400 font-bold">Nonaktif</span>}
             </div>
           </div>
-        ))}
+          );
+        })}
         {methods.length === 0 && (
           <div className="col-span-full text-center py-16 text-slate-400">
             <CreditCard size={48} className="mx-auto mb-4 opacity-30" />
@@ -106,7 +126,7 @@ export default function SalesPaymentMethods() {
             <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-bold text-emerald-200 uppercase tracking-widest mb-1">{editing ? 'Edit' : 'Tambah'} Metode</p>
-                <h3 className="text-lg font-black">{editing ? editing.bank_name : 'Rekening Baru'}</h3>
+                <h3 className="text-lg font-black">{editing ? ((editing as any).bankName || editing.bank_name || 'Edit') : 'Rekening Baru'}</h3>
               </div>
               <button onClick={() => setShowModal(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition"><XIcon size={20} /></button>
             </div>

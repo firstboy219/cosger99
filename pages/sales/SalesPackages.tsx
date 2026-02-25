@@ -12,6 +12,24 @@ interface FeatureItem {
   label: string;
 }
 
+/**
+ * V50.36: Backend keysToCamel middleware converts snake_case to camelCase.
+ * This normalizer maps both conventions to our FreemiumPackage interface (snake_case).
+ */
+function normalizePackage(raw: any): FreemiumPackage {
+  return {
+    id: raw.id,
+    name: raw.name || '',
+    price: Number(raw.price) || 0,
+    ai_limit: raw.aiLimit ?? raw.ai_limit ?? 10,
+    features: raw.features || {},
+    is_active: raw.isActive ?? raw.is_active ?? true,
+    is_default_free: raw.isDefaultFree ?? raw.is_default_free ?? false,
+    description: raw.description || '',
+    badge_color: raw.badgeColor ?? raw.badge_color ?? '#3b82f6',
+  };
+}
+
 export default function SalesPackages() {
   const [packages, setPackages] = useState<FreemiumPackage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +61,8 @@ export default function SalesPackages() {
         ]);
 
         if (pkgRes.status === 'fulfilled') {
-          setPackages(pkgRes.value.packages || pkgRes.value || []);
+          const rawPkgs = pkgRes.value.packages || pkgRes.value || [];
+          setPackages((Array.isArray(rawPkgs) ? rawPkgs : []).map(normalizePackage));
         }
         if (featRes.status === 'fulfilled') {
           const raw = featRes.value.features || featRes.value || [];
@@ -125,7 +144,8 @@ export default function SalesPackages() {
         api.get('/features/list'),
       ]);
       if (pkgRes.status === 'fulfilled') {
-        setPackages(pkgRes.value.packages || pkgRes.value || []);
+        const rawPkgs = pkgRes.value.packages || pkgRes.value || [];
+        setPackages((Array.isArray(rawPkgs) ? rawPkgs : []).map(normalizePackage));
       }
       if (featRes.status === 'fulfilled') {
         const raw = featRes.value.features || featRes.value || [];

@@ -49,6 +49,7 @@ import SalesReactivate from './pages/sales/SalesReactivate';
 import BlogPage from './pages/BlogPage';
 import BackendHealthCheck from './pages/admin/BackendHealthCheck';
 import SyncWatchdog from './components/SyncWatchdog';
+import UpgradeModal from './components/UpgradeModal';
 
 import { getConfig, saveConfig, getUserData, saveUserData, getAllUsers } from './services/mockDb';
 import { pullUserDataFromCloud, pushPartialUpdate, saveItemToCloud, loadGlobalConfigFromCloud } from './services/cloudSync';
@@ -86,6 +87,9 @@ export default function App() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const [aiResult, setAiResult] = useState<{ show: boolean; type: 'success' | 'error'; title: string; message: string; }>({ show: false, type: 'success', title: '', message: '' });
+
+  // V50.36: Global Upgrade Modal state
+  const [upgradeModal, setUpgradeModal] = useState<{ isOpen: boolean; featureName?: string }>({ isOpen: false });
 
   useEffect(() => {
     const config = getConfig();
@@ -168,16 +172,24 @@ export default function App() {
       addToast({ type, title, message, duration: duration || 5000 });
     };
 
+    // V50.36: Listen for upgrade_required events from API interceptor
+    const handleUpgradeRequired = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setUpgradeModal({ isOpen: true, featureName: detail?.feature || detail?.error || '' });
+    };
+
     window.addEventListener('PAYDONE_AUTH_EXPIRED', handleAuthExpired);
     window.addEventListener('PAYDONE_FORCE_LOGOUT', handleForceLogout);
     window.addEventListener('PAYDONE_NOTIFICATION', handleNotification);
     window.addEventListener('APP_TOAST_SHOW', handleAppToastShow);
+    window.addEventListener('PAYDONE_UPGRADE_REQUIRED', handleUpgradeRequired);
 
     return () => {
       window.removeEventListener('PAYDONE_AUTH_EXPIRED', handleAuthExpired);
       window.removeEventListener('PAYDONE_FORCE_LOGOUT', handleForceLogout);
       window.removeEventListener('PAYDONE_NOTIFICATION', handleNotification);
       window.removeEventListener('APP_TOAST_SHOW', handleAppToastShow);
+      window.removeEventListener('PAYDONE_UPGRADE_REQUIRED', handleUpgradeRequired);
     };
   }, [addToast]);
 
@@ -417,6 +429,13 @@ export default function App() {
             />
           ))}
         </div>
+
+        {/* V50.36: Global Upgrade / Paywall Modal */}
+        <UpgradeModal
+          isOpen={upgradeModal.isOpen}
+          onClose={() => setUpgradeModal({ isOpen: false })}
+          featureName={upgradeModal.featureName}
+        />
         
         <Routes>
           <Route path="/" element={<LandingPage />} />

@@ -2,7 +2,7 @@
 import { getConfig } from './mockDb';
 import { sanitizeDatePayload } from './dateUtils';
 
-const getBaseUrl = () => getConfig().backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+const getBaseUrl = () => getConfig().backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
 
 /**
  * V50.18 Protocol 1: Header & Authentication

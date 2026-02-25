@@ -78,7 +78,7 @@ export default function AdminDashboard() {
   const fetchServerTime = async () => {
       setIsTimeSyncing(true);
       const config = getConfig();
-      const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+      const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
       
       try {
           // Try specific time endpoint first
@@ -123,7 +123,7 @@ export default function AdminDashboard() {
       
       try {
           const config = getConfig();
-          const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+          const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
           
           let userData: any[] = [];
           let isCloudSuccessful = false;
@@ -193,7 +193,7 @@ export default function AdminDashboard() {
       setIsDiagRunning(true);
       setShowSmartDiag(true);
       const config = getConfig();
-      const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+      const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
       
       const initialSteps: DiagnosticStep[] = [
           { id: 'conf', label: 'Verifikasi URL Target', status: 'running' },
@@ -405,7 +405,7 @@ export default function AdminDashboard() {
                           <h3 className="text-3xl font-black tracking-tight flex items-center gap-4">
                               <ShieldAlert size={32} className="text-amber-400"/> Handshake Audit
                           </h3>
-                          <p className="text-slate-400 text-sm mt-3 leading-relaxed">Pemeriksaan mendalam jalur komunikasi ke <br/><strong>api.cosger.online</strong></p>
+                          <p className="text-slate-400 text-sm mt-3 leading-relaxed">Pemeriksaan mendalam jalur komunikasi ke <br/><strong>api.cosger.com</strong></p>
                       </div>
                       <button onClick={() => setShowSmartDiag(false)} className="p-3 bg-white/10 hover:bg-white/20 text-slate-400 hover:text-white rounded-full transition-all relative z-20"><X size={28}/></button>
                   </div>

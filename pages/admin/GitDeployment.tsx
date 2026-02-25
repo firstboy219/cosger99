@@ -38,7 +38,7 @@ export default function GitDeployment() {
 
     const getConfigData = () => {
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
         return { baseUrl, adminId };
     };

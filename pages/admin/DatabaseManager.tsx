@@ -136,7 +136,7 @@ const FALLBACK_SCHEMA: Record<string, string[]> = {
 export default function DatabaseManager() {
   const [dbData, setDbData] = useState<DBSchema | null>(null);
   const [sqlConfig, setSqlConfig] = useState({
-    backendUrl: 'https://api.cosger.online',
+    backendUrl: 'https://api.cosger.com',
     gcpSqlInstance: '',
     dbUser: '',
     dbPass: '',
@@ -171,7 +171,7 @@ export default function DatabaseManager() {
     const data = getDB();
     setDbData(data);
     const finalConfig = data.config;
-    const url = finalConfig.backendUrl || 'https://api.cosger.online';
+    const url = finalConfig.backendUrl || 'https://api.cosger.com';
     
     setSqlConfig({
       backendUrl: url,

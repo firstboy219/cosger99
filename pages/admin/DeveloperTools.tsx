@@ -71,7 +71,7 @@ export default function DeveloperTools() {
 
   // Load config to display correct DB details
   const config = getConfig();
-  const currentBackendUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+  const currentBackendUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
   const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
   // DB Connection String Construction
@@ -212,7 +212,7 @@ export default function DeveloperTools() {
       const adminId = localStorage.getItem('paydone_active_user') || 'admin';
       
       // USE NEW ENDPOINT
-      const url = config.sourceCodeUrl || 'https://api.cosger.online/api/view-source?kunci=gen-lang-client-0662447520';
+      const url = config.sourceCodeUrl || 'https://api.cosger.com/api/view-source?kunci=gen-lang-client-0662447520';
       
       try {
           console.log(`[DevTools] Fetching live source from: ${url}`);

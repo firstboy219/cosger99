@@ -125,7 +125,7 @@ export default function ServerTerminal() {
     const fetchVersions = async () => {
         setIsLoadingVersions(true);
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         
         try {
             // Call new intelligent endpoint
@@ -146,7 +146,7 @@ export default function ServerTerminal() {
     const fetchSnapshots = async () => {
         setIsLoadingSnapshots(true);
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         
         try {
             const res = await fetch(`${baseUrl}/api/admin/snapshots?secret=gen-lang-client-066244752`);
@@ -167,7 +167,7 @@ export default function ServerTerminal() {
     const handleSaveCurrentVersion = async () => {
         setIsSavingVersion(true);
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
         try {
@@ -216,7 +216,7 @@ export default function ServerTerminal() {
 
         setIsCreatingVersion(true);
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
         try {
@@ -254,7 +254,7 @@ export default function ServerTerminal() {
         setRestoringVersion(version.filename);
         
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
         try {
@@ -306,7 +306,7 @@ export default function ServerTerminal() {
     const handleCreateSnapshot = async () => {
         setIsCreatingSnapshot(true);
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
         try {
@@ -348,7 +348,7 @@ export default function ServerTerminal() {
         setConfirmModal(null);
         setIsRestoringSnapshot(true);
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
         try {
@@ -399,7 +399,7 @@ export default function ServerTerminal() {
         setIsDeleting(true);
         
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
         try {
@@ -429,7 +429,7 @@ export default function ServerTerminal() {
 
     const runRawCommand = async (cmd: string): Promise<{ success: boolean, output: string, status?: number }> => {
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
         try {
@@ -524,7 +524,7 @@ export default function ServerTerminal() {
 
         setIsDeploying(true);
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
         
         try {

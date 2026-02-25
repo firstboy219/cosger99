@@ -17,7 +17,7 @@ export class AILimitError extends Error {
  */
 const callBackendAI = async (payload: { prompt: string; model?: string; systemInstruction?: string; responseJson?: boolean }): Promise<string> => {
   const config = getConfig();
-  const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+  const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
   const userId = localStorage.getItem('paydone_active_user') || '';
   const token = localStorage.getItem('paydone_session_token') || '';
 

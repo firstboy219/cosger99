@@ -23,7 +23,7 @@ export default function SQLStudio() {
 
     try {
       const config = getConfig();
-      const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.online';
+      const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
       const adminId = localStorage.getItem('paydone_active_user') || 'admin';
       
       const res = await fetch(`${baseUrl}/api/admin/execute-sql`, {

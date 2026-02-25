@@ -44,7 +44,7 @@ export default function ServerCompare() {
     const adminId = localStorage.getItem('paydone_active_user') || 'admin';
     
     // Prioritize Source Code URL
-    let url = config.sourceCodeUrl || 'https://api.cosger.online/api/view-source?kunci=gen-lang-client-0662447520';
+    let url = config.sourceCodeUrl || 'https://api.cosger.com/api/view-source?kunci=gen-lang-client-0662447520';
 
     try {
       const fetchOptions: RequestInit = {};

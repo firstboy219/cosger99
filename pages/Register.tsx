@@ -5,10 +5,14 @@ import { Wallet, Loader2, Lock, User, Mail, CheckCircle, ArrowRight, Shield } fr
 import { addUser, getConfig } from '../services/mockDb';
 import { User as UserType } from '../types';
 import { setFreemiumData } from '../services/freemiumStore';
+import { api } from '../services/api';
+import { pullUserDataFromCloud } from '../services/cloudSync';
+import { recordActivityLog } from '../services/activityLogger';
 
 export default function Register() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [isPendingVerification, setIsPendingVerification] = useState(false);
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -22,7 +26,7 @@ export default function Register() {
   const appName = config.appName || 'Paydone.id';
   const appLogo = config.appLogoUrl;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -31,42 +35,105 @@ export default function Register() {
       return;
     }
 
+    if (formData.password.length < 6) {
+      setError('Password minimal 6 karakter.');
+      return;
+    }
+
     setLoading(true);
 
-    // Simulate API Call & Email Sending
-    setTimeout(() => {
-      // Create User in DB
-      const newUser: UserType = {
-        id: `u-${Date.now()}`,
-        username: formData.username,
-        email: formData.email,
+    try {
+      // Call backend /api/auth/signup
+      const res = await api.post('/auth/signup', {
+        email: formData.email.trim(),
         password: formData.password,
-        role: 'user',
-        status: 'pending_verification',
-        createdAt: new Date().toISOString(),
-        subscription_id: 'pkg-free-default'
-      };
-      
-      addUser(newUser);
-
-      // V50.36: Set default freemium state for new user (Free Plan)
-      setFreemiumData({
-        subscriptionStatus: {
-          inGracePeriod: false,
-          daysLeftGrace: 0,
-          isFreeTier: true,
-          currentPackage: 'Free',
-        }
+        username: formData.username.trim() || formData.email.split('@')[0],
       });
 
+      if (res.isPendingVerification) {
+        // SMTP active — user needs to verify email
+        setIsPendingVerification(true);
+        setSuccess(true);
+      } else if (res.user) {
+        // SMTP not configured — auto login (user is immediately active)
+        const user = res.user;
+        const token = user.sessionToken || user.session_token;
+
+        // Save session
+        localStorage.setItem('paydone_session_token', token);
+        localStorage.setItem('paydone_active_user', user.id);
+        localStorage.setItem('paydone_user_role', user.role || 'user');
+
+        // Save user to local DB
+        const normalizedUser: UserType = {
+          id: user.id,
+          username: user.username || formData.username || formData.email.split('@')[0],
+          email: user.email || formData.email,
+          role: user.role || 'user',
+          status: user.status || 'active',
+          createdAt: user.createdAt || user.created_at || new Date().toISOString(),
+          sessionToken: token,
+        };
+        addUser(normalizedUser);
+
+        // Set default free plan
+        setFreemiumData({
+          subscriptionStatus: {
+            inGracePeriod: false,
+            daysLeftGrace: 0,
+            isFreeTier: true,
+            currentPackage: 'Free',
+          }
+        });
+
+        // Record activity
+        recordActivityLog(
+          'Registrasi Berhasil',
+          `User ${normalizedUser.username} berhasil mendaftar.`,
+          { email: normalizedUser.email },
+          { userId: normalizedUser.id },
+          'success'
+        );
+
+        // Pull data from cloud
+        try {
+          await pullUserDataFromCloud(user.id, token);
+        } catch { /* ignore hydration errors */ }
+
+        setSuccess(true);
+        setTimeout(() => navigate('/app/dashboard'), 1500);
+      } else {
+        setSuccess(true);
+      }
+    } catch (err: any) {
+      // Fallback to local-only mode if backend is unavailable
+      const errMsg = err.message || '';
+      if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('404')) {
+        // Backend not reachable — local demo mode
+        console.warn('[Register] Backend unavailable, using local demo mode.');
+        const newUser: UserType = {
+          id: `u-${Date.now()}`,
+          username: formData.username || formData.email.split('@')[0],
+          email: formData.email,
+          password: formData.password,
+          role: 'user',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          subscription_id: 'pkg-free-default'
+        };
+        addUser(newUser);
+        setFreemiumData({
+          subscriptionStatus: { inGracePeriod: false, daysLeftGrace: 0, isFreeTier: true, currentPackage: 'Free' }
+        });
+        setSuccess(true);
+        setIsPendingVerification(false);
+        setTimeout(() => navigate('/login'), 2000);
+      } else {
+        setError(errMsg || 'Pendaftaran gagal. Silakan coba lagi.');
+      }
+    } finally {
       setLoading(false);
-      setSuccess(true);
-      
-      // Simulate sending email
-      console.log(`[EMAIL SERVICE] Sending verification email to ${formData.email}...`);
-      alert(`Email verifikasi telah dikirim ke ${formData.email}. (Simulasi: Silakan Login, akun otomatis aktif di demo ini)`);
-      
-    }, 1500);
+    }
   };
 
   if (success) {
@@ -76,14 +143,20 @@ export default function Register() {
                   <div className="bg-green-100 h-20 w-20 rounded-full flex items-center justify-center mx-auto">
                       <CheckCircle className="h-10 w-10 text-green-600" />
                   </div>
-                  <h2 className="text-3xl font-bold text-slate-900">Cek Email Anda!</h2>
+                  <h2 className="text-3xl font-bold text-slate-900">
+                    {isPendingVerification ? 'Cek Email Anda!' : 'Akun Berhasil Dibuat!'}
+                  </h2>
                   <p className="text-slate-500">
-                      Kami telah mengirimkan link verifikasi ke <strong>{formData.email}</strong>. 
-                      Silakan klik link tersebut untuk mengaktifkan akun Anda.
+                    {isPendingVerification
+                      ? <>Kami telah mengirimkan link verifikasi ke <strong>{formData.email}</strong>. Silakan klik link tersebut untuk mengaktifkan akun Anda.</>
+                      : 'Selamat datang! Akun Anda telah aktif. Anda akan diarahkan ke dashboard...'
+                    }
                   </p>
-                  <Link to="/login" className="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700 transition">
-                      Kembali ke Login <ArrowRight size={18} />
-                  </Link>
+                  {isPendingVerification && (
+                    <Link to="/login" className="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700 transition">
+                        Kembali ke Login <ArrowRight size={18} />
+                    </Link>
+                  )}
               </div>
           </div>
       );
@@ -118,30 +191,32 @@ export default function Register() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <User size={18} />
+                  <User className="h-4 w-4" />
                 </div>
                 <input
-                  type="text" required
+                  type="text"
+                  required
                   value={formData.username}
-                  onChange={(e) => setFormData({...formData, username: e.target.value})}
-                  className="block w-full pl-10 rounded-lg border border-slate-300 py-2.5 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 sm:text-sm outline-none"
-                  placeholder="johndoe"
+                  onChange={e => setFormData({...formData, username: e.target.value})}
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                  placeholder="nama_pengguna"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Mail size={18} />
+                  <Mail className="h-4 w-4" />
                 </div>
                 <input
-                  type="email" required
+                  type="email"
+                  required
                   value={formData.email}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  className="block w-full pl-10 rounded-lg border border-slate-300 py-2.5 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 sm:text-sm outline-none"
-                  placeholder="john@example.com"
+                  onChange={e => setFormData({...formData, email: e.target.value})}
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                  placeholder="email@contoh.com"
                 />
               </div>
             </div>
@@ -150,30 +225,33 @@ export default function Register() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Lock size={18} />
+                  <Lock className="h-4 w-4" />
                 </div>
                 <input
-                  type="password" required
+                  type="password"
+                  required
+                  minLength={6}
                   value={formData.password}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  className="block w-full pl-10 rounded-lg border border-slate-300 py-2.5 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 sm:text-sm outline-none"
-                  placeholder="••••••••"
+                  onChange={e => setFormData({...formData, password: e.target.value})}
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                  placeholder="Minimal 6 karakter"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Confirm Password</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Konfirmasi Password</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <CheckCircle size={18} />
+                  <Shield className="h-4 w-4" />
                 </div>
                 <input
-                  type="password" required
+                  type="password"
+                  required
                   value={formData.confirmPassword}
-                  onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
-                  className="block w-full pl-10 rounded-lg border border-slate-300 py-2.5 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 sm:text-sm outline-none"
-                  placeholder="••••••••"
+                  onChange={e => setFormData({...formData, confirmPassword: e.target.value})}
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                  placeholder="Ulangi password"
                 />
               </div>
             </div>
@@ -181,17 +259,18 @@ export default function Register() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
+              className="w-full flex justify-center items-center gap-2 py-3 px-4 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-lg transition disabled:opacity-60"
             >
-              {loading ? <Loader2 className="animate-spin h-5 w-5" /> : 'Daftar Sekarang'}
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+              {loading ? 'Mendaftarkan...' : 'Daftar Sekarang'}
             </button>
           </form>
         </div>
 
         <p className="text-center text-sm text-slate-500">
           Sudah punya akun?{' '}
-          <Link to="/login" className="font-semibold text-brand-600 hover:text-brand-500">
-            Masuk di sini
+          <Link to="/login" className="text-brand-600 font-semibold hover:text-brand-700 transition">
+            Masuk sekarang
           </Link>
         </p>
       </div>

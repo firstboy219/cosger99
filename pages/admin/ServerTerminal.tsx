@@ -225,7 +225,7 @@ export default function ServerTerminal() {
                 method: 'POST',
                 headers: {
                     ...getHeaders(adminId),
-                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || ''
+                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
                 },
                 body: JSON.stringify({
                     label: newVersionName,
@@ -555,7 +555,7 @@ export default function ServerTerminal() {
                 method: 'POST',
                 headers: {
                     ...getHeaders(adminId),
-                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || ''
+                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
                 },
                 body: JSON.stringify({
                     label: editorFileName,

@@ -23,7 +23,7 @@ export default function ActivityLogs({ userType }: { userType: 'user' | 'admin' 
       if (userType === 'admin') {
         // Admin: Fetch from backend raw-sample endpoint
         try {
-          const data = await api.get('/admin/raw-sample/activity_logs');
+          const data = await api.get('/admin/raw-sample/activity_logs'); // Admin secret added automatically by api.ts
           const rows: any[] = Array.isArray(data) ? data : (data.rows || data.data || []);
           // Normalize backend rows (camelCase) to LogItem shape
           const normalized: LogItem[] = rows.map((r: any) => ({
@@ -58,23 +58,10 @@ export default function ActivityLogs({ userType }: { userType: 'user' | 'admin' 
         // If local is empty, also try fetching from backend
         if (localLogs.length === 0) {
           try {
-            const data = await api.get('/activity-logs');
-            const rows: any[] = Array.isArray(data) ? data : (data.logs || data.data || []);
-            localLogs = rows.map((r: any) => ({
-              id: r.id || `log-${Math.random().toString(36).substr(2, 9)}`,
-              timestamp: r.timestamp || r.createdAt || r.created_at || new Date().toISOString(),
-              userType: 'user' as const,
-              username: r.username || r.userId || r.user_id || '',
-              userId: r.userId || r.user_id || '',
-              action: r.action || r.eventName || r.event_name || 'Unknown',
-              details: r.details || r.description || r.message || '',
-              category: r.category || 'System',
-              payload: r.payload ?? undefined,
-              response: r.response ?? undefined,
-              status: r.status || 'info',
-            }));
+            // Fetch from sync endpoint — activity_logs are included in GET /api/sync response
+            // Fallback: use in-memory getLogs
+            localLogs = getLogs('user');
           } catch {
-            // Stay with getLogs fallback
             localLogs = getLogs('user');
           }
         }

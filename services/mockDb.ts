@@ -96,6 +96,7 @@ const DEFAULT_CONFIG: AppConfig = {
   appDescription: 'Financial Cockpit',
   appThemeColor: 'brand',
   language: 'id',
+  backendUrl: 'https://api.cosger.com', // Default production backend URL
   systemRules: DEFAULT_SYSTEM_RULES,
   advancedConfig: DEFAULT_ADVANCED_CONFIG
 };

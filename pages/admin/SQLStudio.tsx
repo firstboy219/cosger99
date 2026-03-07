@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import { getAdminHeaders } from '../../services/cloudSync';
 import { Database, Play, Trash2, AlertCircle, Code, Terminal, Sparkles, Loader2, Save, Clock, ChevronRight, FileJson, Download, Table as TableIcon, History, Search } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { getConfig } from '../../services/mockDb';
@@ -31,7 +32,8 @@ export default function SQLStudio() {
           headers: {
               'Content-Type': 'application/json',
               'x-user-id': adminId,
-              'x-session-token': localStorage.getItem('paydone_session_token') || ''
+              'x-session-token': localStorage.getItem('paydone_session_token') || '',
+              'x-admin-secret': localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
           },
           body: JSON.stringify({ sql })
       });

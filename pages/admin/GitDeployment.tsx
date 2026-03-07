@@ -8,7 +8,7 @@ import {
     LifeBuoy, Wrench, DownloadCloud, FolderDown, X
 } from 'lucide-react';
 import { getConfig } from '../../services/mockDb';
-import { getHeaders } from '../../services/cloudSync';
+import { getHeaders , getAdminHeaders} from '../../services/cloudSync';
 
 interface AuditLog {
     command: string;
@@ -49,7 +49,7 @@ export default function GitDeployment() {
         try {
             const res = await fetch(`${baseUrl}/api/admin/shell`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: getAdminHeaders(adminId),
                 body: JSON.stringify({ 
                     cmd,
                     secret: 'gen-lang-client-066244752' 

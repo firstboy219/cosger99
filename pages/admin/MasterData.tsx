@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { getAllUsers, updateUser, deleteUser, getUserData, getConfig } from '../../services/mockDb';
-import { getHeaders } from '../../services/cloudSync';
+import { getHeaders, getAdminHeaders } from '../../services/cloudSync';
 import { User, Badge, BankData } from '../../types';
 import { Search, UserCheck, UserX, Trash2, Edit2, Shield, Eye, Building2, AlertTriangle, Cloud, CloudOff, Loader2 } from 'lucide-react';
 import { formatCurrency } from '../../services/financeUtils';
@@ -36,7 +36,7 @@ export default function MasterData() {
       if (baseUrl) {
           try {
               const res = await fetch(`${baseUrl}/api/admin/users`, {
-                  headers: getHeaders(adminId)
+                  headers: getAdminHeaders(adminId)
               });
               
               if (res.ok) {

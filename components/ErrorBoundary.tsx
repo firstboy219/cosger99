@@ -45,27 +45,38 @@ export class ErrorBoundary extends React.Component<Props, State> {
   private sendCrashTelemetry = async (data: any) => {
     try {
       const userId = localStorage.getItem('paydone_active_user') || 'unknown';
-      const browserInfo = {
-        userAgent: navigator.userAgent,
-        language: navigator.language,
-        platform: navigator.platform,
-        screenResolution: `${window.innerWidth}x${window.innerHeight}`
-      };
-      
-      const stateSnapshot = {
-        localStorage: {
-          hasToken: !!localStorage.getItem('paydone_session_token'),
-          userId: localStorage.getItem('paydone_active_user')
-        }
-      };
+      const route = data.route || window.location.hash || window.location.pathname;
+      const routeParts = route.replace('#/', '').split('/');
+      const menuName = routeParts[0] || 'unknown';
 
+      // Send rich payload — backend requires these fields to auto-create admin ticket
       await api.post('/telemetry/crash', {
         userId,
         errorMessage: data.errorMessage,
+        errorType: 'ReactComponentError',
         stackTrace: data.stackTrace,
-        route: data.route,
-        browserInfo,
-        stateSnapshot,
+        severity: 'HIGH',                // Required to trigger auto ticket creation
+        routeUrl: route,
+        menuName,
+        moduleName: routeParts.slice(0, 2).join('/') || route,
+        componentName: 'ErrorBoundary',
+        actionPerformed: 'component_render',
+        previousRoute: document.referrer || '',
+        browserInfo: navigator.userAgent,
+        browserName: navigator.userAgent.split(' ').pop() || '',
+        operatingSystem: navigator.platform,
+        screenResolution: `${window.innerWidth}x${window.innerHeight}`,
+        deviceType: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+        networkOnline: navigator.onLine,
+        networkType: (navigator as any).connection?.effectiveType || 'unknown',
+        appVersion: 'v50.64',
+        stateSnapshot: {
+          localStorage: {
+            hasToken: !!localStorage.getItem('paydone_session_token'),
+            userId: localStorage.getItem('paydone_active_user'),
+            role: localStorage.getItem('paydone_user_role'),
+          }
+        },
         timestamp: new Date().toISOString()
       });
     } catch (e) {

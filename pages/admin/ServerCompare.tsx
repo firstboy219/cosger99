@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GOLDEN_SERVER_JS } from '../../services/serverTemplate';
 import { getConfig } from '../../services/mockDb';
-import { getHeaders } from '../../services/cloudSync';
+import { getHeaders, getAdminHeaders } from '../../services/cloudSync';
 import { runDevDebate } from '../../services/geminiService';
 import { 
   ArrowLeftRight, RefreshCw, Copy, Check, Terminal, FileCode, Server, 
@@ -50,7 +50,7 @@ export default function ServerCompare() {
       const fetchOptions: RequestInit = {};
       // Add auth headers if connecting to internal API
       if (url.includes('/api/admin')) {
-          fetchOptions.headers = getHeaders(adminId);
+          fetchOptions.headers = getAdminHeaders(adminId);
       }
 
       const res = await fetch(url, fetchOptions);

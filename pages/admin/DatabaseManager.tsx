@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { getAdminHeaders } from '../../services/cloudSync';
 import { getDB, DBSchema, getConfig, saveConfig } from '../../services/mockDb';
 import { saveGlobalConfigToCloud } from '../../services/cloudSync';
 import { api } from '../../services/api';
@@ -406,7 +407,7 @@ export default function DatabaseManager() {
       setCloudSample(null);
       try {
           const baseUrl = sqlConfig.backendUrl.replace(/\/$/, '');
-          const res = await fetch(`${baseUrl}/api/admin/raw-sample/${table}?t=${Date.now()}`);
+          const res = await fetch(`${baseUrl}/api/admin/raw-sample/${table}?t=${Date.now()}`, { headers: getAdminHeaders() });
           if (res.ok) {
               const data = await res.json();
               setCloudSample(data.records);

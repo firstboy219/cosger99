@@ -541,6 +541,20 @@ export const getHeaders = (userId: string) => {
     };
 };
 
+// Admin headers: includes x-admin-secret required by all /api/admin/* endpoints
+export const getAdminHeaders = (userId?: string) => {
+    const token = localStorage.getItem('paydone_session_token') || '';
+    const uid = userId || localStorage.getItem('paydone_active_user') || 'admin';
+    const adminSecret = localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025';
+    return {
+        'Content-Type': 'application/json',
+        'x-user-id': uid,
+        'x-session-token': token,
+        'Authorization': `Bearer ${token}`,
+        'x-admin-secret': adminSecret
+    };
+};
+
 export const pushPartialUpdate = async (userId: string, data: any): Promise<boolean> => {
     try {
         await api.post('/sync', { userId, ...data });

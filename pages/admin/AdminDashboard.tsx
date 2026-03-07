@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
+import { getAdminHeaders } from '../../services/cloudSync';
 import { getConfig, getAllUsers, getUserData } from '../../services/mockDb';
 import { formatCurrency } from '../../services/financeUtils';
 import { getLogs } from '../../services/activityLogger';
@@ -82,7 +83,7 @@ export default function AdminDashboard() {
       
       try {
           // Try specific time endpoint first
-          const res = await fetch(`${baseUrl}/api/admin/server-time`, { mode: 'cors' });
+          const res = await fetch(`${baseUrl}/api/admin/server-time`, { mode: 'cors', headers: getAdminHeaders() });
           if (res.ok) {
               const data = await res.json();
               if (data.serverTime) {
@@ -134,7 +135,8 @@ export default function AdminDashboard() {
 
               const userRes = await fetch(`${baseUrl}/api/admin/users`, { 
                   signal: controller.signal,
-                  mode: 'cors'
+                  mode: 'cors',
+                  headers: getAdminHeaders()
               });
               clearTimeout(timeoutId);
 

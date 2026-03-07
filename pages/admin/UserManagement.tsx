@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { getAllUsers, updateUser, getUserData, getConfig } from '../../services/mockDb';
-import { getHeaders } from '../../services/cloudSync'; // Import centralized headers
+import { getHeaders, getAdminHeaders } from '../../services/cloudSync'; // Import centralized headers
 import { User, DebtItem } from '../../types';
 import { Search, UserCheck, UserX, Shield, Eye, TrendingDown, X, AlertTriangle, RefreshCcw, Loader2, Skull, Edit, Trash2, LogOut } from 'lucide-react';
 
@@ -36,7 +36,7 @@ export default function UserManagement() {
 
               const res = await fetch(`${baseUrl}/api/admin/users/${editingUser.id}`, {
                   method: 'PUT',
-                  headers: getHeaders(adminId),
+                  headers: getAdminHeaders(adminId),
                   body: JSON.stringify(payload)
               });
 
@@ -80,7 +80,7 @@ export default function UserManagement() {
           try {
               const res = await fetch(`${baseUrl}/api/admin/users/${userId}?cascade=true`, {
                   method: 'DELETE',
-                  headers: getHeaders(adminId)
+                  headers: getAdminHeaders(adminId)
               });
 
               if (res.ok) {
@@ -129,7 +129,7 @@ export default function UserManagement() {
           // CLOUD MODE
           try {
               const res = await fetch(`${baseUrl}/api/admin/users`, {
-                  headers: getHeaders(adminId) // Correctly use shared headers
+                  headers: getAdminHeaders(adminId) // Correctly use shared headers
               });
               if (res.ok) {
                   const data = await res.json();
@@ -187,7 +187,7 @@ export default function UserManagement() {
           try {
               await fetch(`${baseUrl}/api/admin/users/${user.id}/status`, {
                   method: 'PATCH',
-                  headers: getHeaders(adminId),
+                  headers: getAdminHeaders(adminId),
                   body: JSON.stringify({ status: newStatus })
               });
               loadData(); // Reload from cloud
@@ -213,7 +213,7 @@ export default function UserManagement() {
       if (baseUrl) {
           try {
               const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/financials`, {
-                  headers: getHeaders(adminId)
+                  headers: getAdminHeaders(adminId)
               });
               if (res.ok) {
                   const data = await res.json();
@@ -260,7 +260,7 @@ export default function UserManagement() {
       try {
           const res = await fetch(`${baseUrl}/api/admin/reset-user-data`, {
               method: 'POST',
-              headers: getHeaders(adminId),
+              headers: getAdminHeaders(adminId),
               body: JSON.stringify({ targetUserId: user.id })
           });
 
@@ -293,7 +293,7 @@ export default function UserManagement() {
       try {
           const res = await fetch(`${baseUrl}/api/admin/kill-session`, {
               method: 'POST',
-              headers: getHeaders(adminId),
+              headers: getAdminHeaders(adminId),
               body: JSON.stringify({ targetUserId: user.id, adminKey })
           });
 

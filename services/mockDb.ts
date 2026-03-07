@@ -97,6 +97,7 @@ const DEFAULT_CONFIG: AppConfig = {
   appThemeColor: 'brand',
   language: 'id',
   backendUrl: 'https://api.cosger.com', // Default production backend URL
+  adminSecret: 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026', // Must match ADMIN_SECRET env var on backend
   systemRules: DEFAULT_SYSTEM_RULES,
   advancedConfig: DEFAULT_ADVANCED_CONFIG
 };

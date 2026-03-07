@@ -14,7 +14,7 @@ const saveCurrentVersion = async (backendUrl: string, labelName: string, adminId
         method: 'POST',
         headers: {
             ...getHeaders(adminId),
-            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
+            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
         },
         body: JSON.stringify({ label: labelName })
     });
@@ -28,7 +28,7 @@ const createNewVersion = async (backendUrl: string, labelName: string, codeConte
         method: 'POST',
         headers: {
             ...getHeaders(adminId),
-            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
+            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
         },
         body: JSON.stringify({ label: labelName, content: codeContent })
     });
@@ -42,7 +42,7 @@ const restoreVersion = async (backendUrl: string, targetFilename: string, adminI
         method: 'POST',
         headers: {
             ...getHeaders(adminId),
-            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
+            'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
         },
         body: JSON.stringify({ filename: targetFilename })
     });
@@ -95,7 +95,7 @@ export default function DeveloperTools() {
 
   const fetchVersions = async () => {
       try {
-          const res = await fetch(`${currentBackendUrl}/api/admin/versions?secret=gen-lang-client-0662447520`, {
+          const res = await fetch(`${currentBackendUrl}/api/admin/versions?secret=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`, {
               headers: getHeaders(adminId)
           });
           if (res.ok) {
@@ -212,7 +212,7 @@ export default function DeveloperTools() {
       const adminId = localStorage.getItem('paydone_active_user') || 'admin';
       
       // USE NEW ENDPOINT
-      const url = config.sourceCodeUrl || 'https://api.cosger.com/api/view-source?kunci=gen-lang-client-0662447520';
+      const url = config.sourceCodeUrl || `https://api.cosger.com/api/view-source?kunci=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`;
       
       try {
           console.log(`[DevTools] Fetching live source from: ${url}`);

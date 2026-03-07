@@ -52,7 +52,7 @@ export default function GitDeployment() {
                 headers: getAdminHeaders(adminId),
                 body: JSON.stringify({ 
                     cmd,
-                    secret: 'gen-lang-client-066244752' 
+                    secret: localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026' 
                 })
             });
             

@@ -26,34 +26,38 @@ export default function Planning({ tasks, debts, debtInstallments, setDebtInstal
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
 
-    // Bug 2: GENERATE DEBT TASKS FROM INSTALLMENTS
-    // First try stored debtInstallments. If none exist for a debt this month, generate on-the-fly.
+    // Build debt payment tasks for the current month.
+    // Strategy: 
+    //   1. If stored installments exist for this debt AND this month → use them (respects user edits)
+    //   2. Otherwise → always generate on-the-fly from debt formula so debt tasks NEVER go missing
+    //      (fixes the case where stored installments exist for OTHER months but not current month)
     const allInstallmentsForMonth: import('../types').DebtInstallment[] = [];
-    
-    debts.forEach(debt => {
-      const debtStoredInstallments = debtInstallments.filter(i => i.debtId === debt.id);
-      
-      // Check if there's a stored installment for this month
-      const storedThisMonth = debtStoredInstallments.filter(i => {
-        const d = new Date(i.dueDate);
-        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-      });
-      
-      if (storedThisMonth.length > 0) {
-        // Use the stored installment (respects user edits/updates/deletes)
-        storedThisMonth.forEach(i => allInstallmentsForMonth.push(i));
-      } else if (debtStoredInstallments.length === 0) {
-        // No stored installments at all - generate on-the-fly for this month
-        const generated = generateInstallmentsForDebt(debt, []);
-        const genThisMonth = generated.filter(i => {
+
+    debts
+      .filter(d => !d._deleted && d.startDate && d.endDate)
+      .forEach(debt => {
+        const debtStoredInstallments = debtInstallments.filter(i => i.debtId === debt.id);
+
+        // Check if there's a stored installment for this exact month
+        const storedThisMonth = debtStoredInstallments.filter(i => {
           const d = new Date(i.dueDate);
           return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
         });
-        genThisMonth.forEach(i => allInstallmentsForMonth.push(i));
-      }
-      // If there ARE stored installments for the debt but none for this month,
-      // the debt might be complete - don't add a task.
-    });
+
+        if (storedThisMonth.length > 0) {
+          // Stored installment for this month exists — use it (status may be paid/overdue)
+          storedThisMonth.forEach(i => allInstallmentsForMonth.push(i));
+        } else {
+          // No stored installment for this month (whether or not other months exist).
+          // Generate on-the-fly to ensure this month's cicilan always appears as a task.
+          const generated = generateInstallmentsForDebt(debt, debtStoredInstallments, false);
+          const genThisMonth = generated.filter(i => {
+            const d = new Date(i.dueDate);
+            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+          });
+          genThisMonth.forEach(i => allInstallmentsForMonth.push(i));
+        }
+      });
 
     const debtTasks: TaskItem[] = allInstallmentsForMonth.map(inst => {
        const debtName = debts.find(d => d.id === inst.debtId)?.name || 'Cicilan Hutang';

@@ -44,7 +44,7 @@ export default function ServerCompare() {
     const adminId = localStorage.getItem('paydone_active_user') || 'admin';
     
     // Prioritize Source Code URL
-    let url = config.sourceCodeUrl || 'https://api.cosger.com/api/view-source?kunci=gen-lang-client-0662447520';
+    let url = config.sourceCodeUrl || `https://api.cosger.com/api/view-source?kunci=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`;
 
     try {
       const fetchOptions: RequestInit = {};

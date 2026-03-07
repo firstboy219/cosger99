@@ -62,6 +62,7 @@ export interface AppConfig extends SyncMetadata {
     // Backend
     backendUrl?: string;
     sourceCodeUrl?: string;
+    adminSecret?: string; // Admin secret key — harus match dengan ADMIN_SECRET env var di backend
     
     // Database Tools Config (NEW)
     diagnosticUrl?: string; // Link to API Diagnostic
@@ -477,6 +478,8 @@ export interface SubscriptionStatus {
   isFreeTier: boolean;
   currentPackage?: string;
   expiryDate?: string;
+  amountPaid?: number;  // Monthly billing amount
+  packageId?: string;   // DB package ID for exact matching
 }
 
 export type ActiveFeatures = Record<string, boolean>;

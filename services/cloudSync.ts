@@ -157,8 +157,8 @@ export const pullUserDataFromCloud = async (userId: string, tokenOverride?: stri
         if (notificationsData && Array.isArray(notificationsData)) db.notifications = notificationsData;
         if (activeFeaturesData && typeof activeFeaturesData === 'object') db.activeFeatures = activeFeaturesData;
         // V50.36: Normalize subscriptionStatus from backend
-        // Backend shape: { packageId, status: { isFreeTier, inGracePeriod } } (nested)
-        // Frontend expects: { isFreeTier, inGracePeriod, currentPackage, ... } (flat)
+        // Backend shape: { packageId, status: { isFreeTier, inGracePeriod, currentPackage, endDate, amountPaid } } (nested)
+        // Frontend expects: { isFreeTier, inGracePeriod, currentPackage, expiryDate, amountPaid, ... } (flat)
         if (subscriptionStatusData && typeof subscriptionStatusData === 'object') {
             const nested = subscriptionStatusData.status;
             if (nested && typeof nested === 'object') {
@@ -167,8 +167,10 @@ export const pullUserDataFromCloud = async (userId: string, tokenOverride?: stri
                     isFreeTier: nested.isFreeTier ?? true,
                     inGracePeriod: nested.inGracePeriod ?? false,
                     daysLeftGrace: nested.daysLeftGrace ?? subscriptionStatusData.daysLeftGrace ?? 0,
-                    currentPackage: subscriptionStatusData.packageName || subscriptionStatusData.currentPackage || (nested.isFreeTier ? 'Free Plan' : 'Premium Plan'),
-                    expiryDate: subscriptionStatusData.expiryDate || subscriptionStatusData.endDate || undefined,
+                    currentPackage: nested.currentPackage || subscriptionStatusData.packageName || subscriptionStatusData.currentPackage || (nested.isFreeTier ? 'Free Plan' : 'Premium Plan'),
+                    expiryDate: nested.endDate || subscriptionStatusData.expiryDate || subscriptionStatusData.endDate || undefined,
+                    amountPaid: nested.amountPaid ?? subscriptionStatusData.amountPaid ?? 0,
+                    packageId: subscriptionStatusData.packageId || undefined,
                 };
             } else {
                 // Already flat shape - use as-is
@@ -545,7 +547,11 @@ export const getHeaders = (userId: string) => {
 export const getAdminHeaders = (userId?: string) => {
     const token = localStorage.getItem('paydone_session_token') || '';
     const uid = userId || localStorage.getItem('paydone_active_user') || 'admin';
-    const adminSecret = localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025';
+    // Priority: localStorage > db.config.adminSecret > env default
+    // Admin HARUS set ini di Settings → Admin Secret Key agar match dengan ADMIN_SECRET env var backend
+    const adminSecret = localStorage.getItem('paydone_admin_secret') 
+        || (() => { try { return JSON.parse(localStorage.getItem('paydone_db_v45') || '{}')?.config?.adminSecret; } catch { return null; } })()
+        || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'; // match backend default
     return {
         'Content-Type': 'application/json',
         'x-user-id': uid,

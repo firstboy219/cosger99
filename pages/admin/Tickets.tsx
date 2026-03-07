@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getDB, saveDB, getConfig } from '../../services/mockDb';
 import { Ticket } from '../../types';
 import { Ticket as TicketIcon, Plus, Filter, Search, MoreVertical, AlertCircle, CheckCircle2, Clock, Trash2, Edit2, X, MessageSquare, Archive, CheckSquare, Zap, Wrench, PlayCircle, Loader2, Terminal, RotateCcw, Cloud, CloudOff, RefreshCw } from 'lucide-react';
-import { pullUserDataFromCloud, saveItemToCloud, deleteFromCloud } from '../../services/cloudSync';
+import { pullUserDataFromCloud, saveItemToCloud, deleteFromCloud, getAdminHeaders } from '../../services/cloudSync';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 
 export default function Tickets() {
@@ -46,15 +46,18 @@ export default function Tickets() {
   const refreshTickets = async () => {
     setIsSyncing(true);
     const config = getConfig();
-    const adminId = localStorage.getItem('paydone_active_user') || 'admin';
     
     if (config.backendUrl) {
         try {
-            const result = await pullUserDataFromCloud(adminId);
-            if (result.success && result.data && result.data.tickets) {
+            const adminId = localStorage.getItem('paydone_active_user') || 'admin';
+            const response = await fetch(`${config.backendUrl}/api/admin/tickets`, {
+                headers: getAdminHeaders(adminId)
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const result = await response.json();
+            if (result.success && result.data?.tickets) {
                 setTickets(result.data.tickets);
                 setDataSource('cloud');
-                
                 const db = getDB();
                 db.tickets = result.data.tickets;
                 saveDB(db);
@@ -62,7 +65,7 @@ export default function Tickets() {
                 fallbackLocal();
             }
         } catch (e) {
-            console.error("Cloud ticket fetch failed", e);
+            console.error("Admin ticket fetch failed", e);
             fallbackLocal();
         }
     } else {

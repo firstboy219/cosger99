@@ -81,12 +81,17 @@ export default function AdminSettings() {
         // Legacy/Direct sync mapping
         geminiApiKey: config.geminiApiKey,
         backendUrl: config.backendUrl,
+        adminSecret: config.adminSecret,
         sourceCodeUrl: config.sourceCodeUrl,
         enablePayloadPreview: config.enablePayloadPreview
     };
     
     // 1. Local Save
     saveConfig(newConfig);
+    // Sync adminSecret to localStorage so getAdminHeaders() picks it up immediately
+    if (newConfig.adminSecret) {
+        localStorage.setItem('paydone_admin_secret', newConfig.adminSecret);
+    }
     
     // 2. Cloud Save
     try {
@@ -258,6 +263,24 @@ export default function AdminSettings() {
                                         <Globe className="absolute left-3 top-3.5 text-slate-400" size={16} />
                                     </div>
                                     <p className="text-[10px] text-slate-400 mt-1 italic">URL utama untuk sinkronisasi Cloud SQL dan AI Proxy.</p>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Admin Secret Key</label>
+                                    <div className="relative">
+                                        <input
+                                            type="password"
+                                            className="w-full border-2 border-slate-100 p-3 pl-10 rounded-xl text-sm font-mono focus:border-brand-500 transition outline-none"
+                                            value={config.adminSecret || ''}
+                                            onChange={e => {
+                                                setConfig({...config, adminSecret: e.target.value});
+                                                // Langsung simpan ke localStorage agar getAdminHeaders() langsung pakai nilai baru
+                                                localStorage.setItem('paydone_admin_secret', e.target.value);
+                                            }}
+                                            placeholder="PAYDONE_EMERGENCY_SECURE_KEY..."
+                                        />
+                                        <Shield className="absolute left-3 top-3.5 text-slate-400" size={16} />
+                                    </div>
+                                    <p className="text-[10px] text-red-400 mt-1 italic font-bold">⚠️ Harus sama persis dengan env var ADMIN_SECRET di backend. Salah → semua endpoint admin gagal (403).</p>
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Source Code Viewer Link</label>

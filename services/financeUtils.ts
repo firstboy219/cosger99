@@ -161,20 +161,27 @@ export const generateInstallmentsForDebt = (
             principalPart = monthlyAmount - interestPart;
         } 
         else if (strategy === 'STEPUP') {
-            // STEP UP: User defines Payment Amount per Period Range
-            const safeBalance = Math.max(0, currentBalance);
+            // STEP UP: User defines Payment Amount per Period Range.
+            //
+            // CRITICAL FIX: Indonesian KPR Step-Up loans use FLAT rate interest calculation.
+            // Interest is computed on originalPrincipal (FIXED every month), NOT on remaining balance.
+            //
+            // Using EFFECTIVE rate (safeBalance × monthlyRate) caused the balance to shrink TOO FAST
+            // because effective interest grows smaller as balance decreases → more principal paid →
+            // balance hits 0 at e.g. period 87 instead of period 94 → periods 88-94 show Rp 0.
+            //
+            // With FLAT rate: interest = originalPrincipal × monthlyRate (CONSTANT),
+            // principal = cicilan - constant_interest, balance reduces at the rate the bank expects.
             
-            // Bug 4: Find active range, then fallback to last range before i, then to monthlyPayment
+            // Resolve cicilan amount for this period
             const activeRange = stepUpSchedule.find(range => i >= range.startMonth && i <= range.endMonth);
             if (activeRange) {
                 monthlyAmount = activeRange.amount;
             } else {
-                // Cascade: use the closest prior range (i.e. last range whose endMonth < i)
                 const priorRanges = stepUpSchedule.filter(r => r.endMonth < i);
                 const lastPrior = priorRanges.length > 0
                     ? priorRanges.reduce((a, b) => (b.endMonth > a.endMonth ? b : a))
                     : null;
-                // Also check if i is before the first range
                 const futureRanges = stepUpSchedule.filter(r => r.startMonth > i);
                 const firstFuture = futureRanges.length > 0
                     ? futureRanges.reduce((a, b) => (b.startMonth < a.startMonth ? b : a))
@@ -182,26 +189,27 @@ export const generateInstallmentsForDebt = (
                 if (lastPrior) {
                     monthlyAmount = lastPrior.amount;
                 } else if (firstFuture) {
-                    monthlyAmount = firstFuture.amount; // before first range: use first range amount
+                    monthlyAmount = firstFuture.amount;
                 } else {
-                    monthlyAmount = Number(debt.monthlyPayment || 0); // absolute last fallback
+                    monthlyAmount = Number(debt.monthlyPayment || 0);
                 }
             }
 
-            // In Step Up, typically interest is Effective (based on remaining balance)
-            interestPart = safeBalance * monthlyRate;
-            
-            // Principal is whatever is left after paying interest
-            // QA FIX: Ensure principal part doesn't go negative if user sets installment lower than interest
+            // FLAT rate: interest always = originalPrincipal × monthlyRate (constant)
+            interestPart = originalPrincipal * monthlyRate;
             principalPart = Math.max(0, monthlyAmount - interestPart);
         }
 
         // --- SAFETY CHECKS (CRITICAL FIX) ---
-        // 2. Prevent principal part from exceeding remaining balance (Snap to 0)
+        // Prevent principal part from exceeding remaining balance (natural end-of-loan)
         if (principalPart > currentBalance) {
             principalPart = currentBalance;
-            // Adjust monthly amount for the final penny
-            if (strategy === 'ANNUITY' || strategy === 'STEPUP') {
+            if (strategy === 'ANNUITY') {
+                // For annuity: recalculate final payment as remaining balance + final interest
+                monthlyAmount = principalPart + interestPart;
+            } else if (strategy === 'STEPUP') {
+                // For STEPUP/FLAT: final payment = remaining balance + flat interest
+                // (interestPart is already the flat interest = originalPrincipal × monthlyRate)
                 monthlyAmount = principalPart + interestPart;
             }
         }
@@ -487,76 +495,72 @@ export const generateCrossingAnalysis = (
     income: number,
     debts: DebtItem[],
     expenses: ExpenseItem[],
-    debtInstallments: DebtInstallment[] = [] // Bug 6: actual installment data
+    debtInstallments: DebtInstallment[] = []
 ) => {
     const today = new Date();
-    
-    // Calculate LIMIT from the latest endDate across all active debts
-    const activeDebts = debts.filter(d => !d._deleted && d.endDate);
-    let LIMIT = 24; // Fallback to 24 months if no debts
+
+    // ─── STEP 1: Build authoritative installment schedule from debt data ───────
+    // ALWAYS regenerate from debt amortization formulas for projection accuracy.
+    // Stored debtInstallments may have stale/incorrect amounts (e.g. remaining balance
+    // stored instead of monthly cicilan). Freshly-computed installments guarantee
+    // "Porsi Hutang" = actual monthly cicilan total, not outstanding balance.
+    const activeDebts = debts.filter(d => !d._deleted && d.startDate && d.endDate);
+
+    // Build full schedule by regenerating for each debt, merging status from stored records
+    let effectiveInstallments: DebtInstallment[] = [];
+    activeDebts.forEach(debt => {
+        // Pass stored installments so paid/overdue status is preserved on existing records
+        const stored = debtInstallments.filter(inst => inst.debtId === debt.id);
+        const generated = generateInstallmentsForDebt(debt, stored, false);
+        effectiveInstallments = effectiveInstallments.concat(generated);
+    });
+
+    // ─── STEP 2: Calculate LIMIT from the furthest debt end date ─────────────
+    let LIMIT = 24;
     if (activeDebts.length > 0) {
         const latestEndDate = activeDebts.reduce((latest, d) => {
             const endDate = new Date(d.endDate);
             return endDate > latest ? endDate : latest;
         }, new Date(0));
         const monthsToEnd = (latestEndDate.getFullYear() - today.getFullYear()) * 12 + (latestEndDate.getMonth() - today.getMonth());
-        LIMIT = Math.max(6, Math.min(monthsToEnd, 360)); // Min 6 months, max 30 years
+        LIMIT = Math.max(6, Math.min(monthsToEnd, 360));
     }
-    
+
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
     const data = [];
-    
-    // Living Cost (Non-Debt Allocations)
-    // CRITICAL FIX: Wrap every .amount in Number() to prevent string concatenation
-    const monthlyLivingCost = expenses.filter(e => e.category !== 'debt').reduce((a,b) => a + Number(b.amount || 0), 0);
+
+    // ─── STEP 3: Monthly living cost = ALL allocation items (needs + wants) ──
+    // Debt-category allocations (pos hutang) are EXCLUDED because cicilan is already
+    // tracked separately in totalDebtPayment — prevents double-counting.
+    const monthlyLivingCost = expenses.filter(e => e.category !== 'debt')
+        .reduce((a, b) => a + Number(b.amount || 0), 0);
 
     for (let i = 0; i <= LIMIT; i++) {
-        const date = new Date(today.getFullYear(), today.getMonth() + i, 1);
-        const label = `${months[date.getMonth()]} ${date.getFullYear().toString().slice(-2)}`;
-        
-        let totalDebtPayment = 0;
-        
-        // Bug 6: For current/past months, use actual installment amounts if available
-        const simYearMonth = `${new Date(today.getFullYear(), today.getMonth() + i, 1).getFullYear()}-${String(new Date(today.getFullYear(), today.getMonth() + i, 1).getMonth() + 1).padStart(2,'0')}`;
-        const actualInstallmentsForMonth = debtInstallments.filter(inst => inst.dueDate?.startsWith(simYearMonth));
-        
-        if (actualInstallmentsForMonth.length > 0) {
-            // Use actual installment data when available
-            totalDebtPayment = actualInstallmentsForMonth.reduce((sum, inst) => sum + Number(inst.amount || 0), 0);
-        } else {
-            // Fallback: compute from debt fields (for future months or when no installment data)
-            debts.forEach(d => {
-                const startDate = new Date(d.startDate);
-                const endDate = new Date(d.endDate);
-                const currentSimDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
-                
-                if (currentSimDate >= startDate && currentSimDate <= endDate) {
-                    let pay = Number(d.monthlyPayment || 0);
-                    const monthsSinceStart = getMonthDiff(startDate, currentSimDate) + 1;
-                    let strategy = (d.interestStrategy || '').toUpperCase();
-                    if (strategy === 'STEP_UP') strategy = 'STEPUP';
+        const simDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
+        const label = `${months[simDate.getMonth()]} ${simDate.getFullYear().toString().slice(-2)}`;
+        const simYearMonth = `${simDate.getFullYear()}-${String(simDate.getMonth() + 1).padStart(2, '0')}`;
 
-                    if (strategy === 'STEPUP') {
-                        let parsedStepUp: any[] = [];
-                        if (Array.isArray(d.stepUpSchedule)) parsedStepUp = d.stepUpSchedule;
-                        else if (typeof d.stepUpSchedule === 'string') try { parsedStepUp = JSON.parse(d.stepUpSchedule); } catch(e) {}
+        // ─── STEP 4: Total cicilan = sum of all installment amounts for this month ──
+        // Uses actual inst.amount (monthly cicilan) — NOT remainingBalance or totalLiability.
+        // Filter handles both "2026-03-15" and "2026-03-15T00:00:00.000Z" formats.
+        const monthInstallments = effectiveInstallments.filter(inst => {
+            const d = (inst.dueDate || '').substring(0, 7); // Always "YYYY-MM"
+            return d === simYearMonth;
+        });
 
-                        const range = parsedStepUp.find((r: any) => monthsSinceStart >= Number(r.startMonth || 0) && monthsSinceStart <= Number(r.endMonth || 0));
-                        if (range) pay = Number(range.amount || range.cicilan || 0);
-                    }
-                    totalDebtPayment += Number(pay);
-                }
-            });
-        }
+        const totalDebtPayment = monthInstallments.length > 0
+            ? monthInstallments.reduce((sum, inst) => sum + Number(inst.amount || 0), 0)
+            : 0;
 
+        // ─── STEP 5: TotalExpense = living cost (allocations) + cicilan hutang ──
         const totalExpense = Number(monthlyLivingCost) + Number(totalDebtPayment);
         const isDanger = totalExpense > Number(income || 0);
 
         data.push({
             name: label,
             Income: Number(income || 0),
-            Debt: Number(totalDebtPayment || 0),
-            TotalExpense: Number(totalExpense || 0),
+            Debt: Number(totalDebtPayment),           // Monthly cicilan total
+            TotalExpense: Number(totalExpense),        // Cicilan + allocation (needs/wants)
             isDanger
         });
     }

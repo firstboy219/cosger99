@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Badge, BankAccount } from '../types';
 import { getAllUsers, updateUser, availableBadges } from '../services/mockDb';
-import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, Shield, Award, Target, Flag, Loader2, Copy, Plus, Trash2, Landmark, CreditCard, X, Image as ImageIcon, Briefcase, Clock, Zap } from 'lucide-react';
+import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, Shield, Award, Target, Flag, Loader2, Copy, Plus, Trash2, Landmark, CreditCard, X, Image as ImageIcon, Briefcase, Clock, Zap, Calendar, ArrowUpDown } from 'lucide-react';
 import { formatCurrency } from '../services/financeUtils';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
@@ -272,33 +272,75 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
               </div>
           </div>
 
-          {/* V50.36: Active Plan Info */}
+          {/* Paket Aktif — billing info + action buttons */}
           <div className="px-8 pb-6">
-            <div className={`flex items-center justify-between p-4 rounded-2xl border ${isFreeTier ? 'bg-slate-50 border-slate-200' : 'bg-gradient-to-r from-brand-50 to-indigo-50 border-brand-200'}`}>
-              <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-xl ${isFreeTier ? 'bg-slate-200' : 'bg-brand-100'}`}>
-                  <Zap size={18} className={isFreeTier ? 'text-slate-500' : 'text-brand-600'} />
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Paket Aktif</p>
-                  <p className={`text-sm font-black ${isFreeTier ? 'text-slate-700' : 'text-brand-700'}`}>
-                    {isFreeTier ? 'Free Plan' : (subscriptionStatus.currentPackage || 'Premium Plan')}
-                  </p>
-                  {subscriptionStatus.expiryDate && !isFreeTier && (
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Berlaku s/d {new Date(subscriptionStatus.expiryDate).toLocaleDateString('id-ID')}
+            <div className={`p-4 rounded-2xl border ${isFreeTier ? 'bg-slate-50 border-slate-200' : 'bg-gradient-to-r from-brand-50 to-indigo-50 border-brand-200'}`}>
+              <div className="flex items-start justify-between gap-3">
+                {/* Left: plan info */}
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={`p-2.5 rounded-xl mt-0.5 shrink-0 ${isFreeTier ? 'bg-slate-200' : 'bg-brand-100'}`}>
+                    <Zap size={18} className={isFreeTier ? 'text-slate-500' : 'text-brand-600'} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Paket Aktif</p>
+                    <p className={`text-sm font-black ${isFreeTier ? 'text-slate-700' : 'text-brand-700'}`}>
+                      {isFreeTier ? 'Free Plan' : (subscriptionStatus.currentPackage || 'Premium Plan')}
                     </p>
+
+                    {/* Billing countdown + nominal — only for premium */}
+                    {!isFreeTier && subscriptionStatus.expiryDate && (() => {
+                      const expiry = new Date(subscriptionStatus.expiryDate);
+                      const today = new Date();
+                      const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                      const isUrgent = daysLeft <= 7;
+                      const isExpired = daysLeft <= 0;
+                      return (
+                        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                          <span className={`text-[11px] font-bold flex items-center gap-1 ${isExpired ? 'text-red-600' : isUrgent ? 'text-amber-600' : 'text-slate-500'}`}>
+                            <Calendar size={11} />
+                            {isExpired
+                              ? 'Tagihan terlambat'
+                              : `Tagihan dalam ${daysLeft} hari (${expiry.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })})`
+                            }
+                          </span>
+                          {(subscriptionStatus.amountPaid ?? 0) > 0 && (
+                            <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                              <CreditCard size={11} />
+                              {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(subscriptionStatus.amountPaid!)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Grace period warning */}
+                    {subscriptionStatus.inGracePeriod && (
+                      <p className="text-[10px] text-amber-600 font-bold mt-1">
+                        ⚠ Grace period — {subscriptionStatus.daysLeftGrace} hari tersisa
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: action button */}
+                <div className="shrink-0">
+                  {isFreeTier ? (
+                    <Link
+                      to="/app/upgrade"
+                      className="px-4 py-2 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-brand-600 transition shadow-lg flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Zap size={12} /> Upgrade
+                    </Link>
+                  ) : (
+                    <Link
+                      to="/app/upgrade"
+                      className="px-3 py-2 bg-white text-brand-700 text-xs font-black border border-brand-200 rounded-xl hover:bg-brand-50 transition shadow-sm flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <ArrowUpDown size={12} /> Ubah Paket
+                    </Link>
                   )}
                 </div>
               </div>
-              {isFreeTier && (
-                <Link
-                  to="/app/upgrade"
-                  className="px-4 py-2 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-brand-600 transition shadow-lg flex items-center gap-1.5"
-                >
-                  <Zap size={12} /> Upgrade
-                </Link>
-              )}
             </div>
           </div>
       </div>

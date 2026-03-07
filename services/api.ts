@@ -27,7 +27,10 @@ const getAuthHeaders = (endpoint?: string) => {
 
     // V50.18: Admin endpoints require x-admin-secret header
     if (endpoint && endpoint.includes('/admin')) {
-        const adminSecret = localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025';
+        // Match backend default: process.env.ADMIN_SECRET || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
+        const adminSecret = localStorage.getItem('paydone_admin_secret')
+            || (() => { try { return JSON.parse(localStorage.getItem('paydone_db_v45') || '{}')?.config?.adminSecret; } catch { return null; } })()
+            || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026';
         headers['x-admin-secret'] = adminSecret;
     }
 

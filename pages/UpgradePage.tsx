@@ -307,7 +307,15 @@ export default function UpgradePage() {
           {sortedPackages.map((pkg, idx) => {
             const isPremium = !pkg.is_default_free && idx === sortedPackages.length - 1;
             const isMiddle = !pkg.is_default_free && !isPremium && sortedPackages.length >= 3;
-            const isCurrentPlan = subscriptionStatus.currentPackage?.toLowerCase() === pkg.name.toLowerCase();
+            // Match by packageId (exact) OR by name (fuzzy: "Premium Plan" matches "Premium")
+            const isCurrentPlan = (() => {
+              if (isFreeTier && pkg.is_default_free) return true;
+              if (!isFreeTier && subscriptionStatus.packageId && subscriptionStatus.packageId === pkg.id) return true;
+              const currentName = (subscriptionStatus.currentPackage || '').toLowerCase();
+              const pkgName = (pkg.name || '').toLowerCase();
+              if (!currentName || !pkgName) return false;
+              return currentName === pkgName || currentName.includes(pkgName) || pkgName.includes(currentName);
+            })();
 
             return (
               <div
@@ -411,14 +419,11 @@ export default function UpgradePage() {
 
                 {/* CTA */}
                 {isCurrentPlan ? (
-                  <button
-                    disabled
-                    className={`w-full py-4 rounded-2xl font-black text-sm tracking-wide cursor-default ${
-                      isPremium ? 'bg-white/10 text-slate-400 border border-white/10' : 'bg-slate-100 text-slate-400 border border-slate-200'
-                    }`}
-                  >
-                    Paket Saat Ini
-                  </button>
+                  <div className={`w-full py-4 rounded-2xl font-black text-sm tracking-wide text-center flex items-center justify-center gap-2 ${
+                    isPremium ? 'bg-white/15 text-white border border-white/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  }`}>
+                    <CheckCircle size={16} /> Paket Aktif Kamu
+                  </div>
                 ) : pkg.is_default_free ? (
                   <div className={`w-full py-4 rounded-2xl font-bold text-sm text-center ${
                     isPremium ? 'text-slate-500' : 'text-slate-400'

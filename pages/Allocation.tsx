@@ -177,7 +177,7 @@ export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onTogg
         if (isMonthly || isThisMonth) return sum + Number(inc.amount || 0);
         return sum;
       }, 0);
-    return total > 0 ? total : 15000000; // fallback to 15jt if no income set
+    return total; // Returns 0 if no income set — do NOT use dummy value
   }, [incomes, currentMonthKey]);
 
   // --- METRICS ---

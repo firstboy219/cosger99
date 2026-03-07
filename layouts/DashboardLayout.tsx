@@ -121,38 +121,60 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       }
   }, [userId]);
 
-  // V50.35 TAHAP 5: Hydrate notifications from local DB + fetch from backend
-  useEffect(() => {
-    const loadNotifs = async () => {
-      const db = getDB();
-      
-      // First, try to fetch from backend
-      try {
-        const backendNotifs = await api.get('/notifications').catch(() => null);
-        if (Array.isArray(backendNotifs)) {
-          db.notifications = backendNotifs;
-          saveDB(db);
-        }
-      } catch {
-        // Silently fail - use local DB
-      }
-      
-      const allNotifs = Array.isArray(db.notifications) 
-        ? db.notifications.filter((n: AppNotification) => n.user_id === userId || !n.user_id)
-        : [];
-      setNotifications(allNotifs.sort((a: AppNotification, b: AppNotification) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-    };
-    
-    loadNotifs();
-    window.addEventListener('PAYDONE_DB_UPDATE', loadNotifs);
-    // V50.35 TAHAP 5: Listen for real-time notifications via WebSocket
-    window.addEventListener('PAYDONE_NOTIFICATION', loadNotifs);
-    
-    return () => {
-      window.removeEventListener('PAYDONE_DB_UPDATE', loadNotifs);
-      window.removeEventListener('PAYDONE_NOTIFICATION', loadNotifs);
-    };
+  // V50.64 FIX: Split notification loading into two separate concerns to prevent infinite loop.
+  // Root cause: loadNotifs() called saveDB() → saveDB dispatches PAYDONE_DB_UPDATE
+  // → event listener called loadNotifs() again → infinite API hammering.
+
+  // 1. READ FROM LOCAL DB — safe to call on every DB update, never hits the network
+  const loadNotifsFromLocal = useCallback(() => {
+    const db = getDB();
+    const allNotifs = Array.isArray(db.notifications)
+      ? db.notifications.filter((n: AppNotification) => n.user_id === userId || !n.user_id)
+      : [];
+    setNotifications(
+      allNotifs.sort((a: AppNotification, b: AppNotification) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+    );
   }, [userId]);
+
+  // 2. FETCH FROM BACKEND — called only on mount (once per session), and on WS push.
+  //    Uses a ref to guarantee it never fires more than once per 30s no matter what.
+  const lastFetchRef = useRef<number>(0);
+  const fetchNotifsFromBackend = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastFetchRef.current < 30_000) return; // debounce 30 seconds
+    lastFetchRef.current = now;
+    try {
+      const backendNotifs = await api.get('/notifications').catch(() => null);
+      if (Array.isArray(backendNotifs)) {
+        // Write to DB WITHOUT triggering PAYDONE_DB_UPDATE (direct localStorage write)
+        const db = getDB();
+        db.notifications = backendNotifs;
+        localStorage.setItem('paydone_db_v45', JSON.stringify(db)); // bypass saveDB() to avoid re-triggering PAYDONE_DB_UPDATE → infinite loop
+        loadNotifsFromLocal();
+      }
+    } catch {
+      // Silently fail - use local DB
+    }
+  }, [loadNotifsFromLocal]);
+
+  // On mount: fetch from backend once, then read local
+  useEffect(() => {
+    loadNotifsFromLocal();
+    fetchNotifsFromBackend();
+  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On any DB update (sync, other pages saving data): only read local, never re-fetch API
+  useEffect(() => {
+    window.addEventListener('PAYDONE_DB_UPDATE', loadNotifsFromLocal);
+    // WebSocket push for real-time new notifications — allowed to re-fetch (debounced)
+    window.addEventListener('PAYDONE_NOTIFICATION', fetchNotifsFromBackend);
+    return () => {
+      window.removeEventListener('PAYDONE_DB_UPDATE', loadNotifsFromLocal);
+      window.removeEventListener('PAYDONE_NOTIFICATION', fetchNotifsFromBackend);
+    };
+  }, [loadNotifsFromLocal, fetchNotifsFromBackend]);
 
   const markAsRead = useCallback(async (notifId: string) => {
     // Optimistic update

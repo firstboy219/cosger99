@@ -33,7 +33,7 @@ export default function SQLStudio() {
               'Content-Type': 'application/json',
               'x-user-id': adminId,
               'x-session-token': localStorage.getItem('paydone_session_token') || '',
-              'x-admin-secret': localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
+              'x-admin-secret': localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
           },
           body: JSON.stringify({ sql })
       });

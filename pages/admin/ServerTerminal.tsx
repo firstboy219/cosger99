@@ -8,7 +8,7 @@ import {
     FolderOpen, AlertTriangle, Layers, ListChecks, History, FilePlus, Plus, Info, Star, Archive, Calendar, Tag
 } from 'lucide-react';
 import { getConfig } from '../../services/mockDb';
-import { getHeaders } from '../../services/cloudSync';
+import { getHeaders, getAdminHeaders } from '../../services/cloudSync';
 import { GoogleGenAI } from "@google/genai";
 
 interface TerminalLine {
@@ -129,7 +129,7 @@ export default function ServerTerminal() {
         
         try {
             // Call new intelligent endpoint
-            const res = await fetch(`${baseUrl}/api/admin/versions?secret=gen-lang-client-066244752`);
+            const res = await fetch(`${baseUrl}/api/admin/versions?secret=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`);
             if (res.ok) {
                 const data = await res.json();
                 setVersions(data.versions || []);
@@ -149,7 +149,7 @@ export default function ServerTerminal() {
         const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
         
         try {
-            const res = await fetch(`${baseUrl}/api/admin/snapshots?secret=gen-lang-client-066244752`);
+            const res = await fetch(`${baseUrl}/api/admin/snapshots?secret=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`);
             if (res.ok) {
                 const data = await res.json();
                 setSnapshots(data.snapshots || []);
@@ -173,10 +173,10 @@ export default function ServerTerminal() {
         try {
             const res = await fetch(`${baseUrl}/api/admin/versions/save`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: getAdminHeaders(adminId),
                 body: JSON.stringify({
                     label: saveLabel,
-                    secret: 'gen-lang-client-066244752'
+                    secret: localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
                 })
             });
 
@@ -224,8 +224,8 @@ export default function ServerTerminal() {
             const res = await fetch(`${baseUrl}/api/admin/versions/save`, {
                 method: 'POST',
                 headers: {
-                    ...getHeaders(adminId),
-                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
+                    ...getAdminHeaders(adminId),
+                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
                 },
                 body: JSON.stringify({
                     label: newVersionName,
@@ -261,10 +261,10 @@ export default function ServerTerminal() {
             // Using NEW RESTORE API (Handles Auto-Backup)
             const resPromise = fetch(`${baseUrl}/api/admin/versions/restore`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: getAdminHeaders(adminId),
                 body: JSON.stringify({
                     filename: version.filename,
-                    secret: 'gen-lang-client-066244752'
+                    secret: localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
                 })
             });
 
@@ -312,10 +312,10 @@ export default function ServerTerminal() {
         try {
             const res = await fetch(`${baseUrl}/api/admin/snapshots/create`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: getAdminHeaders(adminId),
                 body: JSON.stringify({
                     label: snapshotLabel,
-                    secret: 'gen-lang-client-066244752'
+                    secret: localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
                 })
             });
 
@@ -355,10 +355,10 @@ export default function ServerTerminal() {
             // We assume server restart will break connection, so we race
             const resPromise = fetch(`${baseUrl}/api/admin/snapshots/restore`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: getAdminHeaders(adminId),
                 body: JSON.stringify({
                     filename,
-                    secret: 'gen-lang-client-066244752'
+                    secret: localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
                 })
             });
 
@@ -405,10 +405,10 @@ export default function ServerTerminal() {
         try {
             const res = await fetch(`${baseUrl}/api/admin/versions/delete`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: getAdminHeaders(adminId),
                 body: JSON.stringify({
                     filename: confirmDelete,
-                    secret: 'gen-lang-client-066244752'
+                    secret: localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
                 })
             });
 
@@ -435,10 +435,10 @@ export default function ServerTerminal() {
         try {
             const res = await fetch(`${baseUrl}/api/admin/shell`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                headers: getAdminHeaders(adminId),
                 body: JSON.stringify({ 
                     cmd: cmd,
-                    secret: 'gen-lang-client-066244752' 
+                    secret: localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026' 
                 })
             });
 
@@ -534,10 +534,10 @@ export default function ServerTerminal() {
                 
                 const backupRes = await fetch(`${baseUrl}/api/admin/versions/save`, {
                     method: 'POST',
-                    headers: getHeaders(adminId),
+                    headers: getAdminHeaders(adminId),
                     body: JSON.stringify({
                         label: 'pre-edit-backup',
-                        secret: 'gen-lang-client-066244752'
+                        secret: localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
                     })
                 });
 
@@ -554,8 +554,8 @@ export default function ServerTerminal() {
             const writeRes = await fetch(`${baseUrl}/api/admin/versions/save`, {
                 method: 'POST',
                 headers: {
-                    ...getHeaders(adminId),
-                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'paydone-admin-2025'
+                    ...getAdminHeaders(adminId),
+                    'x-admin-secret': import.meta.env.VITE_ADMIN_SECRET || localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'
                 },
                 body: JSON.stringify({
                     label: editorFileName,

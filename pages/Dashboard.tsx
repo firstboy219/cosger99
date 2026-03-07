@@ -189,7 +189,7 @@ export default function Dashboard({
       setFreedomMatrix(projection);
       const crossing = generateCrossingAnalysis(Number(income) || 0, debts, allocations, debtInstallments); // Bug 6: use actual installments
       setCrossingData(crossing);
-  }, [debts, income, allocations, extraPayment, freedomMode]);
+  }, [debts, income, allocations, extraPayment, freedomMode, debtInstallments]);
 
   // --- 3. GENERATE AI SUMMARY ---
   useEffect(() => {

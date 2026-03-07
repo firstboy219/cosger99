@@ -17,7 +17,26 @@ interface BlogPost {
   image_url?: string;
   author?: string;
   created_at?: string;
+  is_published?: boolean;
 }
+
+/**
+ * Map backend camelCase response to BlogPost interface.
+ * Backend keysToCamel converts: body_html→bodyHtml, thumbnail_url→thumbnailUrl,
+ * content_type→contentType, media_url→mediaUrl, created_at→createdAt
+ */
+const mapBlogPost = (item: any): BlogPost => ({
+  id: item.id,
+  title: item.title || '',
+  body: item.body || item.bodyHtml || item.body_html || '',
+  content_type: (item.contentType || item.content_type) as 'article' | 'image' | 'video' | undefined,
+  media_url: item.mediaUrl || item.media_url || '',
+  category: item.category || '',
+  image_url: item.thumbnailUrl || item.imageUrl || item.thumbnail_url || item.image_url || '',
+  author: item.author || item.authorId || item.author_id || '',
+  created_at: item.createdAt || item.created_at || '',
+  is_published: item.isPublished ?? item.is_published ?? (item.status === 'published') ?? true,
+});
 
 /* ─── Simple Markdown to HTML ─── */
 function renderMarkdown(text: string): string {
@@ -54,13 +73,16 @@ export default function BlogPage() {
       try {
         const data = await api.get('/public/content');
         const all = data.articles || data.content || data || [];
-        setPosts(all.filter((p: any) => p.is_published !== false));
+        // Map backend camelCase fields (bodyHtml, thumbnailUrl, contentType, etc.) to BlogPost interface
+        // /public/content already returns published content only
+        setPosts(Array.isArray(all) ? all.map(mapBlogPost) : []);
       } catch (e) {
         console.warn('[BlogPage] Load error, trying fallback', e);
         try {
           const data2 = await api.get('/sales/content');
           const all2 = data2.articles || data2.content || data2 || [];
-          setPosts(all2.filter((p: any) => p.is_published));
+          const mapped2 = Array.isArray(all2) ? all2.map(mapBlogPost) : [];
+          setPosts(mapped2.filter((p: any) => p.is_published !== false));
         } catch {
           setPosts([]);
         }

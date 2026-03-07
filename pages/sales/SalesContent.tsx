@@ -21,6 +21,40 @@ interface ContentArticle {
   updated_at?: string;
 }
 
+/**
+ * Map backend response (camelCase from keysToCamel) to frontend ContentArticle interface.
+ * Backend uses: bodyHtml, thumbnailUrl, status, contentType, mediaUrl, createdAt, updatedAt
+ * Frontend uses: body, image_url, is_published, content_type, media_url, created_at, updated_at
+ */
+const mapFromBackend = (item: any): ContentArticle => ({
+  id: item.id,
+  title: item.title || '',
+  slug: item.slug,
+  body: item.body || item.bodyHtml || item.body_html || '',
+  content_type: (item.contentType || item.content_type || 'article') as 'article' | 'image' | 'video',
+  media_url: item.mediaUrl || item.media_url || '',
+  category: item.category || '',
+  image_url: item.thumbnailUrl || item.imageUrl || item.thumbnail_url || item.image_url || '',
+  is_published: item.isPublished ?? item.is_published ?? (item.status === 'published'),
+  author: item.author || item.authorId || item.author_id,
+  created_at: item.createdAt || item.created_at,
+  updated_at: item.updatedAt || item.updated_at,
+});
+
+/**
+ * Map frontend ContentArticle to backend payload (camelCase expected by backend).
+ */
+const mapToBackend = (article: Record<string, any>) => ({
+  title: article.title,
+  bodyHtml: article.body,
+  slug: article.slug,
+  thumbnailUrl: article.image_url,
+  status: article.is_published ? 'published' : 'draft',
+  contentType: article.content_type,
+  mediaUrl: article.media_url,
+  category: article.category,
+});
+
 /* ─── Simple Rich Text Toolbar ─── */
 function RichTextToolbar({ textareaRef }: { textareaRef: React.RefObject<HTMLTextAreaElement | null> }) {
   const insert = (before: string, after: string = '') => {
@@ -101,7 +135,8 @@ export default function SalesContent() {
     try {
       const data = await api.get('/sales/content');
       const raw = data.articles || data.content || data || [];
-      setArticles(Array.isArray(raw) ? raw : []);
+      // Map backend camelCase response to frontend snake_case interface
+      setArticles(Array.isArray(raw) ? raw.map(mapFromBackend) : []);
     } catch (e) {
       console.warn('[SalesContent] Load error', e);
       setArticles([]);
@@ -137,7 +172,7 @@ export default function SalesContent() {
     }
     setSaving(true); setModalError('');
 
-    const payload = {
+    const payload = mapToBackend({
       title: formTitle.trim(),
       body: formBody.trim(),
       category: formCategory.trim() || 'general',
@@ -145,7 +180,7 @@ export default function SalesContent() {
       is_published: formIsPublished,
       content_type: formContentType,
       media_url: formMediaUrl.trim() || undefined,
-    };
+    });
 
     try {
       if (editing) {
@@ -176,7 +211,8 @@ export default function SalesContent() {
 
   const togglePublish = useCallback(async (a: ContentArticle) => {
     try {
-      await api.put(`/sales/content/${a.id}`, { is_published: !a.is_published });
+      // Backend expects 'status' field ('published' | 'draft'), not 'is_published' boolean
+      await api.put(`/sales/content/${a.id}`, { status: a.is_published ? 'draft' : 'published' });
       await loadArticles();
       showToast(a.is_published ? 'Konten di-draft.' : 'Konten dipublish.', 'success');
     } catch (e: any) {

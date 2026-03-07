@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { TaskItem, DebtItem, ExpenseItem, DebtInstallment } from '../types';
 import { CheckSquare, Square, ClipboardList, Clock, Zap, TrendingUp, Calendar, User, PieChart, GripVertical, Loader2 } from 'lucide-react';
-import { formatCurrency } from '../services/financeUtils';
+import { formatCurrency, generateInstallmentsForDebt } from '../services/financeUtils';
 import { saveUserData, getUserData, getDB, saveDB } from '../services/mockDb';
 import { saveItemToCloud } from '../services/cloudSync';
 
@@ -26,18 +26,39 @@ export default function Planning({ tasks, debts, debtInstallments, setDebtInstal
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
 
-    // GENERATE DEBT TASKS FROM INSTALLMENTS (Accuracy Fix)
-    // Filter for installments due in the current month (or slightly future/past pending ones)
-    // We prioritize showing the installment for this month.
-    const relevantInstallments = debtInstallments.filter(inst => {
-        const d = new Date(inst.dueDate);
+    // Bug 2: GENERATE DEBT TASKS FROM INSTALLMENTS
+    // First try stored debtInstallments. If none exist for a debt this month, generate on-the-fly.
+    const allInstallmentsForMonth: import('../types').DebtInstallment[] = [];
+    
+    debts.forEach(debt => {
+      const debtStoredInstallments = debtInstallments.filter(i => i.debtId === debt.id);
+      
+      // Check if there's a stored installment for this month
+      const storedThisMonth = debtStoredInstallments.filter(i => {
+        const d = new Date(i.dueDate);
         return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      });
+      
+      if (storedThisMonth.length > 0) {
+        // Use the stored installment (respects user edits/updates/deletes)
+        storedThisMonth.forEach(i => allInstallmentsForMonth.push(i));
+      } else if (debtStoredInstallments.length === 0) {
+        // No stored installments at all - generate on-the-fly for this month
+        const generated = generateInstallmentsForDebt(debt, []);
+        const genThisMonth = generated.filter(i => {
+          const d = new Date(i.dueDate);
+          return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        });
+        genThisMonth.forEach(i => allInstallmentsForMonth.push(i));
+      }
+      // If there ARE stored installments for the debt but none for this month,
+      // the debt might be complete - don't add a task.
     });
 
-    const debtTasks: TaskItem[] = relevantInstallments.map(inst => {
+    const debtTasks: TaskItem[] = allInstallmentsForMonth.map(inst => {
        const debtName = debts.find(d => d.id === inst.debtId)?.name || 'Cicilan Hutang';
        return {
-         id: `installment-task__${inst.id}`, // NEW ID FORMAT
+         id: `installment-task__${inst.id}`,
          userId: inst.userId,
          title: `Bayar Cicilan ${debtName} (${formatCurrency(inst.amount)})`,
          category: 'Payment',
@@ -46,9 +67,6 @@ export default function Planning({ tasks, debts, debtInstallments, setDebtInstal
          context: 'Routine Bill'
        };
     });
-
-    // Fallback: If no installment exists for a debt in this month (e.g. data missing), maybe alert or skip.
-    // For now, relying on debtInstallments ensures we only show real scheduled bills.
 
     // Allocation Tasks Generator (SAFE MAPPING from props)
     // Ensure 'allocations' is an array before mapping

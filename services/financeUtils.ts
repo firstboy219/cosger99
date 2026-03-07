@@ -164,14 +164,28 @@ export const generateInstallmentsForDebt = (
             // STEP UP: User defines Payment Amount per Period Range
             const safeBalance = Math.max(0, currentBalance);
             
-            // Default amount from main field if no range matches
-            monthlyAmount = Number(debt.monthlyPayment || 0);
-            
-            // CRITICAL FIX: Use .find() with the CORRECT normalized keys (startMonth/endMonth/amount)
-            // Previously this used mismatched keys causing .find() to always return undefined
+            // Bug 4: Find active range, then fallback to last range before i, then to monthlyPayment
             const activeRange = stepUpSchedule.find(range => i >= range.startMonth && i <= range.endMonth);
             if (activeRange) {
                 monthlyAmount = activeRange.amount;
+            } else {
+                // Cascade: use the closest prior range (i.e. last range whose endMonth < i)
+                const priorRanges = stepUpSchedule.filter(r => r.endMonth < i);
+                const lastPrior = priorRanges.length > 0
+                    ? priorRanges.reduce((a, b) => (b.endMonth > a.endMonth ? b : a))
+                    : null;
+                // Also check if i is before the first range
+                const futureRanges = stepUpSchedule.filter(r => r.startMonth > i);
+                const firstFuture = futureRanges.length > 0
+                    ? futureRanges.reduce((a, b) => (b.startMonth < a.startMonth ? b : a))
+                    : null;
+                if (lastPrior) {
+                    monthlyAmount = lastPrior.amount;
+                } else if (firstFuture) {
+                    monthlyAmount = firstFuture.amount; // before first range: use first range amount
+                } else {
+                    monthlyAmount = Number(debt.monthlyPayment || 0); // absolute last fallback
+                }
             }
 
             // In Step Up, typically interest is Effective (based on remaining balance)
@@ -472,7 +486,8 @@ export const generateGlobalProjection = (
 export const generateCrossingAnalysis = (
     income: number,
     debts: DebtItem[],
-    expenses: ExpenseItem[]
+    expenses: ExpenseItem[],
+    debtInstallments: DebtInstallment[] = [] // Bug 6: actual installment data
 ) => {
     const today = new Date();
     
@@ -501,30 +516,38 @@ export const generateCrossingAnalysis = (
         
         let totalDebtPayment = 0;
         
-        debts.forEach(d => {
-            const startDate = new Date(d.startDate);
-            const endDate = new Date(d.endDate);
-            const currentSimDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
-            
-            if (currentSimDate >= startDate && currentSimDate <= endDate) {
-                // CRITICAL FIX: Always coerce to Number to prevent string concatenation
-                let pay = Number(d.monthlyPayment || 0);
-                // Step Up Logic for Crossing
-                const monthsSinceStart = getMonthDiff(startDate, currentSimDate) + 1;
-                let strategy = (d.interestStrategy || '').toUpperCase();
-                if (strategy === 'STEP_UP') strategy = 'STEPUP';
+        // Bug 6: For current/past months, use actual installment amounts if available
+        const simYearMonth = `${new Date(today.getFullYear(), today.getMonth() + i, 1).getFullYear()}-${String(new Date(today.getFullYear(), today.getMonth() + i, 1).getMonth() + 1).padStart(2,'0')}`;
+        const actualInstallmentsForMonth = debtInstallments.filter(inst => inst.dueDate?.startsWith(simYearMonth));
+        
+        if (actualInstallmentsForMonth.length > 0) {
+            // Use actual installment data when available
+            totalDebtPayment = actualInstallmentsForMonth.reduce((sum, inst) => sum + Number(inst.amount || 0), 0);
+        } else {
+            // Fallback: compute from debt fields (for future months or when no installment data)
+            debts.forEach(d => {
+                const startDate = new Date(d.startDate);
+                const endDate = new Date(d.endDate);
+                const currentSimDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
+                
+                if (currentSimDate >= startDate && currentSimDate <= endDate) {
+                    let pay = Number(d.monthlyPayment || 0);
+                    const monthsSinceStart = getMonthDiff(startDate, currentSimDate) + 1;
+                    let strategy = (d.interestStrategy || '').toUpperCase();
+                    if (strategy === 'STEP_UP') strategy = 'STEPUP';
 
-                if (strategy === 'STEPUP') {
-                    let parsedStepUp: any[] = [];
-                    if (Array.isArray(d.stepUpSchedule)) parsedStepUp = d.stepUpSchedule;
-                    else if (typeof d.stepUpSchedule === 'string') try { parsedStepUp = JSON.parse(d.stepUpSchedule); } catch(e) {}
+                    if (strategy === 'STEPUP') {
+                        let parsedStepUp: any[] = [];
+                        if (Array.isArray(d.stepUpSchedule)) parsedStepUp = d.stepUpSchedule;
+                        else if (typeof d.stepUpSchedule === 'string') try { parsedStepUp = JSON.parse(d.stepUpSchedule); } catch(e) {}
 
-                    const range = parsedStepUp.find((r: any) => monthsSinceStart >= Number(r.startMonth || 0) && monthsSinceStart <= Number(r.endMonth || 0));
-                    if (range) pay = Number(range.amount || range.cicilan || 0);
+                        const range = parsedStepUp.find((r: any) => monthsSinceStart >= Number(r.startMonth || 0) && monthsSinceStart <= Number(r.endMonth || 0));
+                        if (range) pay = Number(range.amount || range.cicilan || 0);
+                    }
+                    totalDebtPayment += Number(pay);
                 }
-                totalDebtPayment += Number(pay);
-            }
-        });
+            });
+        }
 
         const totalExpense = Number(monthlyLivingCost) + Number(totalDebtPayment);
         const isDanger = totalExpense > Number(income || 0);

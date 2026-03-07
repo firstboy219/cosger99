@@ -52,7 +52,15 @@ export default function CalendarPage({ debts, debtInstallments, setDebtInstallme
           const fullSchedule = generateInstallmentsForDebt(debt, savedForDebt);
           combined = [...combined, ...fullSchedule];
       });
-      return combined.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+      // Bug 5: Deduplicate by debtId+period to prevent same installment appearing twice
+      const seen = new Set<string>();
+      const deduped = combined.filter(inst => {
+          const key = `${inst.debtId}_${inst.period}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+      });
+      return deduped.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
   }, [debts, debtInstallments]);
 
   // The 3 months to display

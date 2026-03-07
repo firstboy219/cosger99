@@ -13,6 +13,7 @@ interface DailyExpensesProps {
   expenses: DailyExpense[];
   setExpenses: React.Dispatch<React.SetStateAction<DailyExpense[]>>;
   allocations: ExpenseItem[]; 
+  monthlyExpenses?: Record<string, ExpenseItem[]>; // Bug 8: month-aware allocations
   userId: string;
   debtInstallments: DebtInstallment[];
   setDebtInstallments: React.Dispatch<React.SetStateAction<DebtInstallment[]>>;
@@ -29,7 +30,7 @@ const CATEGORY_COLORS: Record<string, string> = {
     Others: '#94a3b8'      // Slate
 };
 
-export default function DailyExpenses({ expenses = [], setExpenses, allocations = [], userId, debtInstallments = [], setDebtInstallments, sinkingFunds = [], setSinkingFunds }: DailyExpensesProps) {
+export default function DailyExpenses({ expenses = [], setExpenses, allocations = [], monthlyExpenses, userId, debtInstallments = [], setDebtInstallments, sinkingFunds = [], setSinkingFunds }: DailyExpensesProps) {
   const [filterDate, setFilterDate] = useState(toLocalISOString(new Date()));
   const [startDate, setStartDate] = useState(new Date());
   const [quickText, setQuickText] = useState('');
@@ -74,10 +75,17 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
   const totalToday = todaysExpenses.reduce((a, b) => a + Number(b.amount), 0);
 
   // Filter Active Allocations & SF for Sidebar
+  // Bug 8: Derive monthKey from the selected calendar date
+  const selectedMonthKey = useMemo(() => {
+    const d = new Date(filterDate);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, [filterDate]);
+
   const activeAllocations = useMemo(() => {
-      // Show allocs that ARE transferred/paid AND have positive balance (hide minus/empty)
-      return allocations.filter(a => a.isTransferred && !a._deleted && a.amount > 0);
-  }, [allocations]);
+      // Bug 8: Use month-specific allocations when available
+      const monthAllocs = monthlyExpenses ? (monthlyExpenses[selectedMonthKey] || []) : allocations;
+      return monthAllocs.filter(a => a.isTransferred && !a._deleted && a.amount > 0);
+  }, [allocations, monthlyExpenses, selectedMonthKey]);
 
   const activeSinkingFunds = useMemo(() => {
       // Hide full sinking funds
@@ -285,7 +293,7 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
   };
 
   return (
-    <div className="space-y-6 pb-24 animate-fade-in font-sans h-[calc(100vh-100px)] flex flex-col">
+    <div className="space-y-6 pb-24 animate-fade-in font-sans">
       
       {/* 1. HEADER & AI COMMAND */}
       <div className="bg-slate-900 p-6 rounded-[2.5rem] shadow-2xl flex flex-col md:flex-row items-center gap-6 border border-slate-800 shrink-0 relative z-20 overflow-hidden">
@@ -318,10 +326,10 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
       </div>
 
       {/* 2. MAIN CONTENT GRID */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
           {/* LEFT: CALENDAR & LIST */}
-          <div className="lg:col-span-8 flex flex-col gap-6 overflow-hidden">
+          <div className="lg:col-span-8 flex flex-col gap-6">
               
               {/* DATE NAVIGATOR */}
               <div className="bg-white p-4 rounded-[2rem] border border-slate-200 shadow-sm shrink-0 flex flex-col gap-2">
@@ -366,7 +374,7 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
               </div>
 
               {/* TRANSACTIONS LIST */}
-              <div className="flex-1 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col relative">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden relative">
                   <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                       <div>
                           <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
@@ -382,7 +390,7 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
                       </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                  <div className="p-4 space-y-3">
                       {todaysExpenses.length === 0 ? (
                           <div className="h-full flex flex-col items-center justify-center text-slate-300 text-center p-10">
                               <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-4"><Wallet size={32} className="opacity-30"/></div>
@@ -422,7 +430,7 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
           </div>
 
           {/* RIGHT: ANALYTICS & POCKETS */}
-          <div className="lg:col-span-4 flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar">
+          <div className="lg:col-span-4 flex flex-col gap-6">
               
               {/* DROPPABLE POCKETS ZONE */}
               <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-5">

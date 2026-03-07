@@ -78,6 +78,7 @@ interface AllocationProps {
   userId: string;
   bankAccounts?: BankAccount[]; 
   setBankAccounts?: React.Dispatch<React.SetStateAction<BankAccount[]>>; 
+  incomes?: import('../types').IncomeItem[]; // Bug 3: real income
 }
 
 const AVAILABLE_ICONS = [
@@ -107,7 +108,7 @@ const CATEGORY_META: Record<string, { label: string; color: string; bg: string; 
   savings: { label: 'Savings', color: '#10b981', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-600' },
 };
 
-export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onToggleAllocation, userId, sinkingFunds, setSinkingFunds, bankAccounts = [], setBankAccounts, dailyExpenses = [] }: AllocationProps) {
+export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onToggleAllocation, userId, sinkingFunds, setSinkingFunds, bankAccounts = [], setBankAccounts, dailyExpenses = [], incomes = [] }: AllocationProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   
   const getMonthKey = (date: Date) => {
@@ -165,7 +166,19 @@ export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onTogg
       assignedAccountId: string;
   }>({ name: '', target: 0, current: 0, deadline: '', category: 'Other', assignedAccountId: '' });
 
-  const BASE_INCOME = 15000000; 
+  // Bug 3: compute real income from props (monthly recurring + one-time for current month)
+  const BASE_INCOME = React.useMemo(() => {
+    const monthKey = currentMonthKey;
+    const total = incomes
+      .filter(i => !i._deleted)
+      .reduce((sum, inc) => {
+        const isMonthly = inc.frequency === 'monthly';
+        const isThisMonth = inc.dateReceived?.startsWith(monthKey);
+        if (isMonthly || isThisMonth) return sum + Number(inc.amount || 0);
+        return sum;
+      }, 0);
+    return total > 0 ? total : 15000000; // fallback to 15jt if no income set
+  }, [incomes, currentMonthKey]);
 
   // --- METRICS ---
   const metrics = useMemo(() => {

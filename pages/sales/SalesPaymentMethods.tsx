@@ -17,7 +17,7 @@ export default function SalesPaymentMethods() {
   const [formAccountNumber, setFormAccountNumber] = useState('');
   const [formAccountName, setFormAccountName] = useState('');
   const [formLogoUrl, setFormLogoUrl] = useState('');
-  const [formIsActive, setFormIsActive] = useState(true);
+  const [formIsActive, setFormIsActive] = useState<boolean>(true); // Bug 7: default active
 
   const loadMethods = useCallback(async () => {
     try {
@@ -148,10 +148,13 @@ export default function SalesPaymentMethods() {
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Logo URL (opsional)</label>
                 <input value={formLogoUrl} onChange={e => setFormLogoUrl(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-emerald-500 outline-none text-sm font-bold font-mono" placeholder="https://..." />
               </div>
-              <button type="button" onClick={() => setFormIsActive(!formIsActive)} className="flex items-center gap-2 text-sm font-bold">
-                {formIsActive ? <ToggleRight size={28} className="text-emerald-500" /> : <ToggleLeft size={28} className="text-slate-300" />}
-                <span className={formIsActive ? 'text-emerald-700' : 'text-slate-400'}>Aktif</span>
-              </button>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Status</label>
+                <button type="button" onClick={() => setFormIsActive(prev => !prev)} className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 w-full transition-all ${formIsActive ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+                  {formIsActive ? <ToggleRight size={28} className="text-emerald-500 shrink-0" /> : <ToggleLeft size={28} className="text-slate-300 shrink-0" />}
+                  <span className={`font-black text-sm ${formIsActive ? 'text-emerald-700' : 'text-slate-400'}`}>{formIsActive ? 'Aktif — Tampil di halaman pembayaran' : 'Nonaktif — Tidak tampil ke user'}</span>
+                </button>
+              </div>
               <div className="flex gap-3 justify-end pt-2">
                 <button onClick={() => setShowModal(false)} className="px-5 py-2.5 text-sm font-bold text-slate-500">Batal</button>
                 <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-emerald-700 transition disabled:opacity-50 active:scale-95 transform">

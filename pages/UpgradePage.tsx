@@ -100,18 +100,26 @@ export default function UpgradePage() {
     setPromoCode('');
     setShowCheckout(true);
 
-    // Load payment methods
+    // Bug 7: Load payment methods - show cached first, then update from API
     setLoadingMethods(true);
+    const db = getDB();
+    const cached = (db.paymentMethods || []);
+    if (cached.length > 0) setPaymentMethods(cached); // show cache while loading
     try {
       const data = await api.get('/payment-methods');
-      const methods = (data.paymentMethods || data.payment_methods || data || []).filter((m: any) => m.is_active || m.isActive);
+      // Backend already filters is_active=TRUE, so accept all returned items
+      const raw: any[] = Array.isArray(data) ? data : (data.paymentMethods || data.payment_methods || []);
+      // Normalize: accept both camelCase (isActive) and snake_case (is_active)
+      const methods = raw.filter((m: any) => {
+        const active = m.isActive ?? m.is_active;
+        return active === true || active === undefined; // undefined = field not present, assume active
+      });
       setPaymentMethods(methods);
-      const db = getDB();
       db.paymentMethods = methods;
       saveDB(db);
     } catch {
-      const db = getDB();
-      setPaymentMethods((db.paymentMethods || []).filter((m: any) => m.is_active || m.isActive));
+      // Fallback to cache (no filter - show all cached)
+      setPaymentMethods(cached);
     } finally {
       setLoadingMethods(false);
     }

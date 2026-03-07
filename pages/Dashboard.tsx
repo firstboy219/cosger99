@@ -187,7 +187,7 @@ export default function Dashboard({
   useEffect(() => {
       const projection = generateGlobalProjection(debts, extraPayment, 'snowball', freedomMode);
       setFreedomMatrix(projection);
-      const crossing = generateCrossingAnalysis(Number(income) || 0, debts, allocations);
+      const crossing = generateCrossingAnalysis(Number(income) || 0, debts, allocations, debtInstallments); // Bug 6: use actual installments
       setCrossingData(crossing);
   }, [debts, income, allocations, extraPayment, freedomMode]);
 

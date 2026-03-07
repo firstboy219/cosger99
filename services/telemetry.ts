@@ -44,38 +44,70 @@ const getOrCreateSessionId = (): string => {
  * Radar: Listen for unhandled global errors
  * Sends crash data to POST /api/telemetry/crash silently (no UI notification)
  */
+// Bug 9: Helper to build a rich crash payload that triggers ticket creation
+const buildCrashPayload = (errorMessage: string, stackTrace?: string, extra?: Record<string, any>) => {
+  const route = window.location.hash || window.location.pathname;
+  // Classify severity: all JS crashes are HIGH to trigger admin ticket creation
+  const severity = 'HIGH';
+  // Attempt to extract module/menu name from route
+  const routeParts = route.replace('#/', '').split('/');
+  const menuName = routeParts[0] || 'unknown';
+  const moduleName = routeParts.slice(0, 2).join('/') || route;
+  return {
+    userId: localStorage.getItem('paydone_active_user') || 'anonymous',
+    // Rich fields that backend expects for ticket generation
+    errorMessage,
+    errorType: extra?.errorType || 'UnhandledError',
+    stackTrace: stackTrace || 'No stack trace',
+    severity,                  // Bug 9: send HIGH so ticket gets created
+    routeUrl: route,
+    menuName,
+    moduleName,
+    componentName: extra?.componentName || '',
+    actionPerformed: extra?.actionPerformed || '',
+    previousRoute: document.referrer || '',
+    browserInfo: navigator.userAgent,
+    browserName: navigator.userAgent.split(' ').pop() || '',
+    operatingSystem: navigator.platform,
+    screenResolution: `${window.innerWidth}x${window.innerHeight}`,
+    deviceType: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+    networkOnline: navigator.onLine,
+    networkType: (navigator as any).connection?.effectiveType || 'unknown',
+    appVersion: 'v50.63',
+    sessionDurationSeconds: Math.round((Date.now() - (window._appStartTime || Date.now())) / 1000),
+    stateSnapshot: {
+      localStorage: {
+        hasToken: !!localStorage.getItem('paydone_session_token'),
+        userId: localStorage.getItem('paydone_active_user'),
+        role: localStorage.getItem('paydone_user_role'),
+      },
+      timestamp: Date.now(),
+      ...extra
+    },
+    timestamp: new Date().toISOString()
+  };
+};
+
+// Set app start time for session duration tracking
+if (typeof window !== 'undefined') {
+  (window as any)._appStartTime = (window as any)._appStartTime || Date.now();
+}
+
 export const initializeRadarTelemetry = () => {
   const originalOnError = window.onerror;
 
   window.onerror = (message: any, source: any, lineno: any, colno: any, error: any) => {
-    const crashEvent: CrashEvent = {
-      userId: localStorage.getItem('paydone_active_user') || 'anonymous',
-      errorMessage: message?.toString() || 'Unknown Error',
-      stackTrace: error?.stack || `${source}:${lineno}:${colno}`,
-      route: window.location.hash || window.location.pathname,
-      browserInfo: {
-        userAgent: navigator.userAgent,
-        language: navigator.language,
-        platform: navigator.platform,
-        screenResolution: `${window.innerWidth}x${window.innerHeight}`
-      },
-      stateSnapshot: {
-        localStorage: {
-          hasToken: !!localStorage.getItem('paydone_session_token'),
-          userId: localStorage.getItem('paydone_active_user')
-        },
-        timestamp: Date.now()
-      },
-      timestamp: new Date().toISOString()
-    };
+    const payload = buildCrashPayload(
+      message?.toString() || 'Unknown Error',
+      error?.stack || `${source}:${lineno}:${colno}`,
+      { errorType: error?.name || 'Error', componentName: source || '' }
+    );
 
-    // Send silently (fire and forget - don't block execution)
-    api.post('/telemetry/crash', crashEvent).catch(e => {
-      // Fail silently to prevent cascading errors
+    // Bug 9: Send with full payload so backend creates admin ticket
+    api.post('/telemetry/crash', payload).catch(e => {
       console.debug('[Telemetry] Crash report failed:', e);
     });
 
-    // Call original error handler if it exists
     if (originalOnError) {
       return originalOnError(message, source, lineno, colno, error);
     }
@@ -85,28 +117,14 @@ export const initializeRadarTelemetry = () => {
   // Also listen for unhandled promise rejections
   const originalOnUnhandledRejection = window.onunhandledrejection;
   window.onunhandledrejection = (event: PromiseRejectionEvent) => {
-    const crashEvent: CrashEvent = {
-      userId: localStorage.getItem('paydone_active_user') || 'anonymous',
-      errorMessage: event.reason?.message || event.reason?.toString() || 'Unhandled Promise Rejection',
-      stackTrace: event.reason?.stack,
-      route: window.location.hash || window.location.pathname,
-      browserInfo: {
-        userAgent: navigator.userAgent,
-        language: navigator.language,
-        platform: navigator.platform,
-        screenResolution: `${window.innerWidth}x${window.innerHeight}`
-      },
-      stateSnapshot: {
-        localStorage: {
-          hasToken: !!localStorage.getItem('paydone_session_token'),
-          userId: localStorage.getItem('paydone_active_user')
-        },
-        eventType: 'unhandledRejection'
-      },
-      timestamp: new Date().toISOString()
-    };
+    const payload = buildCrashPayload(
+      event.reason?.message || event.reason?.toString() || 'Unhandled Promise Rejection',
+      event.reason?.stack,
+      { errorType: 'UnhandledPromiseRejection', actionPerformed: 'async_operation' }
+    );
 
-    api.post('/telemetry/crash', crashEvent).catch(e => {
+    // Bug 9: Send with full payload
+    api.post('/telemetry/crash', payload).catch(e => {
       console.debug('[Telemetry] Unhandled rejection report failed:', e);
     });
 

@@ -76,17 +76,17 @@ export default function SQLStudio() {
       const config = getConfig();
       
       try {
-          // AI via backend proxy
-const model = ai.getGenerativeModel({ model: 'gemini-3-flash-preview' });
-          const prompt = `
-            You are a PostgreSQL expert. Write a SQL query based on this request: "${aiPrompt}".
-            The database has tables: users, debts, incomes, daily_expenses, tasks, allocations, debt_installments.
-            Return ONLY the SQL query string, no markdown, no explanations.
-          `;
-          
-          const result = await model.generateContent(prompt);
-          const response = await result.response;
-          const text = response.text().replace(/```sql|```/g, '').trim();
+          const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+          const userId = localStorage.getItem('paydone_active_user') || '';
+          const token = localStorage.getItem('paydone_session_token') || '';
+          const prompt = `You are a PostgreSQL expert. Write a SQL query based on: "${aiPrompt}". Tables: users, debts, incomes, daily_expenses, tasks, allocations, debt_installments. Return ONLY the SQL query string, no markdown.`;
+          const res = await fetch(`${baseUrl}/api/ai/analyze`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-user-id': userId, 'x-session-token': token },
+              body: JSON.stringify({ prompt, systemInstruction: 'You are a PostgreSQL expert.' })
+          });
+          const data = await res.json();
+          const text = (data.result || data.text || '').replace(/```sql|```/g, '').trim();
           setSql(text);
       } catch (err: any) {
           setError(`AI Error: ${err.message}`);

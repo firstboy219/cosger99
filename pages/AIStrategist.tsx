@@ -4,7 +4,19 @@ import { DebtItem, TaskItem } from '../types';
 import { analyzeDebtStrategy, sendChatMessage, AILimitError } from '../services/geminiService';
 import { getConfig } from '../services/mockDb';
 import { BrainCircuit, Sparkles, Send, Bot, CheckCircle, ListPlus, User, RefreshCw, Zap, Briefcase, ChevronDown, Lock, ArrowRight, AlertTriangle } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+// react-markdown removed — using inline renderer to prevent TDZ bundle errors
+const SimpleMarkdown: React.FC<{children: string}> = ({ children }) => {
+  const html = (children || '')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^- (.+)$/gm, '<li class="text-slate-600">$1</li>')
+    .replace(/(<li[^>]*>.*<\/li>\n?)+/g, (m) => `<ul class="list-disc pl-4 space-y-1 my-2">${m}</ul>`)
+    .replace(/^## (.+)$/gm, '<h3 class="font-bold text-base mt-3 mb-1">$1</h3>')
+    .replace(/^### (.+)$/gm, '<h4 class="font-semibold text-sm mt-2 mb-1">$1</h4>')
+    .replace(/\n\n/g, '</p><p class="mb-2">')
+    .replace(/\n/g, '<br/>');
+  return <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: `<p class="mb-2">${html}</p>` }} />;
+};
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from '../services/translationService';
 
@@ -220,15 +232,7 @@ export default function AIStrategist({ debts, onAddTasks }: AIStrategistProps) {
                           {msg.role === 'user' ? (
                             <p className="whitespace-pre-wrap mb-0 text-white leading-relaxed">{msg.content}</p>
                           ) : (
-                            <ReactMarkdown 
-                                components={{
-                                    strong: ({node, ...props}) => <span className="font-bold text-slate-900" {...props} />,
-                                    ul: ({node, ...props}) => <ul className="list-disc pl-4 space-y-1 my-2" {...props} />,
-                                    li: ({node, ...props}) => <li className="text-slate-600" {...props} />
-                                }}
-                            >
-                                {msg.content}
-                            </ReactMarkdown>
+                            <SimpleMarkdown>{msg.content}</SimpleMarkdown>
                           )}
                         </div>
                         <span className="text-[10px] text-slate-400 mt-1.5 px-1">

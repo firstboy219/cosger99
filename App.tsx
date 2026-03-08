@@ -52,7 +52,7 @@ import BackendHealthCheck from './pages/admin/BackendHealthCheck';
 import SyncWatchdog from './components/SyncWatchdog';
 import UpgradeModal from './components/UpgradeModal';
 
-import { getConfig, saveConfig, getUserData, saveUserData, getAllUsers } from './services/mockDb';
+import { getConfig, saveConfig, getUserData, saveUserData, getAllUsers, getDB } from './services/mockDb';
 import { pullUserDataFromCloud, pushPartialUpdate, saveItemToCloud, loadGlobalConfigFromCloud } from './services/cloudSync';
 import { connectWebSocket, disconnectWebSocket } from './services/socket'; 
 import { Cloud, RefreshCw, AlertCircle, CloudDownload, ArrowRight } from 'lucide-react';
@@ -320,7 +320,7 @@ export default function App() {
       // but for now we just send what we have access to or what is in mockDb global state.
       // The 'getAllUsers' function returns users from mockDb.
       // We need to import getDB to access other global collections.
-      const globalDB = require('./services/mockDb').getDB();
+      const globalDB = getDB();
 
       const fullPayload = {
           users: getAllUsers(), 

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, Badge, BankAccount } from '../types';
-import { getAllUsers, updateUser, availableBadges } from '../services/mockDb';
+import { getAllUsers, updateUser, availableBadges, addUser } from '../services/mockDb';
 import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, Shield, Award, Target, Flag, Loader2, Copy, Plus, Trash2, Landmark, CreditCard, X, Image as ImageIcon, Briefcase, Clock, Zap, Calendar, ArrowUpDown } from 'lucide-react';
 import { formatCurrency } from '../services/financeUtils';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
@@ -72,7 +72,6 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
                   financialFreedomTarget: 3000000000
               };
               // Persist this fallback user so subsequent lookups work
-              const { addUser } = require('../services/mockDb');
               addUser(found);
           }
           

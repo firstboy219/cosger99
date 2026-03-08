@@ -919,7 +919,7 @@ const checkAiQuota = async (req, res, next) => {
 // =============================================================================
 // --- UTILITY ROUTES ---
 // =============================================================================
-app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.66-bugfix-edition", db: "connected" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.68-deepaudit-edition", db: "connected" }));
 app.get("/api/features/list", (req, res) => res.json(SYSTEM_FEATURES));
 
 // =============================================================================
@@ -1425,6 +1425,25 @@ app.put("/api/admin/users/:id/status", async (req, res) => {
         res.json({ success: true, message: `User status updated to ${status}` });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// [V50.68 FIX B4] PATCH alias — UserManagement.tsx sends PATCH but backend only had PUT
+app.patch("/api/admin/users/:id/status", async (req, res) => {
+    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    const { id } = req.params;
+    const { status } = req.body;
+    const validStatuses = ['active', 'inactive', 'banned', 'pending_verification'];
+    if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+    try {
+        await pool.query("UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2", [status, id]);
+        if (status === 'banned' || status === 'inactive') {
+            await pool.query("UPDATE users SET session_token = NULL, session_tokens = '[]'::jsonb WHERE id = $1", [id]);
+            if (global.broadcastWS) global.broadcastWS({ type: 'FORCE_LOGOUT', userId: id });
+        }
+        res.json({ success: true, message: `User status updated to ${status}` });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 
 // [V50.62 NEW #3] GET /api/admin/users/:id/financials
 // UserManagement.tsx calls this to display financial summary of a user.
@@ -2187,15 +2206,10 @@ app.put("/api/users/:id", async (req, res) => {
     } catch (e) { res.status(500).json({ error: "Update Failed" }); }
 });
 
-app.get("/api/user/billing", async (req, res) => {
-    const userId = req.headers["x-user-id"]; const token = req.headers["x-session-token"];
-    if (!(await verifySession(userId, token, res))) return res.status(401).json({ error: "Unauthorized" });
-    try {
-        // Return snake_case to match Subscription type (id, start_date, end_date, amount_paid, package_name)
-        const r = await pool.query(`SELECT s.id, s.user_id, s.package_id, s.status, s.start_date, s.end_date, s.amount_paid, s.proof_of_payment, s.rejection_reason, s.promo_id, p.name as package_name FROM subscriptions s JOIN packages p ON s.package_id = p.id WHERE s.user_id = $1 ORDER BY s.created_at DESC`, [userId]);
-        res.json(r.rows);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
+// [V50.68 FIX B3] Duplicate GET /api/user/billing removed.
+// The more complete version with payment_method_id, promo_id, created_at, updated_at
+// is registered below in the V50.59 alignment section.
+
 
 // Admin: GET ALL tickets (not filtered by user_id, sorted by created_at desc)
 app.get("/api/admin/tickets", async (req, res) => {
@@ -2530,7 +2544,7 @@ app.post("/api/ai/unknown-prompt", verifyToken, async (req, res) => {
 
 // PATCH /api/admin/ai/unknown-prompts/:id — admin resolves a prompt
 // body: { status: 'resolved'|'ignored', resolved_actions: [{action, label, triggers}], admin_notes }
-app.patch("/api/admin/ai/unknown-prompts/:id", verifyAdminSecret, async (req, res) => {
+app.patch("/api/admin/ai/unknown-prompts/:id", requireAdminSecret, async (req, res) => {
     try {
         const { id } = req.params;
         const { status, resolved_actions, admin_notes } = req.body;
@@ -2886,6 +2900,8 @@ app.put("/api/sales/content/:id", requireRole(['sales']), async (req, res) => {
         if (contentType !== undefined) { setClauses.push(`content_type=$${idx++}`);  params.push(contentType); }
         if (mediaUrl   !== undefined) { setClauses.push(`media_url=$${idx++}`);       params.push(mediaUrl); }
         if (category   !== undefined) { setClauses.push(`category=$${idx++}`);        params.push(category); }
+        // [V50.68 FIX B2] Guard: if no fields were sent, return early (prevents empty SET clause SQL error)
+        if (setClauses.length === 0) return res.status(400).json({ error: "No fields to update" });
         setClauses.push(`updated_at=NOW()`);
         params.push(id);
         await pool.query(`UPDATE contents SET ${setClauses.join(', ')} WHERE id=$${idx}`, params);
@@ -3007,7 +3023,7 @@ app.get(/^\/.*$/, (req, res) => res.sendFile(path.join(__dirname, "dist", "index
 // --- 14. SERVER START + WEBSOCKETS + CRON ---
 // =============================================================================
 const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Paydone V50.66 (BugFix Edition) Running on Port ${PORT}`);
+    console.log(`✅ Paydone V50.68 (DeepAudit Edition) Running on Port ${PORT}`);
 });
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 10485760 });
@@ -3025,7 +3041,7 @@ wss.on('connection', (ws) => {
             }
         } catch (e) {}
     });
-    ws.send(JSON.stringify({ type: 'WELCOME', message: 'Connected to Paydone V50.66 BugFix Edition' }));
+    ws.send(JSON.stringify({ type: 'WELCOME', message: 'Connected to Paydone V50.68 DeepAudit Edition' }));
 });
 
 const startCron = () => {

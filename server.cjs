@@ -346,13 +346,16 @@ const mockSendEmail = (toEmail, subject, body) => {
 
 const appendSessionToken = async (userId, token) => {
     await pool.query(
-        `UPDATE users SET session_tokens = (
-            SELECT jsonb_agg(elem) FROM (
-                SELECT elem FROM jsonb_array_elements(COALESCE(session_tokens, '[]'::jsonb) || $1::jsonb) AS elem
-                ORDER BY elem DESC LIMIT 5
-            ) s
-        ) WHERE id = $2`,
-        [JSON.stringify([token]), userId]
+        `UPDATE users SET
+            session_token = $1,
+            session_tokens = (
+                SELECT jsonb_agg(elem) FROM (
+                    SELECT elem FROM jsonb_array_elements(COALESCE(session_tokens, '[]'::jsonb) || $2::jsonb) AS elem
+                    ORDER BY elem DESC LIMIT 5
+                ) s
+            )
+         WHERE id = $3`,
+        [token, JSON.stringify([token]), userId]
     );
 };
 
@@ -365,7 +368,7 @@ const verifySession = async (userId, token, res = null) => {
         let sessions = Array.isArray(row.session_tokens) ? row.session_tokens : [];
         if (row.session_token && typeof row.session_token === 'string') sessions.push(row.session_token);
         if (!sessions.includes(token)) { if (res) res.setHeader('X-Auth-Status', 'Expired'); return false; }
-        if (Date.now() - new Date(row.last_login).getTime() > (30 * 24 * 60 * 60 * 1000)) {
+        if (row.last_login && Date.now() - new Date(row.last_login).getTime() > (30 * 24 * 60 * 60 * 1000)) {
             if (res) res.setHeader('X-Auth-Status', 'Expired_Inactivity'); return false;
         }
         return true;
@@ -604,15 +607,17 @@ const initDB = async () => {
         )`);
 
         // Seed AI Knowledge Base if empty
-        const kbCheck = await client.query("SELECT value FROM system_configs WHERE key='ai_knowledge_rules'");
+        try {
+        const kbCheck = await client.query("SELECT value FROM global_configs WHERE key='ai_knowledge_rules'");
         if (kbCheck.rows.length === 0 || kbCheck.rows[0].value === '[]' || kbCheck.rows[0].value === 'null') {
             const seedRules = [{"id": "exp_food", "label": "Catat Makan/Minum", "action": "ADD_EXPENSE", "priority": 10, "isActive": true, "triggers": ["makan", "minum", "kopi", "teh", "bakso", "nasi", "soto", "ayam", "ikan", "pizza", "burger", "jajan", "snack", "sarapan", "lunch", "dinner", "boba", "susu", "es", "jus", "warung", "resto", "cafe", "kedai", "food", "eat"], "example": "catat makan siang 35rb", "defaultFields": {"category": "Food"}, "description": "Pengeluaran makanan & minuman"}, {"id": "exp_transport", "label": "Catat Transportasi", "action": "ADD_EXPENSE", "priority": 10, "isActive": true, "triggers": ["bensin", "solar", "pertamax", "pertalite", "bbm", "parkir", "grab", "gojek", "tol", "ojek", "busway", "kereta", "mrt", "bus", "angkot", "transportasi", "tiket", "travel", "transport", "uber"], "example": "bensin motor 50rb", "defaultFields": {"category": "Transport"}, "description": "Pengeluaran transportasi"}, {"id": "exp_belanja", "label": "Catat Belanja", "action": "ADD_EXPENSE", "priority": 9, "isActive": true, "triggers": ["beli", "belanja", "shopee", "tokopedia", "lazada", "toko", "mall", "indomaret", "alfamart", "hypermart", "supermarket", "shopping", "purchase", "checkout"], "example": "beli baju di mall 200rb", "defaultFields": {"category": "Shopping"}, "description": "Pengeluaran belanja"}, {"id": "exp_tagihan", "label": "Catat Tagihan/Utilitas", "action": "ADD_EXPENSE", "priority": 9, "isActive": true, "triggers": ["listrik", "air", "pdam", "gas", "internet", "wifi", "indihome", "tagihan", "bayar tagihan", "pln", "token", "pulsa", "kuota", "bills", "utility", "netflix", "spotify", "youtube premium"], "example": "bayar listrik 350rb", "defaultFields": {"category": "Utilities"}, "description": "Pengeluaran tagihan & utilitas"}, {"id": "exp_hiburan", "label": "Catat Hiburan", "action": "ADD_EXPENSE", "priority": 8, "isActive": true, "triggers": ["nonton", "bioskop", "film", "game", "main", "hiburan", "liburan", "wisata", "konser", "event", "entertainment", "subscribe", "langganan"], "example": "nonton bioskop 75rb", "defaultFields": {"category": "Entertainment"}, "description": "Pengeluaran hiburan"}, {"id": "exp_kesehatan", "label": "Catat Kesehatan", "action": "ADD_EXPENSE", "priority": 9, "isActive": true, "triggers": ["obat", "dokter", "rumah sakit", "klinik", "apotek", "vitamin", "suplemen", "check up", "medical", "berobat", "bpjs", "puskesmas"], "example": "beli obat 45rb", "defaultFields": {"category": "Others"}, "description": "Pengeluaran kesehatan"}, {"id": "exp_cicilan", "label": "Catat Bayar Cicilan", "action": "ADD_EXPENSE", "priority": 9, "isActive": true, "triggers": ["bayar cicilan", "bayar kredit", "bayar pinjaman", "angsuran", "bayar hutang", "cicil"], "example": "bayar cicilan motor 900rb", "defaultFields": {"category": "Others"}, "description": "Pengeluaran bayar cicilan"}, {"id": "exp_general", "label": "Catat Pengeluaran Umum", "action": "ADD_EXPENSE", "priority": 5, "isActive": true, "triggers": ["catat", "pengeluaran", "expense", "spend", "keluar", "habis", "bayar"], "example": "catat pengeluaran parkir 5rb", "defaultFields": {"category": "Others"}, "description": "Pengeluaran umum"}, {"id": "inc_gaji", "label": "Log Gaji Masuk", "action": "ADD_INCOME", "priority": 10, "isActive": true, "triggers": ["gaji", "salary", "slip gaji", "take home pay", "thp", "terima gaji", "gajian"], "example": "gaji bulan ini 8jt", "defaultFields": {"source": "Gaji", "category": "salary"}, "description": "Log penerimaan gaji"}, {"id": "inc_freelance", "label": "Log Pendapatan Freelance", "action": "ADD_INCOME", "priority": 9, "isActive": true, "triggers": ["freelance", "project", "fee project", "honor", "klien", "client", "bayaran project", "hasil kerja"], "example": "dapat fee project 3jt", "defaultFields": {"source": "Freelance", "category": "freelance"}, "description": "Log pendapatan freelance"}, {"id": "inc_bonus", "label": "Log Bonus/THR", "action": "ADD_INCOME", "priority": 9, "isActive": true, "triggers": ["bonus", "thr", "insentif", "incentive", "komisi", "commission", "reward", "hadiah uang"], "example": "terima bonus tahunan 5jt", "defaultFields": {"source": "Bonus", "category": "bonus"}, "description": "Log bonus & THR"}, {"id": "inc_transfer", "label": "Log Transfer Masuk", "action": "ADD_INCOME", "priority": 8, "isActive": true, "triggers": ["transfer masuk", "terima transfer", "uang masuk", "dapet transferan", "masuk rekening", "deposit"], "example": "transfer masuk dari ibu 500rb", "defaultFields": {"source": "Transfer", "category": "other"}, "description": "Log transfer masuk"}, {"id": "inc_general", "label": "Log Pemasukan Umum", "action": "ADD_INCOME", "priority": 5, "isActive": true, "triggers": ["pemasukan", "income", "dapat uang", "terima uang", "masuk", "pendapatan", "penghasilan"], "example": "pemasukan hari ini 200rb", "defaultFields": {"source": "Lainnya", "category": "other"}, "description": "Log pemasukan umum"}, {"id": "task_cicilan", "label": "Reminder Bayar Cicilan", "action": "ADD_TASK", "priority": 9, "isActive": true, "triggers": ["ingatkan bayar", "reminder bayar", "jangan lupa bayar", "ingat cicilan", "deadline cicilan"], "example": "ingatkan bayar cicilan besok", "defaultFields": {"priority": "high"}, "description": "Pengingat bayar cicilan"}, {"id": "task_general", "label": "Buat Tugas/Reminder", "action": "ADD_TASK", "priority": 6, "isActive": true, "triggers": ["ingatkan", "remind me", "jangan lupa", "todo", "tugas", "task", "jadwal", "schedule", "besok", "lusa", "minggu depan"], "example": "ingatkan meeting klien besok jam 10", "defaultFields": {"priority": "medium"}, "description": "Tugas dan pengingat umum"}, {"id": "health_check", "label": "Cek Kesehatan Finansial", "action": "CHECK_HEALTH", "priority": 8, "isActive": true, "triggers": ["cek kesehatan", "analisa keuangan", "kondisi keuangan", "gimana keuangan", "financial health", "skor keuangan", "dsr saya", "runway saya", "status keuangan"], "example": "cek kesehatan keuangan saya", "defaultFields": {}, "description": "Analisa kesehatan keuangan"}, {"id": "show_debts", "label": "Lihat Hutang", "action": "SHOW_DEBTS", "priority": 7, "isActive": true, "triggers": ["lihat hutang", "cek hutang", "hutang saya", "total hutang", "cicilan saya", "kredit saya", "daftar hutang", "pinjaman saya"], "example": "lihat semua hutang aktif saya", "defaultFields": {}, "description": "Daftar hutang aktif"}];
             await client.query(
-                "INSERT INTO system_configs(key,value,updated_at) VALUES('ai_knowledge_rules',$1,NOW()) ON CONFLICT(key) DO UPDATE SET value=$1,updated_at=NOW()",
+                "INSERT INTO global_configs(key,value,updated_at) VALUES('ai_knowledge_rules',$1,NOW()) ON CONFLICT(key) DO UPDATE SET value=$1,updated_at=NOW()",
                 [JSON.stringify(seedRules)]
             );
             console.log('[AI] Knowledge base seeded with', seedRules.length, 'rules');
         }
+        } catch(seedErr) { console.warn('[AI] Seed skipped:', seedErr.message); }
 
         await client.query(`CREATE TABLE IF NOT EXISTS email_queues (
             id VARCHAR(255) PRIMARY KEY, to_email VARCHAR(255), subject VARCHAR(255),
@@ -2269,7 +2274,7 @@ app.get("/api/sync", async (req, res) => {
             promos: keysToCamel(promosRes.rows),
             subscriptions: keysToCamel(subsRes.rows),
         });
-    } catch (e) { res.status(500).json({ error: "Sync Fetch Error" }); } finally { client.release(); }
+    } catch (e) { console.error("[SYNC ERROR]", e.message, e.stack?.split("\n")[1]); res.status(500).json({ error: "Sync Fetch Error", detail: e.message }); } finally { client.release(); }
 });
 
 app.post('/api/sync', async (req, res) => {
@@ -2444,7 +2449,7 @@ app.post("/api/ai/analyze", checkFeatureAccess('ai_command_center'), checkAiQuot
 // GET /api/ai/knowledge-rules — public (user auth) - fetch rules for local AI
 app.get("/api/ai/knowledge-rules", verifyToken, async (req, res) => {
     try {
-        const r = await pool.query("SELECT value FROM system_configs WHERE key = 'ai_knowledge_rules'");
+        const r = await pool.query("SELECT value FROM global_configs WHERE key = 'ai_knowledge_rules'");
         if (r.rows.length === 0) return res.json({ rules: [] });
         const rules = JSON.parse(r.rows[0].value || '[]');
         res.json({ rules });
@@ -2458,7 +2463,7 @@ app.post("/api/admin/ai/knowledge-rules", requireAdminSecret, async (req, res) =
         if (!Array.isArray(rules)) return res.status(400).json({ error: 'rules must be array' });
         const value = JSON.stringify(rules);
         await pool.query(
-            "INSERT INTO system_configs(key, value, updated_at) VALUES('ai_knowledge_rules', $1, NOW()) ON CONFLICT(key) DO UPDATE SET value=$1, updated_at=NOW()",
+            "INSERT INTO global_configs(key, value, updated_at) VALUES('ai_knowledge_rules', $1, NOW()) ON CONFLICT(key) DO UPDATE SET value=$1, updated_at=NOW()",
             [value]
         );
         res.json({ success: true, count: rules.length });
@@ -2514,7 +2519,7 @@ app.patch("/api/admin/ai/unknown-prompts/:id", verifyAdminSecret, async (req, re
         );
         // If admin resolves with actions, auto-add as triggers to knowledge rules
         if (status === 'resolved' && Array.isArray(resolved_actions) && resolved_actions.length > 0) {
-            const r = await pool.query("SELECT value FROM system_configs WHERE key='ai_knowledge_rules'");
+            const r = await pool.query("SELECT value FROM global_configs WHERE key='ai_knowledge_rules'");
             let rules = [];
             try { rules = JSON.parse(r.rows[0]?.value || '[]'); } catch {}
             const rawInput = (await pool.query("SELECT raw_input FROM ai_unknown_prompts WHERE id=$1", [id])).rows[0]?.raw_input || '';
@@ -2526,7 +2531,7 @@ app.patch("/api/admin/ai/unknown-prompts/:id", verifyAdminSecret, async (req, re
                 }
             });
             await pool.query(
-                "INSERT INTO system_configs(key,value,updated_at) VALUES('ai_knowledge_rules',$1,NOW()) ON CONFLICT(key) DO UPDATE SET value=$1,updated_at=NOW()",
+                "INSERT INTO global_configs(key,value,updated_at) VALUES('ai_knowledge_rules',$1,NOW()) ON CONFLICT(key) DO UPDATE SET value=$1,updated_at=NOW()",
                 [JSON.stringify(rules)]
             );
         }

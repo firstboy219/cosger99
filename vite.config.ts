@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   root: './',
@@ -12,10 +13,6 @@ export default defineConfig({
     target: 'es2020',
     rollupOptions: {
       input: path.resolve('index.html'),
-      output: {
-        // Prevent TDZ issues by ensuring module evaluation order
-        hoistTransitiveImports: false,
-      }
     },
   },
   server: {
@@ -26,9 +23,5 @@ export default defineConfig({
     alias: {
       '@': path.resolve('./'),
     },
-  },
-  optimizeDeps: {
-    // Force re-optimization to pick up removed packages
-    force: true,
   },
 });

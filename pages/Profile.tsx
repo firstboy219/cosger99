@@ -114,8 +114,15 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
           email: formData.email,
           bigWhyUrl: formData.bigWhyUrl,
           financialFreedomTarget: formData.financialFreedomTarget,
-          updatedAt: new Date().toISOString() // Explicitly update timestamp
+          updatedAt: new Date().toISOString()
       };
+
+      // [V50.70 FIX] Include password in payload if user changed it
+      // saveItemToCloud → api.put('/users/:id') → backend now saves all profile fields
+      const payload: any = { ...updatedUser };
+      if (formData.newPassword) {
+          payload.password = formData.newPassword;
+      }
 
       // 1. Update Local
       updateUser(updatedUser);
@@ -123,9 +130,22 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
 
       // 2. Sync to Cloud
       try {
-          const result = await saveItemToCloud('users', updatedUser, false);
+          const result = await saveItemToCloud('users', payload, false);
           if (result.success) {
-              setMessage({ type: 'success', text: 'Profil berhasil diperbarui.' });
+              const msg = formData.newPassword
+                  ? 'Password & profil diperbarui. Silakan login kembali.'
+                  : 'Profil berhasil diperbarui.';
+              setMessage({ type: 'success', text: msg });
+              // Clear password fields after successful save
+              setFormData(prev => ({ ...prev, newPassword: '', confirmPassword: '' }));
+              // If password changed, force logout after short delay
+              if (formData.newPassword) {
+                  setTimeout(() => {
+                      localStorage.removeItem('paydone_session_token');
+                      localStorage.removeItem('paydone_active_user');
+                      window.location.href = '/#/login';
+                  }, 2000);
+              }
           } else {
               setMessage({ type: 'error', text: 'Gagal sync ke cloud. Tersimpan lokal.' });
           }

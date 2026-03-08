@@ -20,8 +20,8 @@ export default function FamilyManager() {
     onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
-  // Get current user ID (Mocked as 'u2' for user role in this demo context)
-  const currentUserId = 'u2'; 
+  // [V50.70 FIX] Use real logged-in user ID, not hardcoded 'u2'
+  const currentUserId = localStorage.getItem('paydone_active_user') || ''; 
 
   useEffect(() => {
     const all = getAllUsers();

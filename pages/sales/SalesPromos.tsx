@@ -50,7 +50,8 @@ export default function SalesPromos() {
           api.get('/sales/idle-users'),
         ]);
         if (promoRes.status === 'fulfilled') setPromos(promoRes.value.promos || promoRes.value || []);
-        if (idleRes.status === 'fulfilled') setIdleUsers(idleRes.value.users || idleRes.value || []);
+        // [V50.70 FIX] Backend returns { thresholdDays, idleUsers: [...] } — not .users
+        if (idleRes.status === 'fulfilled') setIdleUsers(idleRes.value.idleUsers || idleRes.value.users || (Array.isArray(idleRes.value) ? idleRes.value : []));
       } catch (e) { console.warn('[SalesPromos] Load error', e); }
       finally { setLoading(false); }
     };

@@ -919,7 +919,7 @@ const checkAiQuota = async (req, res, next) => {
 // =============================================================================
 // --- UTILITY ROUTES ---
 // =============================================================================
-app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.68-deepaudit-edition", db: "connected" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.70-fullaudit-edition", db: "connected" }));
 app.get("/api/features/list", (req, res) => res.json(SYSTEM_FEATURES));
 
 // =============================================================================
@@ -2193,12 +2193,27 @@ app.post("/api/auth/reset-password", async (req, res) => {
 app.put("/api/users/:id", async (req, res) => {
     const userId = req.headers["x-user-id"]; const token = req.headers["x-session-token"];
     if (!(await verifySession(userId, token, res)) || userId !== req.params.id) return res.status(401).json({ error: "Unauthorized" });
-    const { username, password, preferredLanguage } = keysToSnake(req.body);
+    // [V50.70 FIX] Accept all profile fields: username, password, email, bigWhyUrl,
+    // financialFreedomTarget, riskProfile, photoUrl, preferredLanguage
+    const b = req.body;
+    const username             = b.username;
+    const password             = b.password;
+    const email                = b.email;
+    const preferredLanguage    = b.preferredLanguage ?? b.preferred_language;
+    const bigWhyUrl            = b.bigWhyUrl            ?? b.big_why_url;
+    const financialFreedomTarget = b.financialFreedomTarget ?? b.financial_freedom_target;
+    const riskProfile          = b.riskProfile          ?? b.risk_profile;
+    const photoUrl             = b.photoUrl             ?? b.photo_url;
     try {
         let updateQuery = "UPDATE users SET updated_at = NOW()"; const values = []; let pIdx = 1;
-        if (username)           { updateQuery += `, username = $${pIdx++}`;            values.push(username); }
-        if (preferredLanguage)  { updateQuery += `, preferred_language = $${pIdx++}`;  values.push(preferredLanguage); }
-        if (password)           { updateQuery += `, password = $${pIdx++}, session_tokens = '[]'::jsonb, session_token = NULL`; values.push(hashPassword(password)); }
+        if (username !== undefined)               { updateQuery += `, username = $${pIdx++}`;                  values.push(username); }
+        if (email !== undefined && email !== '')  { updateQuery += `, email = $${pIdx++}`;                     values.push(email); }
+        if (preferredLanguage !== undefined)      { updateQuery += `, preferred_language = $${pIdx++}`;        values.push(preferredLanguage); }
+        if (bigWhyUrl !== undefined)              { updateQuery += `, big_why_url = $${pIdx++}`;               values.push(bigWhyUrl); }
+        if (financialFreedomTarget !== undefined) { updateQuery += `, financial_freedom_target = $${pIdx++}`;  values.push(financialFreedomTarget); }
+        if (riskProfile !== undefined)            { updateQuery += `, risk_profile = $${pIdx++}`;              values.push(riskProfile); }
+        if (photoUrl !== undefined)               { updateQuery += `, photo_url = $${pIdx++}`;                 values.push(photoUrl); }
+        if (password)                             { updateQuery += `, password = $${pIdx++}, session_tokens = '[]'::jsonb, session_token = NULL`; values.push(hashPassword(password)); }
         updateQuery += ` WHERE id = $${pIdx}`; values.push(userId);
         await pool.query(updateQuery, values);
         if (global.broadcastWS && password) global.broadcastWS({ type: "FORCE_LOGOUT", userId });

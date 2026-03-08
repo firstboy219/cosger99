@@ -1,7 +1,7 @@
 {
   "name": "Copy of Copy of Copy of Copy of Copy of FINALPaydone.id - Debt Consultant",
-  "description": "Frontend v50.68 - DeepAudit: require() TDZ crash fixed",
+  "description": "Frontend v50.70 - Full Deep Audit: Profile save fix, FamilyManager userId fix, idle users response fix",
   "requestFramePermissions": [],
-  "version": "v50.68",
+  "version": "v50.70",
   "lastUpdated": "2026-03-08"
 }

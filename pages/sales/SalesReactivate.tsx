@@ -47,7 +47,8 @@ export default function SalesReactivate() {
         api.get('/sales/settings/idle-threshold'),
       ]);
       if (usersRes.status === 'fulfilled') {
-        setIdleUsers(usersRes.value.users || usersRes.value || []);
+        // [V50.70 FIX] Backend returns { thresholdDays, idleUsers: [...] } — not .users
+        setIdleUsers(usersRes.value.idleUsers || usersRes.value.users || (Array.isArray(usersRes.value) ? usersRes.value : []));
       }
       if (settingsRes.status === 'fulfilled') {
         const threshold = settingsRes.value.threshold || settingsRes.value.idle_threshold || 30;

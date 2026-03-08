@@ -45,27 +45,47 @@ export default function ActivityLogs({ userType }: { userType: 'user' | 'admin' 
           setLogs(getLogs());
         }
       } else {
-        // User: Read from local DB (hydrated from cloud sync activityLogs key)
-        const db = getDB();
+        // User: ALWAYS fetch from backend first (server filters WHERE user_id = session user)
+        // This guarantees user only sees their OWN logs
         const userId = localStorage.getItem('paydone_active_user') || '';
-        let localLogs: LogItem[] = Array.isArray(db.logs) ? db.logs : [];
-        // Filter to current user's logs
-        if (userId) {
-          localLogs = localLogs.filter(
-            (l: LogItem) => l.userType === 'user' || l.userId === userId || l.username === userId
-          );
-        }
-        // If local is empty, also try fetching from backend
-        if (localLogs.length === 0) {
-          try {
-            // Fetch from sync endpoint — activity_logs are included in GET /api/sync response
-            // Fallback: use in-memory getLogs
-            localLogs = getLogs('user');
-          } catch {
-            localLogs = getLogs('user');
+        try {
+          const data = await api.get('/activity-logs');
+          const rows: any[] = Array.isArray(data) ? data : (data.rows || data.data || data.logs || []);
+          const normalized: LogItem[] = rows.map((r: any) => ({
+            id: r.id || `log-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: r.timestamp || r.createdAt || r.created_at || new Date().toISOString(),
+            userType: 'user' as const,
+            username: r.username || r.userId || r.user_id || userId,
+            userId: r.userId || r.user_id || userId,
+            action: r.action || r.eventName || r.event_name || 'Unknown Action',
+            details: r.details || r.description || r.message || '',
+            category: (r.category as 'System' | 'Finance' | 'AI' | 'Security') || 'System',
+            payload: r.payload ?? undefined,
+            response: r.response ?? undefined,
+            status: r.status || 'info',
+          }));
+          setLogs(normalized);
+        } catch (e) {
+          // Fallback: local DB — strictly filtered by userId only
+          console.warn('[ActivityLogs] Backend fetch failed, using local DB', e);
+          const db = getDB();
+          let localLogs: LogItem[] = Array.isArray(db.logs) ? db.logs : [];
+          if (userId) {
+            // STRICT filter: userId must match, do NOT pass all userType='user' logs
+            localLogs = localLogs.filter(
+              (l: LogItem) => l.userId === userId || l.username === userId
+            );
+          } else {
+            localLogs = []; // no userId = show nothing
           }
+          // Last resort: in-memory logs filtered by userId
+          if (localLogs.length === 0 && userId) {
+            localLogs = getLogs('user').filter(
+              (l: LogItem) => l.userId === userId || l.username === userId
+            );
+          }
+          setLogs(localLogs);
         }
-        setLogs(localLogs);
       }
     } catch (e) {
       console.warn('[ActivityLogs] Load error', e);

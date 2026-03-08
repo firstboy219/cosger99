@@ -27,9 +27,12 @@ export default function SalesTransactions() {
   const loadTransactions = useCallback(async () => {
     try {
       const data = await api.get('/sales/transactions');
-      setSubscriptions(data.subscriptions || data || []);
+      // Handle both: {subscriptions:[...]} and raw array
+      const list = Array.isArray(data) ? data : (data.subscriptions || data.data || []);
+      setSubscriptions(list);
     } catch (e) {
       console.warn('[SalesTransactions] Load error', e);
+      setSubscriptions([]);
     } finally {
       setLoading(false);
     }
@@ -71,8 +74,8 @@ export default function SalesTransactions() {
     }
   }, [rejectId, rejectReason, loadTransactions]);
 
-  const openProof = (tx: Subscription) => {
-    setProofImage(tx.proof_of_payment || '');
+  const openProof = (tx: any) => {
+    setProofImage(tx.proofOfPayment || tx.proof_of_payment || '');
     setProofTxId(tx.id);
     setShowProof(true);
   };
@@ -85,6 +88,7 @@ export default function SalesTransactions() {
 
   const statusColors: Record<string, string> = {
     active: 'bg-green-100 text-green-700',
+    cancelled: 'bg-slate-100 text-slate-400',
     verifying: 'bg-amber-100 text-amber-700',
     awaiting_payment: 'bg-blue-100 text-blue-700',
     pending: 'bg-slate-100 text-slate-600',
@@ -96,7 +100,12 @@ export default function SalesTransactions() {
     if (filter !== 'all' && tx.status !== filter) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
-      return (tx.user_id?.toLowerCase().includes(q) || tx.package_name?.toLowerCase().includes(q) || tx.id?.toLowerCase().includes(q));
+      return (
+        (tx.userId || tx.user_id || '')?.toLowerCase().includes(q) ||
+        (tx.username || tx.email || '')?.toLowerCase().includes(q) ||
+        (tx.packageName || tx.package_name || '')?.toLowerCase().includes(q) ||
+        (tx.id || '')?.toLowerCase().includes(q)
+      );
     }
     return true;
   });
@@ -123,7 +132,7 @@ export default function SalesTransactions() {
           />
         </div>
         <div className="flex gap-2 flex-wrap">
-          {['all', 'verifying', 'active', 'awaiting_payment', 'rejected', 'expired'].map(s => (
+          {['all', 'verifying', 'active', 'awaiting_payment', 'rejected', 'expired', 'cancelled'].map(s => (
             <button
               key={s}
               onClick={() => setFilter(s)}
@@ -148,6 +157,7 @@ export default function SalesTransactions() {
                 <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">User</th>
                 <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Paket</th>
                 <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Nominal</th>
+                <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Bukti</th>
                 <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
                 <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Tanggal</th>
                 <th className="px-6 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Aksi</th>
@@ -157,22 +167,26 @@ export default function SalesTransactions() {
               {filtered.map(tx => (
                 <tr key={tx.id} className="hover:bg-slate-50/50 transition">
                   <td className="px-6 py-4 font-mono text-xs text-slate-500 truncate max-w-[120px]">{tx.id}</td>
-                  <td className="px-4 py-4 font-bold text-slate-900 truncate max-w-[140px]">{tx.user_id}</td>
-                  <td className="px-4 py-4 font-medium text-slate-700">{tx.package_name || tx.package_id}</td>
-                  <td className="px-4 py-4 font-black text-slate-900">{formatCurrency(tx.amount_paid || 0)}</td>
+                  <td className="px-4 py-4 max-w-[160px]"><p className="font-bold text-slate-900 text-sm truncate">{tx.username || tx.email || tx.userId || tx.user_id || '—'}</p><p className="text-[10px] text-slate-400 font-mono truncate">{tx.email && tx.username ? tx.email : ''}</p></td>
+                  <td className="px-4 py-4 font-medium text-slate-700">{tx.packageName || tx.package_name || tx.packageId || tx.package_id || '—'}</td>
+                  <td className="px-4 py-4 font-black text-slate-900">{formatCurrency(tx.amountPaid ?? tx.amount_paid ?? 0)}</td>
                   <td className="px-4 py-4">
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${statusColors[tx.status] || 'bg-slate-100 text-slate-500'}`}>
                       {tx.status}
                     </span>
                   </td>
-                  <td className="px-4 py-4 text-xs text-slate-500">{tx.start_date ? new Date(tx.start_date).toLocaleDateString('id-ID') : '-'}</td>
+                  <td className="px-4 py-4 text-xs text-slate-500">{(tx.startDate || tx.start_date) ? new Date(tx.startDate || tx.start_date).toLocaleDateString('id-ID') : '-'}</td>
+                  <td className="px-4 py-4">
+                    {(tx.proofOfPayment || tx.proof_of_payment) ? (
+                      <button onClick={() => openProof(tx)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition text-xs font-bold" title="Lihat Bukti Bayar">
+                        <Eye size={13} /><span>Lihat</span>
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-300 font-medium">—</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      {tx.proof_of_payment && (
-                        <button onClick={() => openProof(tx)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition" title="Lihat Bukti">
-                          <Eye size={16} />
-                        </button>
-                      )}
+                    <div className="flex items-center justify-end gap-2">                      {false && null /* proof moved to own column */}
                       {tx.status === 'verifying' && (
                         <>
                           <button
@@ -199,7 +213,7 @@ export default function SalesTransactions() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center text-sm text-slate-400 font-medium">
+                  <td colSpan={8} className="px-6 py-16 text-center text-sm text-slate-400 font-medium">
                     Tidak ada transaksi ditemukan.
                   </td>
                 </tr>
@@ -214,17 +228,17 @@ export default function SalesTransactions() {
             <div key={tx.id} className="p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-bold text-slate-900 text-sm">{tx.package_name || tx.package_id}</p>
-                  <p className="text-[10px] text-slate-400 font-mono">{tx.user_id}</p>
+                  <p className="font-bold text-slate-900 text-sm">{tx.packageName || tx.package_name || tx.packageId || tx.package_id || '—'}</p>
+                  <p className="text-[10px] text-slate-400 font-mono truncate">{tx.username || tx.email || tx.userId || tx.user_id || "—"}</p>
                 </div>
                 <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${statusColors[tx.status] || 'bg-slate-100 text-slate-500'}`}>
                   {tx.status}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-lg font-black text-slate-900">{formatCurrency(tx.amount_paid || 0)}</span>
+                <span className="text-lg font-black text-slate-900">{formatCurrency(tx.amountPaid ?? tx.amount_paid ?? 0)}</span>
                 <div className="flex gap-2">
-                  {tx.proof_of_payment && (
+                  {(tx.proofOfPayment || tx.proof_of_payment) && (
                     <button onClick={() => openProof(tx)} className="p-2 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold"><Eye size={14} /></button>
                   )}
                   {tx.status === 'verifying' && (

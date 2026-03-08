@@ -360,7 +360,7 @@ export default function App() {
     }
   }, [loadLocalDataIntoState]);
 
-  const handleAIAction = React.useCallback((action: any) => {
+  const handleAIAction = React.useCallback(async (action: any) => {
     if (!currentUserId) return;
     const { intent, data } = action;
     const config = getConfig();
@@ -373,7 +373,12 @@ export default function App() {
             title: data.title || 'Pengeluaran AI',
             amount: Number(data.amount) || 0,
             category: data.category || 'Others',
-            date: new Date().toISOString().split('T')[0],
+            date: (() => {
+                // Use data.date from modal (user may have edited it), fallback to local today
+                if (data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date)) return data.date;
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+            })(),
             updatedAt: new Date().toISOString(),
             _deleted: false
         };
@@ -388,7 +393,84 @@ export default function App() {
         
         setAiResult({show: true, type: 'success', title: 'Dicatat', message: 'Pengeluaran berhasil disimpan.'});
     }
-  }, [currentUserId, dailyExpenses]);
+
+    if (intent === 'ADD_INCOME') {
+        const now = new Date();
+        const localToday = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const dateReceived = (data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date)) ? data.date : localToday;
+
+        const newIncome: any = {
+            id: `ai-inc-${Date.now()}`,
+            userId: currentUserId,
+            source: data.source || data.description || 'Pemasukan AI',
+            amount: Number(data.amount) || 0,
+            type: 'active' as const,
+            frequency: 'one-time' as const,
+            dateReceived,
+            notes: data.description || '',
+            updatedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            _deleted: false,
+        };
+
+        // Optimistic update
+        setIncomes(prev => [newIncome, ...prev]);
+
+        // Persist
+        const config = getConfig();
+        const strategy = config.advancedConfig?.syncStrategy || 'background';
+        try {
+            await saveItemToCloud('incomes', newIncome, true);
+        } catch (_e) {
+            if (strategy === 'manual_only') {
+                saveUserData(currentUserId, { incomes: [newIncome, ...incomes] });
+                setHasUnsavedChanges(true);
+            }
+        }
+
+        setAiResult({show: true, type: 'success', title: 'Pemasukan Dicatat', message: `${newIncome.source} Rp ${newIncome.amount.toLocaleString('id')} berhasil disimpan.`});
+    }
+
+    if (intent === 'ADD_ALLOCATION') {
+        await handleAIAllocation(data);
+    }
+  }, [currentUserId, dailyExpenses, incomes, handleAIAllocation]);
+
+  // ADD_ALLOCATION via AI
+  const handleAIAllocation = React.useCallback(async (data: any) => {
+    if (!currentUserId) return;
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const currentList = monthlyExpenses[monthKey] || [];
+    const newItem: any = {
+      id: `ai-alloc-${Date.now()}`,
+      userId: currentUserId,
+      name: data.name || 'Alokasi AI',
+      amount: Number(data.amount) || 0,
+      category: data.category || 'needs',
+      priority: currentList.length + 1,
+      isTransferred: false,
+      isRecurring: false,
+      assignedAccountId: null,
+      monthKey,
+      percentage: 0,
+      updatedAt: new Date().toISOString(),
+      _deleted: false,
+    };
+    const updatedList = [...currentList, newItem];
+    setMonthlyExpenses(prev => ({ ...prev, [monthKey]: updatedList }));
+    const config = getConfig();
+    const strategy = config.advancedConfig?.syncStrategy || 'background';
+    try {
+      await saveItemToCloud('allocations', newItem, true);
+    } catch (_e) {
+      if (strategy === 'manual_only') {
+        saveUserData(currentUserId, { allocations: { ...monthlyExpenses, [monthKey]: updatedList } });
+        setHasUnsavedChanges(true);
+      }
+    }
+    setAiResult({show: true, type: 'success', title: 'Alokasi Ditambahkan', message: `${newItem.name} Rp ${newItem.amount.toLocaleString('id')} berhasil dialokasikan.`});
+  }, [currentUserId, monthlyExpenses]);
 
   // ROBUST ALLOCATION TOGGLE (Fixes Crash)
   const handleToggleAllocation = React.useCallback(async (id: string) => {

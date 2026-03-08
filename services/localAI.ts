@@ -44,6 +44,17 @@ export interface AIParseResult {
 
 export const DEFAULT_RULES: AIKnowledgeRule[] = [
   {
+    id: 'builtin_allocation',
+    label: 'Alokasi Budget (Pos Anggaran)',
+    action: 'ADD_ALLOCATION',
+    triggers: ['alokasi', 'alokasikan', 'anggarkan', 'anggaran', 'pos budget', 'pos anggaran', 'budget untuk', 'sisihkan', 'bujet'],
+    example: 'alokasikan 700rb untuk makan bulan ini',
+    defaultFields: { category: 'needs' },
+    description: 'Menambahkan atau mengatur pos anggaran bulanan',
+    priority: 11,
+    isActive: true,
+  },
+  {
     id: 'builtin_expense',
     label: 'Catat Pengeluaran',
     action: 'ADD_EXPENSE',
@@ -126,10 +137,18 @@ export function parseIndonesianNumber(text: string): number | null {
 
 // ─── DATE PARSER ─────────────────────────────────────────────────────────────
 
-export function parseRelativeDate(text: string): string {
+export function toLocalDateStr(d: Date): string {
+  // Use local timezone — avoids UTC offset shifting date backward (e.g. UTC+7 midnight issue)
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseRelativeDate(text: string): string {
   const lower = text.toLowerCase();
   const today = new Date();
-  
+
   if (lower.includes('besok') || lower.includes('tomorrow')) {
     today.setDate(today.getDate() + 1);
   } else if (lower.includes('lusa')) {
@@ -139,8 +158,8 @@ export function parseRelativeDate(text: string): string {
   } else if (lower.includes('kemarin') || lower.includes('yesterday')) {
     today.setDate(today.getDate() - 1);
   }
-  // default: today
-  return today.toISOString().split('T')[0];
+  // Use LOCAL date (not UTC) to avoid timezone drift
+  return toLocalDateStr(today);
 }
 
 // ─── CATEGORY DETECTOR ───────────────────────────────────────────────────────
@@ -186,6 +205,15 @@ export function extractFields(input: string, action: AIActionType): Record<strin
       amount: amount || 0,
       category: detectCategory(input),
       date,
+    };
+  }
+  if (action === 'ADD_ALLOCATION') {
+    return {
+      name: title || 'Alokasi Baru',
+      amount: amount || 0,
+      category: lower.includes('hutang') || lower.includes('cicilan') ? 'debt'
+        : lower.includes('hiburan') || lower.includes('jalan') || lower.includes('hangout') ? 'wants'
+        : 'needs',
     };
   }
   if (action === 'ADD_INCOME') {
@@ -248,9 +276,23 @@ export function matchRules(input: string, rules: AIKnowledgeRule[]): AIParseResu
   
   const top = scored[0];
   const second = scored[1];
-  
-  // Ambiguous if top two scores are close (within 2 points)
-  if (second && Math.abs(top.score - second.score) <= 2 && top.confidence !== 'high') {
+
+  // Special case: if top is ADD_ALLOCATION but input ALSO has expense/income words
+  // → semantically ambiguous ("alokasikan makan" = budget OR actual spend?)
+  const EXPENSE_WORDS = ['makan','beli','bayar','jajan','belanja','habis','beli','spend'];
+  const hasExpenseWord = EXPENSE_WORDS.some(w => lower.includes(w));
+  if (
+    top.rule.action === 'ADD_ALLOCATION' && hasExpenseWord &&
+    scored.some(s => s.rule.action === 'ADD_EXPENSE')
+  ) {
+    // Re-order: put ADD_ALLOCATION first, ADD_EXPENSE second
+    const allocMatch = scored.find(s => s.rule.action === 'ADD_ALLOCATION')!;
+    const expenseMatch = scored.find(s => s.rule.action === 'ADD_EXPENSE')!;
+    return { status: 'ambiguous', matches: [allocMatch, expenseMatch], rawInput: input };
+  }
+
+  // Ambiguous if top two scores are close (within 3 points)
+  if (second && Math.abs(top.score - second.score) <= 3 && top.confidence !== 'high') {
     return { status: 'ambiguous', matches: scored.slice(0, 3), rawInput: input };
   }
   

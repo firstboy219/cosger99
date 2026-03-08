@@ -332,6 +332,11 @@ export default function Dashboard({
             { key: 'source', label: 'Sumber', type: 'text' },
             { key: 'date', label: 'Tanggal', type: 'date' },
           ],
+          ADD_ALLOCATION: [
+            { key: 'name', label: 'Nama Pos Anggaran', type: 'text' },
+            { key: 'amount', label: 'Jumlah (Rp)', type: 'number' },
+            { key: 'category', label: 'Kategori', type: 'select', options: ['needs','wants','debt'] },
+          ],
           ADD_TASK: [
             { key: 'title', label: 'Judul Tugas', type: 'text' },
             { key: 'dueDate', label: 'Tenggat', type: 'date' },
@@ -659,34 +664,61 @@ export default function Dashboard({
               const today = new Date();
               const selectedDebt = debtProgressFilter === 'all' ? null : metrics.activeDebts.find(d => d.id === debtProgressFilter);
               const debtsToShow = selectedDebt ? [selectedDebt] : metrics.activeDebts;
-              
-              // Calculate total original principal
-              const totalOriginal = debtsToShow.reduce((s, d) => s + Number(d.originalPrincipal || d.remainingPrincipal), 0);
-              const totalRemaining = debtsToShow.reduce((s, d) => s + Number(d.remainingPrincipal || 0), 0);
-              const totalPaid = totalOriginal - totalRemaining;
-              const paidPct = totalOriginal > 0 ? Math.min(100, (totalPaid / totalOriginal) * 100) : 0;
 
-              // Yearly breakdown: current year + next 3 years
-              const years = [];
-              for (let y = today.getFullYear(); y <= today.getFullYear() + 3; y++) {
+              // Current overall progress
+              const totalOriginal  = debtsToShow.reduce((s, d) => s + Number(d.originalPrincipal || d.remainingPrincipal), 0);
+              const totalRemaining = debtsToShow.reduce((s, d) => s + Number(d.remainingPrincipal || 0), 0);
+              const totalPaid      = totalOriginal - totalRemaining;
+              const paidPct        = totalOriginal > 0 ? Math.min(100, (totalPaid / totalOriginal) * 100) : 0;
+
+              // Max end year across debts
+              const maxEndYear = debtsToShow.reduce((mx, d) => {
+                if (!d.endDate) return mx;
+                const yr = new Date(d.endDate).getFullYear();
+                return yr > mx ? yr : mx;
+              }, today.getFullYear());
+
+              // Year-by-year simulation (all years from NEXT year until fully paid)
+              // Uses remaining-principal linear approximation per debt
+              type YearEntry = { year: number; balance: number; pct: number; delta: number };
+              const years: YearEntry[] = [];
+              let prevPct = paidPct;
+
+              for (let y = today.getFullYear() + 1; y <= maxEndYear + 1; y++) {
                 let balanceAtYearEnd = 0;
                 debtsToShow.forEach(d => {
-                  const end = new Date(d.endDate);
-                  if (end.getFullYear() < y) return; // already paid
-                  if (end.getFullYear() === y) return; // finishes this year → 0 at year end
-                  // Rough estimate: remaining decreases linearly each month
-                  const totalMonths = (end.getFullYear() - new Date(d.startDate).getFullYear()) * 12 + (end.getMonth() - new Date(d.startDate).getMonth());
-                  const monthsLeft = (end.getFullYear() - y) * 12 + end.getMonth();
-                  const ratio = totalMonths > 0 ? Math.max(0, monthsLeft / totalMonths) : 0;
+                  if (!d.endDate) return;
+                  const endDate = new Date(d.endDate);
+                  const startDate = new Date(d.startDate || today);
+                  if (endDate.getFullYear() < y) return; // already paid by this year
+
+                  // Month-accurate: how many months remain at start of year y?
+                  const debtTotalMonths = Math.max(1,
+                    (endDate.getFullYear() - startDate.getFullYear()) * 12 +
+                    (endDate.getMonth() - startDate.getMonth())
+                  );
+                  // Months from Jan 1 of year y to debt end
+                  const monthsLeftAtYearStart = Math.max(0,
+                    (endDate.getFullYear() - y) * 12 + endDate.getMonth()
+                  );
+                  const ratio = Math.max(0, Math.min(1, monthsLeftAtYearStart / debtTotalMonths));
                   balanceAtYearEnd += Number(d.originalPrincipal || d.remainingPrincipal) * ratio;
                 });
+
                 const paidByYear = totalOriginal - balanceAtYearEnd;
-                const pctByYear = totalOriginal > 0 ? Math.min(100, (paidByYear / totalOriginal) * 100) : 0;
-                years.push({ year: y, balance: balanceAtYearEnd, pct: pctByYear });
+                const pctByYear  = totalOriginal > 0 ? Math.min(100, Math.max(0, (paidByYear / totalOriginal) * 100)) : 0;
+                const delta      = pctByYear - prevPct;
+                years.push({ year: y, balance: Math.max(0, balanceAtYearEnd), pct: pctByYear, delta });
+                prevPct = pctByYear;
+                if (balanceAtYearEnd <= 0) break;
               }
+
+              // Filter: only show future years with meaningful progress, cap at 6 rows
+              const futureYears = years.filter(y => y.balance > 0 || y.pct >= 99.9).slice(0, 6);
 
               return (
               <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all h-full flex flex-col">
+                {/* Header */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <div className="p-2 bg-red-50 text-red-500 rounded-xl"><CreditCard size={16}/></div>
@@ -702,34 +734,84 @@ export default function Dashboard({
                   </select>
                 </div>
 
-                {/* Overall progress */}
-                <div className="mb-3">
+                {/* Overall progress bar with year milestone ticks */}
+                <div className="mb-4">
                   <div className="flex justify-between mb-1">
                     <span className="text-[10px] font-bold text-slate-500">Sudah terbayar</span>
                     <span className="text-[10px] font-black text-emerald-600">{paidPct.toFixed(1)}%</span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all duration-1000" style={{width: `${paidPct}%`}}/>
-                  </div>
-                  <div className="flex justify-between mt-1">
-                    <span className="text-[9px] text-emerald-600 font-bold">{showBalances ? formatCurrency(totalPaid) : '••••'} lunas</span>
-                    <span className="text-[9px] text-red-500 font-bold">{showBalances ? formatCurrency(totalRemaining) : '••••'} sisa</span>
+
+                  {/* Bar + ticks container */}
+                  <div className="relative">
+                    {/* Year tick markers above the bar */}
+                    {futureYears.length > 0 && (
+                      <div className="relative h-4 mb-0.5">
+                        {futureYears.map(({ year, pct: tickPct }) => (
+                          <div
+                            key={year}
+                            className="absolute -translate-x-1/2 flex flex-col items-center"
+                            style={{ left: `${Math.min(97, Math.max(3, tickPct))}%` }}
+                          >
+                            <span className="text-[8px] font-bold text-slate-400 whitespace-nowrap leading-none">{year}</span>
+                            <span className="text-[7px] text-slate-300 leading-none">{tickPct.toFixed(0)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Green progress bar */}
+                    <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-visible relative">
+                      {/* Filled portion */}
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all duration-1000 relative"
+                        style={{ width: `${paidPct}%` }}
+                      />
+                      {/* Year tick lines overlaid on the bar track */}
+                      {futureYears.map(({ year, pct: tickPct }) => (
+                        <div
+                          key={year}
+                          className="absolute top-0 bottom-0 w-px bg-slate-400/60"
+                          style={{ left: `${Math.min(97, Math.max(3, tickPct))}%` }}
+                          title={`${year}: ${tickPct.toFixed(1)}%`}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Labels below bar */}
+                    <div className="flex justify-between mt-1">
+                      <span className="text-[9px] text-emerald-600 font-bold">{showBalances ? formatCurrency(totalPaid) : '••••'} lunas</span>
+                      <span className="text-[9px] text-red-500 font-bold">{showBalances ? formatCurrency(totalRemaining) : '••••'} sisa</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Year-by-year timeline */}
+                {/* Year-by-year cards */}
                 <div className="space-y-1.5 flex-1">
-                  {years.map(({ year, balance, pct }) => {
-                    const isCurrentYear = year === today.getFullYear();
+                  {futureYears.map(({ year, balance, pct, delta }) => {
                     const isDone = balance <= 0;
                     return (
-                      <div key={year} className={`flex items-center gap-2 p-1.5 rounded-lg ${isCurrentYear ? 'bg-blue-50 border border-blue-100' : 'bg-slate-50'}`}>
-                        <span className={`text-[9px] font-black w-8 shrink-0 ${isCurrentYear ? 'text-blue-600' : 'text-slate-500'}`}>{year}</span>
+                      <div
+                        key={year}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100"
+                      >
+                        <span className="text-[9px] font-black w-8 shrink-0 text-slate-500">{year}</span>
                         <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${isDone ? 'bg-emerald-500' : isCurrentYear ? 'bg-blue-500' : 'bg-slate-400'}`} style={{width: `${pct}%`}}/>
+                          <div
+                            className={`h-full rounded-full ${isDone ? 'bg-emerald-500' : 'bg-slate-400'}`}
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
-                        <span className={`text-[9px] font-bold shrink-0 w-16 text-right ${isDone ? 'text-emerald-600' : 'text-slate-600'}`}>
-                          {isDone ? '✓ Lunas' : (showBalances ? formatCurrency(balance) : '••••')}
+                        {/* % at year end */}
+                        <span className={`text-[9px] font-black w-8 text-right shrink-0 ${isDone ? 'text-emerald-600' : 'text-slate-600'}`}>
+                          {isDone ? '✓' : `${pct.toFixed(0)}%`}
+                        </span>
+                        {/* delta badge */}
+                        <span className="text-[8px] text-emerald-600 font-bold bg-emerald-50 rounded px-1 shrink-0 w-10 text-center">
+                          +{delta.toFixed(0)}%
+                        </span>
+                        {/* remaining balance */}
+                        <span className={`text-[9px] font-bold shrink-0 w-16 text-right ${isDone ? 'text-emerald-600' : 'text-slate-500'}`}>
+                          {isDone ? 'Lunas' : (showBalances ? formatCurrency(balance) : '••••')}
                         </span>
                       </div>
                     );
@@ -786,7 +868,8 @@ export default function Dashboard({
               const today = new Date();
               const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
               const inc = Number(income) || 1;
-              // Find dangerous months: months where debt installments spike (STEPUP)
+
+              // ── Danger months (STEPUP spikes) ──────────────────────
               const dangerMonths: string[] = [];
               metrics.activeDebts.forEach(d => {
                 if ((d.interestStrategy||'').toUpperCase().includes('STEP')) {
@@ -808,8 +891,67 @@ export default function Dashboard({
               });
               const uniqueDanger = [...new Set(dangerMonths)].slice(0, 2);
               const thisMonth = monthNames[today.getMonth()] + ' ' + today.getFullYear();
+
+              // ── Yearly Projection Bar Chart ─────────────────────────
+              // Simulate month-by-month from today until all debts paid
+              // Each year: sum all monthly cicilan for active debts that month
+              const yearlyData: { year: string; total: number; isCurrentYear: boolean }[] = [];
+              if (metrics.activeDebts.length > 0) {
+                const maxEndDate = metrics.activeDebts.reduce((latest, d) => {
+                  if (!d.endDate) return latest;
+                  const ed = new Date(d.endDate);
+                  return ed > latest ? ed : latest;
+                }, new Date());
+
+                const simStart = new Date(today.getFullYear(), today.getMonth(), 1);
+                const simEnd   = new Date(maxEndDate.getFullYear(), maxEndDate.getMonth() + 1, 1);
+                const yearMap: Record<number, number> = {};
+
+                for (let cursor = new Date(simStart); cursor < simEnd; cursor.setMonth(cursor.getMonth() + 1)) {
+                  const yr = cursor.getFullYear();
+                  const monthIdx = (cursor.getFullYear() - today.getFullYear()) * 12 + (cursor.getMonth() - today.getMonth());
+                  let monthTotal = 0;
+                  metrics.activeDebts.forEach(d => {
+                    if (!d.endDate) return;
+                    const debtEnd = new Date(d.endDate);
+                    if (cursor > debtEnd) return; // debt already paid
+                    // Get installment for this specific month
+                    const debtStart = d.startDate ? new Date(d.startDate) : today;
+                    const mp = (cursor.getFullYear() - debtStart.getFullYear()) * 12 + (cursor.getMonth() - debtStart.getMonth()) + 1;
+                    let strategy = ((d.interestStrategy||'FIXED')).toUpperCase();
+                    if (strategy === 'STEP_UP') strategy = 'STEPUP';
+                    if (strategy === 'STEPUP' && d.stepUpSchedule) {
+                      let sched: any[] = [];
+                      try { sched = typeof d.stepUpSchedule === 'string' ? JSON.parse(d.stepUpSchedule) : (d.stepUpSchedule as any[]); } catch(e){}
+                      const norm = sched.map((r: any) => ({
+                        s: Number(r.startMonth ?? r.start_month ?? r.mulai ?? 0),
+                        e: Number(r.endMonth   ?? r.end_month   ?? r.akhir  ?? 0),
+                        a: Number(r.amount     ?? r.cicilan     ?? 0),
+                      }));
+                      const period = norm.find(p => mp >= p.s && mp <= p.e);
+                      monthTotal += period ? period.a : (norm.length > 0 ? norm[norm.length-1].a : Number(d.monthlyPayment||0));
+                    } else if ((strategy === 'ANNUITY' || strategy === 'EFEKTIF') && d.interestRate && d.remainingMonths) {
+                      // Use stored monthly payment for projection (constant annuity)
+                      monthTotal += Number(d.monthlyPayment || 0);
+                    } else {
+                      monthTotal += Number(d.monthlyPayment || 0);
+                    }
+                  });
+                  yearMap[yr] = (yearMap[yr] || 0) + monthTotal;
+                  void monthIdx;
+                }
+
+                const currentYear = today.getFullYear();
+                Object.entries(yearMap).sort(([a],[b]) => Number(a)-Number(b)).forEach(([yr, total]) => {
+                  yearlyData.push({ year: yr, total: Math.round(total), isCurrentYear: Number(yr) === currentYear });
+                });
+              }
+
+              const maxYearlyTotal = yearlyData.length > 0 ? Math.max(...yearlyData.map(d => d.total)) : 1;
+
               return (
               <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all h-full flex flex-col">
+                {/* Header */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <div className="p-2 bg-blue-50 text-blue-500 rounded-xl"><Calendar size={16}/></div>
@@ -819,11 +961,13 @@ export default function Dashboard({
                     </div>
                   </div>
                 </div>
+
+                {/* Amount */}
                 <h3 className="text-2xl font-black text-slate-900">
                   {showBalances ? formatCurrency(metrics.monthlyDebtObligation) : <span className="text-slate-300">{'* * * * *'}</span>}
                 </h3>
                 <p className="text-[9px] text-slate-400 mt-0.5">Total cicilan semua hutang aktif bulan ini</p>
-                
+
                 {/* DSR Bar */}
                 <div className="mt-3">
                   <div className="flex justify-between mb-1">
@@ -839,10 +983,64 @@ export default function Dashboard({
                   <p className="text-[8px] text-slate-400 mt-1">DSR = cicilan hutang ÷ income × 100%. Makin kecil makin sehat.</p>
                 </div>
 
+                {/* ── Yearly Projection Chart ───────────────────────── */}
+                {yearlyData.length > 0 && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                        <BarChart3 size={11} className="text-blue-400"/>
+                        Proyeksi Kewajiban Per Tahun
+                      </p>
+                      <p className="text-[9px] text-slate-400">{yearlyData.length} tahun tersisa</p>
+                    </div>
+
+                    {/* Custom bar chart — lightweight, no recharts overhead */}
+                    <div className="space-y-1.5">
+                      {yearlyData.map((d) => {
+                        const pct = maxYearlyTotal > 0 ? (d.total / maxYearlyTotal) * 100 : 0;
+                        const inBillions = d.total >= 1e9;
+                        const label = inBillions
+                          ? (d.total / 1e9).toFixed(2) + ' M'
+                          : d.total >= 1e6
+                            ? (d.total / 1e6).toFixed(1) + ' jt'
+                            : (d.total / 1e3).toFixed(0) + ' rb';
+                        return (
+                          <div key={d.year} className="flex items-center gap-2">
+                            <span className={`text-[9px] font-bold w-8 text-right flex-shrink-0 ${d.isCurrentYear ? 'text-blue-600' : 'text-slate-400'}`}>
+                              {d.year}
+                            </span>
+                            <div className="flex-1 h-4 bg-slate-50 rounded-md overflow-hidden relative">
+                              <div
+                                className={`h-full rounded-md transition-all duration-700 ${d.isCurrentYear ? 'bg-blue-500' : 'bg-slate-300'}`}
+                                style={{ width: `${Math.max(2, pct)}%` }}
+                              />
+                              {/* Amount label inside/outside bar */}
+                              <span
+                                className={`absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold ${pct > 60 ? 'text-white' : 'text-slate-500'}`}
+                                style={{ mixBlendMode: 'normal' }}
+                              >
+                                {showBalances ? label : '•••'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Total remaining */}
+                    <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between items-center">
+                      <span className="text-[9px] text-slate-400">Total sisa kewajiban</span>
+                      <span className="text-[10px] font-black text-slate-700">
+                        {showBalances ? formatCurrency(yearlyData.reduce((a,d) => a + d.total, 0)) : '•••'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Danger months */}
                 {uniqueDanger.length > 0 && (
-                  <div className="mt-3 p-2 bg-red-50 border border-red-100 rounded-xl flex-1">
-                    <p className="text-[9px] font-black text-red-600 flex items-center gap-1"><AlertTriangle size={10}/> Bulan Berbahaya (cicilan naik):</p>
+                  <div className="mt-3 p-2 bg-red-50 border border-red-100 rounded-xl">
+                    <p className="text-[9px] font-black text-red-600 flex items-center gap-1"><AlertTriangle size={10}/> Cicilan naik di:</p>
                     {uniqueDanger.map((m, i) => (
                       <p key={i} className="text-[9px] text-red-500 mt-0.5">• {m}</p>
                     ))}
@@ -1666,6 +1864,221 @@ export default function Dashboard({
           );
         })()}
       </Reveal>
+
+      {/* ============================================ */}
+      {/* SECTION 8: RANGKUMAN KONDISI KEUANGAN        */}
+      {/* ============================================ */}
+      <Reveal delay={50}>
+        {(() => {
+          const inc = Number(income) || 1;
+          const now = new Date();
+          const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+
+          // ── Health score label ──────────────────────────────
+          const healthLabel = metrics.healthScore >= 80 ? 'Sangat Sehat'
+            : metrics.healthScore >= 60 ? 'Sehat'
+            : metrics.healthScore >= 40 ? 'Waspada'
+            : 'Kritis';
+          const healthColor = metrics.healthScore >= 80 ? 'text-emerald-600'
+            : metrics.healthScore >= 60 ? 'text-blue-600'
+            : metrics.healthScore >= 40 ? 'text-amber-600'
+            : 'text-red-600';
+          const healthBg = metrics.healthScore >= 80 ? 'bg-emerald-50 border-emerald-200'
+            : metrics.healthScore >= 60 ? 'bg-blue-50 border-blue-200'
+            : metrics.healthScore >= 40 ? 'bg-amber-50 border-amber-200'
+            : 'bg-red-50 border-red-200';
+
+          // ── Cashflow ────────────────────────────────────────
+          const cashflowOk = metrics.netCashflow > 0;
+
+          // ── Runway ──────────────────────────────────────────
+          const runwayLabel = metrics.runway >= 6 ? 'Aman' : metrics.runway >= 3 ? 'Cukup' : 'Rawan';
+          const runwayColor = metrics.runway >= 6 ? 'text-emerald-600' : metrics.runway >= 3 ? 'text-amber-600' : 'text-red-600';
+
+          // ── Expense trend (last 6 months) ───────────────────
+          const trend = metrics.monthlyTrend;
+          const trendLast  = trend[trend.length - 1] || 0;
+          const trendPrev  = trend[trend.length - 2] || 0;
+          const trendDelta = trendPrev > 0 ? ((trendLast - trendPrev) / trendPrev) * 100 : 0;
+          const trendUp    = trendDelta > 3;
+          const trendDown  = trendDelta < -3;
+
+          // ── Living cost ratio ───────────────────────────────
+          const lcRatio = inc > 0 ? (metrics.livingCost / inc) * 100 : 0;
+          const lcOk    = lcRatio <= 50;
+
+          // ── Total progress lunas ────────────────────────────
+          const totalOriginal  = metrics.activeDebts.reduce((s,d) => s + Number(d.originalPrincipal||d.remainingPrincipal),0);
+          const totalPaid      = totalOriginal - metrics.totalDebt;
+          const paidPct        = totalOriginal > 0 ? Math.min(100,(totalPaid/totalOriginal)*100) : 0;
+
+          // ── Nearest debt due date ───────────────────────────
+          const nearestDebt = [...metrics.activeDebts]
+            .filter(d => d.endDate)
+            .sort((a,b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime())[0];
+          const nearestEndDate = nearestDebt ? new Date(nearestDebt.endDate) : null;
+          const monthsToNearest = nearestEndDate
+            ? (nearestEndDate.getFullYear() - now.getFullYear())*12 + (nearestEndDate.getMonth()-now.getMonth())
+            : 0;
+
+          // ── Sinking fund fill % ─────────────────────────────
+          const sfGoal    = sinkingFunds.reduce((s,f) => s + Number(f.targetAmount||0), 0);
+          const sfCurrent = metrics.totalLiquid;
+          const sfPct     = sfGoal > 0 ? Math.min(100,(sfCurrent/sfGoal)*100) : 0;
+
+          // ── Insight items ────────────────────────────────────
+          type Insight = { icon: string; title: string; value: string; sub: string; status: 'good'|'warn'|'bad'|'info' };
+          const insights: Insight[] = [
+            {
+              icon: '🏥',
+              title: 'Skor Kesehatan',
+              value: `${metrics.healthScore.toFixed(0)}/100 — ${healthLabel}`,
+              sub: `DSR ${metrics.dsr.toFixed(1)}% · Runway ${metrics.runway.toFixed(1)} bln · Cashflow ${cashflowOk ? '+':''}${((metrics.netCashflow/inc)*100).toFixed(0)}%`,
+              status: metrics.healthScore >= 60 ? 'good' : metrics.healthScore >= 40 ? 'warn' : 'bad',
+            },
+            {
+              icon: '💸',
+              title: 'Cashflow Bulanan',
+              value: cashflowOk ? `Surplus ${((metrics.netCashflow/inc)*100).toFixed(0)}% dari income` : `Defisit — boros ${((-metrics.netCashflow/inc)*100).toFixed(0)}%`,
+              sub: `Income − (living + cicilan) = ${cashflowOk ? '+':''}${showBalances ? new Intl.NumberFormat('id').format(Math.round(metrics.netCashflow)) : '•••'}`,
+              status: cashflowOk ? 'good' : 'bad',
+            },
+            {
+              icon: '🏦',
+              title: 'Dana Darurat',
+              value: `${metrics.runway.toFixed(1)} bulan — ${runwayLabel}`,
+              sub: `Target ideal ≥6 bln · Saldo ${showBalances ? new Intl.NumberFormat('id').format(Math.round(metrics.totalLiquid)) : '•••'}`,
+              status: metrics.runway >= 6 ? 'good' : metrics.runway >= 3 ? 'warn' : 'bad',
+            },
+            {
+              icon: '📊',
+              title: 'Rasio Pengeluaran',
+              value: `${lcRatio.toFixed(0)}% dari income untuk hidup`,
+              sub: `Cicilan ${metrics.dsr.toFixed(0)}% · Living ${lcRatio.toFixed(0)}% · Sisa ${(100-lcRatio-metrics.dsr).toFixed(0)}%`,
+              status: lcOk ? 'good' : 'warn',
+            },
+            {
+              icon: '📈',
+              title: 'Tren Pengeluaran',
+              value: trendDown ? `Turun ${Math.abs(trendDelta).toFixed(0)}% vs bulan lalu 👍` : trendUp ? `Naik ${trendDelta.toFixed(0)}% vs bulan lalu ⚠️` : 'Stabil bulan ini',
+              sub: `${monthNames[now.getMonth()]} ${showBalances ? new Intl.NumberFormat('id').format(trendLast) : '•••'} vs ${monthNames[now.getMonth()-1<0?11:now.getMonth()-1]} ${showBalances ? new Intl.NumberFormat('id').format(trendPrev) : '•••'}`,
+              status: trendDown ? 'good' : trendUp ? 'warn' : 'info',
+            },
+            {
+              icon: '🎯',
+              title: 'Progress Pelunasan',
+              value: `${paidPct.toFixed(1)}% dari total hutang terlunasi`,
+              sub: metrics.activeDebts.length > 0
+                ? `${metrics.activeDebts.length} kontrak aktif · ${nearestDebt ? `${nearestDebt.name} lunas ${monthsToNearest <= 0 ? 'bulan ini' : `${monthsToNearest} bln lagi`}` : ''}`
+                : 'Bebas hutang! 🎉',
+              status: paidPct >= 50 ? 'good' : paidPct >= 20 ? 'info' : 'warn',
+            },
+            ...(sfGoal > 0 ? [{
+              icon: '🪣',
+              title: 'Sinking Fund',
+              value: `${sfPct.toFixed(0)}% dari target terkumpul`,
+              sub: `${showBalances ? new Intl.NumberFormat('id').format(Math.round(sfCurrent)) : '•••'} dari ${showBalances ? new Intl.NumberFormat('id').format(Math.round(sfGoal)) : '•••'} target`,
+              status: (sfPct >= 80 ? 'good' : sfPct >= 40 ? 'info' : 'warn') as 'good'|'warn'|'bad'|'info',
+            }] : []),
+          ];
+
+          const statusStyle = (s: Insight['status']) => {
+            if (s === 'good') return { dot: 'bg-emerald-500', border: 'border-emerald-100', bg: 'bg-emerald-50/50', text: 'text-emerald-700' };
+            if (s === 'warn') return { dot: 'bg-amber-400',   border: 'border-amber-100',   bg: 'bg-amber-50/50',   text: 'text-amber-700'  };
+            if (s === 'bad')  return { dot: 'bg-red-500',     border: 'border-red-100',     bg: 'bg-red-50/50',     text: 'text-red-700'    };
+            return              { dot: 'bg-blue-400',         border: 'border-blue-100',    bg: 'bg-blue-50/50',    text: 'text-blue-700'   };
+          };
+
+          // ── Overall verdict ──────────────────────────────────
+          const goodCount = insights.filter(i => i.status === 'good').length;
+          const badCount  = insights.filter(i => i.status === 'bad').length;
+          const verdict = badCount >= 2 ? { text: 'Butuh Perhatian Segera', bg: 'bg-red-600', emoji: '🚨' }
+            : badCount === 1 ? { text: 'Ada yang Perlu Diperbaiki', bg: 'bg-amber-500', emoji: '⚠️' }
+            : goodCount >= insights.length * 0.7 ? { text: 'Kondisi Keuangan Prima', bg: 'bg-emerald-600', emoji: '✅' }
+            : { text: 'Cukup Baik, Terus Jaga', bg: 'bg-blue-600', emoji: '💪' };
+
+          return (
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-gradient-to-br from-violet-500 to-indigo-600 text-white rounded-2xl shadow-lg shadow-violet-500/20">
+                  <Sparkles size={18}/>
+                </div>
+                <div>
+                  <p className="text-sm font-black text-slate-800">Rangkuman Kondisi Keuangan</p>
+                  <p className="text-[10px] text-slate-400">{monthNames[now.getMonth()]} {now.getFullYear()} · {insights.length} indikator dianalisa</p>
+                </div>
+              </div>
+              {/* Verdict badge */}
+              <span className={`${verdict.bg} text-white text-[10px] font-black px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm`}>
+                {verdict.emoji} {verdict.text}
+              </span>
+            </div>
+
+            {/* AI Summary Banner */}
+            <div className="px-6 py-3 bg-gradient-to-r from-violet-50 to-indigo-50 border-b border-violet-100 flex items-start gap-2">
+              <BrainCircuit size={13} className="text-violet-500 mt-0.5 flex-shrink-0"/>
+              <p className="text-[11px] text-violet-700 leading-relaxed">{aiSummary}</p>
+            </div>
+
+            {/* Insight Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-5">
+              {insights.map((item, i) => {
+                const st = statusStyle(item.status);
+                return (
+                  <div key={i} className={`rounded-2xl border ${st.border} ${st.bg} p-3.5 flex flex-col gap-1.5`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm leading-none">{item.icon}</span>
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-wide">{item.title}</p>
+                      </div>
+                      <div className={`w-2 h-2 rounded-full ${st.dot} flex-shrink-0`}/>
+                    </div>
+                    <p className={`text-[11px] font-bold leading-tight ${st.text}`}>{item.value}</p>
+                    <p className="text-[9px] text-slate-400 leading-relaxed">{item.sub}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer: quick action tips */}
+            <div className="px-6 pb-5">
+              <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                  <Lightbulb size={11} className="text-amber-400"/> Fokus Utama Bulan Ini
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {metrics.dsr > 40 && (
+                    <span className="text-[10px] bg-red-100 text-red-700 font-bold px-2.5 py-1 rounded-full">🔥 DSR tinggi — hindari hutang baru</span>
+                  )}
+                  {metrics.runway < 3 && (
+                    <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-2.5 py-1 rounded-full">🏦 Dana darurat rawan — prioritas isi sinking fund</span>
+                  )}
+                  {!cashflowOk && (
+                    <span className="text-[10px] bg-red-100 text-red-700 font-bold px-2.5 py-1 rounded-full">💸 Cashflow negatif — review pengeluaran segera</span>
+                  )}
+                  {trendUp && cashflowOk && (
+                    <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-2.5 py-1 rounded-full">📈 Pengeluaran naik {trendDelta.toFixed(0)}% — waspadai tren</span>
+                  )}
+                  {metrics.dsr <= 30 && cashflowOk && metrics.runway >= 6 && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2.5 py-1 rounded-full">✅ Semua indikator sehat — pertahankan & tingkatkan investasi</span>
+                  )}
+                  {metrics.dsr > 0 && metrics.dsr <= 30 && metrics.runway >= 3 && metrics.runway < 6 && (
+                    <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2.5 py-1 rounded-full">🎯 Tingkatkan dana darurat ke 6 bulan</span>
+                  )}
+                  {nearestDebt && monthsToNearest <= 12 && monthsToNearest > 0 && (
+                    <span className="text-[10px] bg-violet-100 text-violet-700 font-bold px-2.5 py-1 rounded-full">🎉 {nearestDebt.name} lunas {monthsToNearest} bln lagi!</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          );
+        })()}
+      </Reveal>
+
+
 
       {/* INLINE CSS ANIMATIONS */}
       <style>{`

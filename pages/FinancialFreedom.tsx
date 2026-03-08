@@ -3,9 +3,10 @@ import React, { useState } from 'react';
 import { DebtItem, Opportunity, TaskItem } from '../types';
 import { findFinancialOpportunities, getOpportunityDetails } from '../services/geminiService';
 import { formatCurrency } from '../services/financeUtils';
-import { TrendingUp, Globe, Rocket, ShieldCheck, AlertTriangle, ArrowRight, Loader2, PlusCircle, CheckCircle, Sparkles, Database, Search, Calculator, Filter, MapPin, X, ExternalLink, ListChecks, GripVertical, Settings2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { TrendingUp, Globe, Rocket, ShieldCheck, AlertTriangle, ArrowRight, Loader2, PlusCircle, CheckCircle, Sparkles, Database, Search, Calculator, Filter, MapPin, X, ExternalLink, ListChecks, GripVertical, Settings2, Lock, Zap, Crown } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from '../services/translationService';
+import { useFreemium } from '../services/freemiumStore';
 
 interface FinancialFreedomProps {
   debts: DebtItem[];
@@ -15,6 +16,8 @@ interface FinancialFreedomProps {
 export default function FinancialFreedom({ debts, onAddTasks }: FinancialFreedomProps) {
   const navigate = useNavigate();
   const { language } = useTranslation();
+  const { isFeatureAvailable, subscriptionStatus } = useFreemium();
+  const hasAccess = isFeatureAvailable('financial_freedom');
   const [income, setIncome] = useState<number>(15000000); 
   const [isLoading, setIsLoading] = useState(false);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
@@ -130,6 +133,9 @@ export default function FinancialFreedom({ debts, onAddTasks }: FinancialFreedom
         setIsExecuting(false);
     }
   };
+
+  // Feature gate: popup modal handled below in JSX
+
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-20 h-screen flex flex-col">
@@ -285,6 +291,66 @@ export default function FinancialFreedom({ debts, onAddTasks }: FinancialFreedom
                   </div>
               </div>
           </div>
+      )}
+
+      {/* ═══ FEATURE GATE MODAL ═══ */}
+      {!hasAccess && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 px-8 py-6 text-white text-center">
+              <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <Crown size={28} className="text-amber-300" />
+              </div>
+              <h3 className="text-xl font-black">Fitur Premium</h3>
+              <p className="text-sm text-white/80 mt-1">Jalan Ninja Financial Freedom</p>
+            </div>
+
+            {/* Body */}
+            <div className="px-8 py-6 space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
+                <p className="text-sm font-bold text-amber-800">
+                  Mohon maaf, paket kamu saat ini (<span className="font-black">{subscriptionStatus.currentPackage || 'Free Plan'}</span>) tidak menyertakan fitur ini.
+                </p>
+                <p className="text-xs text-amber-600 mt-1">Silahkan upgrade terlebih dahulu untuk mengakses halaman ini.</p>
+              </div>
+
+              <div className="space-y-2">
+                {[
+                  'Financial Freedom Simulator & proyeksi kekayaan',
+                  'Opportunity Marketplace — scan peluang bisnis AI',
+                  'My Master Plan — drag & drop rencana aksi',
+                  'Eksekusi rencana ke Task Manager otomatis',
+                ].map((f, i) => (
+                  <div key={i} className="flex items-center gap-2.5">
+                    <div className="w-4 h-4 bg-violet-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Zap size={9} className="text-violet-600" />
+                    </div>
+                    <span className="text-xs text-slate-600">{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-8 pb-8 space-y-3">
+              <Link
+                to="/app/upgrade"
+                className="flex items-center justify-center gap-2 w-full py-4 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-violet-500/25 transition-all hover:scale-[1.01] active:scale-[0.99]"
+              >
+                <Crown size={16} />
+                Upgrade Sekarang
+                <ArrowRight size={15} />
+              </Link>
+              <button
+                onClick={() => navigate(-1)}
+                className="w-full py-3 text-sm text-slate-400 hover:text-slate-600 font-medium transition"
+              >
+                ← Kembali
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

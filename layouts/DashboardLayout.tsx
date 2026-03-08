@@ -9,6 +9,7 @@ import { formatCurrency } from '../services/financeUtils';
 import { pullUserDataFromCloud } from '../services/cloudSync';
 import { api } from '../services/api';
 import GracePeriodBanner from '../components/GracePeriodBanner';
+import { useFreemium } from '../services/freemiumStore';
 
 // --- MODERN SIDEBAR ITEM ---
 interface SidebarItemProps {
@@ -61,6 +62,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { t, language, setLanguage } = useTranslation();
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const { isFeatureAvailable } = useFreemium();
   const [menuSearch, setMenuSearch] = useState('');
   const [showDebugModal, setShowDebugModal] = useState(false);
   const [showPayloadModal, setShowPayloadModal] = useState(false);
@@ -224,13 +226,14 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const menuStructure = useMemo(() => [
       { title: 'Overview', items: [{ to: '/app', icon: LayoutDashboard, label: t("nav.dashboard") }, { to: '/app/ai-strategist', icon: BrainCircuit, label: t("nav.ai_strategist"), badge: 'AI' }, { to: '/app/planning', icon: ClipboardList, label: t("nav.planning") }] },
       { title: 'Management', items: [{ to: '/app/my-debts', icon: List, label: t("nav.my_debts") }, { to: '/app/allocation', icon: PieChart, label: t("nav.allocation") }, { to: '/app/calendar', icon: CalendarDays, label: t("nav.calendar") }] },
-      { title: 'Tracker', items: [{ to: '/app/income', icon: DollarSign, label: t("nav.income") }, { to: '/app/expenses', icon: Receipt, label: t("nav.expenses") }, { to: '/app/financial-freedom', icon: TrendingUp, label: t("nav.freedom") }] },
+      { title: 'Tracker', items: [{ to: '/app/income', icon: DollarSign, label: t("nav.income") }, { to: '/app/expenses', icon: Receipt, label: t("nav.expenses") }, { to: '/app/financial-freedom', icon: TrendingUp, label: t("nav.freedom"), featureKey: 'financial_freedom' }] },
       { title: 'Account', items: [{ to: '/app/logs', icon: History, label: t("nav.history") }, { to: '/app/profile', icon: UserCog, label: t("nav.profile") }, { to: '/app/upgrade', icon: Zap, label: 'Upgrade', badge: 'PRO' }, { to: '/app/billing', icon: FileText, label: 'Billing' }] }
   ], [t]);
 
   const filteredMenu = useMemo(() => {
+      // Only filter by search text — locked features remain visible in sidebar (show gate on page)
       if (!menuSearch) return menuStructure;
-      return menuStructure.map(group => ({ ...group, items: group.items.filter(item => item.label.toLowerCase().includes(menuSearch.toLowerCase())) })).filter(group => group.items.length > 0);
+      return menuStructure.map(group => ({ ...group, items: group.items.filter((item: any) => item.label.toLowerCase().includes(menuSearch.toLowerCase())) })).filter(group => group.items.length > 0);
   }, [menuSearch, menuStructure]);
 
   return (

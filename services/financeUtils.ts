@@ -68,23 +68,52 @@ export const getCurrentInstallment = (debt: DebtItem): number => {
     let strategy = (debt.interestStrategy || 'FIXED').toUpperCase();
     if (strategy === 'STEP_UP') strategy = 'STEPUP';
 
-    if (strategy !== 'STEPUP' || !debt.stepUpSchedule) return Number(debt.monthlyPayment || 0);
-    
-    // Calculate months passed since start date
-    const start = new Date(debt.startDate);
+    // --- Calculate months passed from startDate to this month ---
+    const start = debt.startDate ? new Date(debt.startDate) : null;
     const today = new Date();
-    // +1 because month 1 is the first month
-    const monthsPassed = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth()) + 1; 
-    
-    let schedule: any[] = [];
-    if (Array.isArray(debt.stepUpSchedule)) {
-        schedule = debt.stepUpSchedule;
-    } else if (typeof debt.stepUpSchedule === 'string') {
-        try { schedule = JSON.parse(debt.stepUpSchedule); } catch(e) {}
+    const monthsPassed = start && !isNaN(start.getTime())
+        ? (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth()) + 1
+        : 1;
+
+    // --- For STEPUP: look up current period in schedule (with full key normalization) ---
+    if (strategy === 'STEPUP' && debt.stepUpSchedule) {
+        let scheduleRaw: any[] = [];
+        if (Array.isArray(debt.stepUpSchedule)) {
+            scheduleRaw = debt.stepUpSchedule;
+        } else if (typeof debt.stepUpSchedule === 'string') {
+            try { scheduleRaw = JSON.parse(debt.stepUpSchedule); } catch(e) {}
+        }
+        // Normalize ALL possible key formats (same as generateInstallmentsForDebt)
+        const schedule = scheduleRaw.map((r: any) => ({
+            startMonth: Number(r.startMonth ?? r.start_month ?? r.mulai ?? 0),
+            endMonth:   Number(r.endMonth   ?? r.end_month   ?? r.akhir ?? r.endMonth ?? 0),
+            amount:     Number(r.amount     ?? r.cicilan     ?? r.payment ?? 0),
+        }));
+        const currentPeriod = schedule.find(s => monthsPassed >= s.startMonth && monthsPassed <= s.endMonth);
+        if (currentPeriod) return currentPeriod.amount;
+        // Fallback: last period if beyond schedule, first period if before
+        if (schedule.length > 0) {
+            if (monthsPassed > schedule[schedule.length - 1].endMonth) return schedule[schedule.length - 1].amount;
+            return schedule[0].amount;
+        }
+        return Number(debt.monthlyPayment || 0);
     }
 
-    const currentPeriod = schedule.find((s: any) => monthsPassed >= Number(s.startMonth) && monthsPassed <= Number(s.endMonth));
-    return currentPeriod ? Number(currentPeriod.amount) : Number(debt.monthlyPayment || 0);
+    // --- For ANNUITY/EFEKTIF: compute real installment from remaining principal ---
+    if ((strategy === 'ANNUITY' || strategy === 'EFEKTIF') && debt.interestRate && debt.remainingMonths) {
+        const annualRate = Number(debt.interestRate || 0);
+        const monthlyRate = (annualRate / 100) / 12;
+        const remaining = Number(debt.remainingMonths || 1);
+        const principal = Number(debt.remainingPrincipal || debt.originalPrincipal || 0);
+        if (monthlyRate > 0 && remaining > 0 && principal > 0) {
+            // PMT formula for annuity
+            const pmt = principal * (monthlyRate * Math.pow(1 + monthlyRate, remaining)) / (Math.pow(1 + monthlyRate, remaining) - 1);
+            if (isFinite(pmt) && pmt > 0) return Math.round(pmt);
+        }
+    }
+
+    // --- Default: use stored monthlyPayment ---
+    return Number(debt.monthlyPayment || 0);
 };
 
 // --- IMPROVED INSTALLMENT GENERATOR (SMART HISTORY & STRATEGIES) ---

@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { DebtItem, LoanType, PaymentRecord, DebtInstallment, StepUpRange } from '../types';
-import { formatCurrency } from '../services/financeUtils';
-import { generateInstallmentsForDebt } from '../services/financeUtils';
+import { formatCurrency, getCurrentInstallment, generateInstallmentsForDebt } from '../services/financeUtils';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import { getConfig, getUserData, saveUserData } from '../services/mockDb';
 import { Plus, Trash2, Edit2, X, Loader2, TrendingUp, Save, CreditCard, Calendar, Calculator, AlertCircle, ArrowRight, Layers, PieChart, Landmark, Percent, ChevronDown, ChevronUp, Search, Filter, Eye, Clock, Banknote, Building2, BadgePercent, BarChart3, FileText, ArrowUpRight, CheckCircle2, XCircle, Info } from 'lucide-react';
@@ -550,28 +549,13 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
 
   // Summary calculations
   const totalOutstanding = activeDebts.reduce((a,b) => a + Number(b.remainingPrincipal || 0), 0);
-  const totalMonthly = activeDebts.reduce((a,b) => a + Number(b.monthlyPayment || 0), 0);
+  const totalMonthly = activeDebts.reduce((a,b) => a + getCurrentInstallment(b), 0);
   const totalPrincipalStart = activeDebts.reduce((a,b) => a + Number(b.originalPrincipal || 0), 0);
   const totalPaid = totalPrincipalStart - totalOutstanding;
   const overallProgress = totalPrincipalStart > 0 ? (totalPaid / totalPrincipalStart) * 100 : 0;
 
-  const getCurrentInstallment = (debt: DebtItem) => {
-      if (debt.interestStrategy !== 'StepUp' || !debt.stepUpSchedule) return debt.monthlyPayment;
-      
-      const start = new Date(debt.startDate);
-      const today = new Date();
-      const monthsPassed = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth()) + 1;
-      
-      let schedule: StepUpRange[] = [];
-      if (Array.isArray(debt.stepUpSchedule)) {
-          schedule = debt.stepUpSchedule;
-      } else if (typeof debt.stepUpSchedule === 'string') {
-          try { schedule = JSON.parse(debt.stepUpSchedule); } catch(e) {}
-      }
-
-      const currentPeriod = schedule.find(s => monthsPassed >= (s?.startMonth ?? 0) && monthsPassed <= (s?.endMonth ?? 0));
-      return currentPeriod ? (currentPeriod.amount ?? debt.monthlyPayment) : debt.monthlyPayment;
-  };
+  // Use centralized getCurrentInstallment (handles all key formats + ANNUITY real calc)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
 
   // Get installments for expanded view
   const getInstallmentsForDebt = (debtId: string) => {

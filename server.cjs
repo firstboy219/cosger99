@@ -474,14 +474,25 @@ const SEED_CONFIG = {
 };
 
 const SYSTEM_FEATURES = [
-    { key: "pos_budget",         label: "Alokasi Budget (Pos)" },
-    { key: "income_tracker",     label: "Catat Pemasukan" },
-    { key: "daily_expense",      label: "Catat Pengeluaran Harian" },
-    { key: "debt_management",    label: "Manajemen Hutang Dasar" },
-    { key: "tasks_calendar",     label: "Kalender & Task" },
-    { key: "bank_accounts",      label: "Manajemen Multi-Rekening" },
-    { key: "financial_freedom",  label: "Target Financial Freedom & Big Why" },
-    { key: "ai_command_center",  label: "AI Command Center (Chat)" }
+    // ── Core Features ──────────────────────────────────────
+    { key: "pos_budget",           label: "Alokasi Budget (Pos)" },
+    { key: "income_tracker",       label: "Catat Pemasukan" },
+    { key: "daily_expense",        label: "Catat Pengeluaran Harian" },
+    { key: "debt_management",      label: "Manajemen Hutang (Beban)" },
+    { key: "tasks_calendar",       label: "Kalender & Task" },
+    { key: "sinking_fund",         label: "Dana Cadangan (Sinking Fund)" },
+    { key: "bank_accounts",        label: "Manajemen Multi-Rekening" },
+    // ── Premium Features ───────────────────────────────────
+    { key: "financial_freedom",    label: "Jalan Ninja (Financial Freedom)" },
+    { key: "crossing_analysis",    label: "Analisis Crossing (Proyeksi Hutang)" },
+    { key: "freedom_matrix",       label: "Freedom Matrix (Simulasi Pelunasan)" },
+    // ── AI Features ────────────────────────────────────────
+    { key: "ai_command_center",    label: "AI Command Center (Chat)" },
+    { key: "ai_daily_expense",     label: "AI Catat Pengeluaran Otomatis" },
+    { key: "ai_dashboard_summary", label: "AI Summary Dashboard" },
+    // ── Other ──────────────────────────────────────────────
+    { key: "activity_logs",        label: "Riwayat Aktivitas" },
+    { key: "support_tickets",      label: "Tiket Support" },
 ];
 
 // =============================================================================
@@ -800,7 +811,7 @@ const initDB = async () => {
         // Seed: Default Free Package
         const checkFree = await client.query("SELECT id FROM packages WHERE is_default_free = TRUE");
         if (checkFree.rowCount === 0) {
-            const defaultFreeFeatures = JSON.stringify({ pos_budget: true, income_tracker: true, daily_expense: true, debt_management: true, tasks_calendar: true, activity_logs: true, support_tickets: true, ai_command_center: true, ai_daily_expense: true, ai_dashboard_summary: true, sinking_fund: false, bank_accounts: false, financial_freedom: false });
+            const defaultFreeFeatures = JSON.stringify({ pos_budget: true, income_tracker: true, daily_expense: true, debt_management: true, tasks_calendar: true, activity_logs: true, support_tickets: true, ai_command_center: true, ai_daily_expense: true, ai_dashboard_summary: true, sinking_fund: false, bank_accounts: false, financial_freedom: false, crossing_analysis: false, freedom_matrix: false });
             await client.query(`INSERT INTO packages (id, name, price, ai_limit, features, is_active, is_default_free) VALUES ('pkg-free-default', 'Free Plan', 0, 10, $1, TRUE, TRUE)`, [defaultFreeFeatures]);
         }
 
@@ -1611,7 +1622,33 @@ app.post("/api/sales/transactions/:id/reject", requireRole(['sales']), async (re
 });
 
 app.get("/api/sales/transactions", requireRole(['sales']), async (req, res) => {
-    try { const r = await pool.query(`SELECT s.id, u.username, u.email, p.name as package_name, s.amount_paid, s.status, s.start_date, s.end_date, s.proof_of_payment, pm.bank_name FROM subscriptions s JOIN users u ON s.user_id = u.id JOIN packages p ON s.package_id = p.id LEFT JOIN payment_methods pm ON s.payment_method_id = pm.id ORDER BY s.created_at DESC LIMIT 100`); res.json(keysToCamel(r.rows)); } catch (e) { res.status(500).json({ error: e.message }); }
+    try {
+        const r = await pool.query(`
+            SELECT
+                s.id,
+                s.user_id,
+                u.username,
+                u.email,
+                s.package_id,
+                COALESCE(p.name, 'Paket Tidak Diketahui') as package_name,
+                s.amount_paid,
+                s.status,
+                s.start_date,
+                s.end_date,
+                s.proof_of_payment,
+                s.payment_gateway_ref,
+                s.created_at,
+                pm.bank_name as payment_bank
+            FROM subscriptions s
+            LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN packages p ON s.package_id = p.id
+            LEFT JOIN payment_methods pm ON s.payment_method_id = pm.id
+            ORDER BY s.created_at DESC
+            LIMIT 200
+        `);
+        const rows = keysToCamel(r.rows);
+        res.json({ subscriptions: rows, total: rows.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get("/api/packages", async (req, res) => {

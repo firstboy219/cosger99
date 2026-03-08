@@ -1,6 +1,23 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { DebtItem, Opportunity, TaskItem } from "../types";
 import { getConfig, getAgentConfig } from "./mockDb";
+
+// @google/genai loaded lazily to prevent TDZ initialization errors
+let _GoogleGenAI: any = null;
+let _Type: any = null;
+const getGenAI = async (): Promise<{ GoogleGenAI: any; Type: any }> => {
+  if (!_GoogleGenAI) {
+    try {
+      const mod = await import('@google/genai');
+      _GoogleGenAI = mod.GoogleGenAI;
+      _Type = mod.Type;
+    } catch (e) {
+      // @google/genai not available - use backend proxy only
+      _GoogleGenAI = class { constructor() {} models = { generateContent: async () => ({ text: () => '' }) } };
+      _Type = { STRING: 'STRING', OBJECT: 'OBJECT', ARRAY: 'ARRAY' };
+    }
+  }
+  return { GoogleGenAI: _GoogleGenAI, Type: _Type };
+};
 
 // --- AI LIMIT ERROR (402 Handling) ---
 export class AILimitError extends Error {
@@ -63,6 +80,7 @@ const getAgent = (id: string) => {
  * AI INTERPRETER: Menerjemahkan kolom database baru dari Backend menjadi bahasa bisnis yang dimengerti user.
  */
 export const interpretBackendPayload = async (unknownKeys: string[], rawPayload: any): Promise<string> => {
+  const { GoogleGenAI, Type } = await getGenAI();
     // Initialization of AI client
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `
@@ -87,6 +105,7 @@ export const interpretBackendPayload = async (unknownKeys: string[], rawPayload:
  * DASHBOARD SUMMARY: Menghasilkan ringkasan kondisi finansial yang sangat cerdas dan solutif.
  */
 export const generateDashboardSummary = async (metrics: any) => {
+  const { GoogleGenAI, Type } = await getGenAI();
     // Initialization of AI client
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const agent = getAgent('dashboard_summary');
@@ -105,6 +124,7 @@ export const generateDashboardSummary = async (metrics: any) => {
  * TRANSACTION PARSER: Mendukung instruksi bahasa alami yang kompleks untuk entri data.
  */
 export const parseTransactionAI = async (input: string, context?: any) => {
+  const { GoogleGenAI, Type } = await getGenAI();
     // Initialization of AI client
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const agent = getAgent('command_center');
@@ -127,6 +147,7 @@ export const parseTransactionAI = async (input: string, context?: any) => {
 };
 
 export const analyzeDebtStrategy = async (debts: DebtItem[], language: string) => {
+  const { GoogleGenAI, Type } = await getGenAI();
     const agent = getAgent('debt_strategist');
     const prompt = `Debts: ${JSON.stringify(debts)}\nLang: ${language}`;
 
@@ -159,6 +180,7 @@ export const analyzeDebtStrategy = async (debts: DebtItem[], language: string) =
 };
 
 export const findFinancialOpportunities = async (debts: DebtItem[], income: number, country: string, language: string) => {
+  const { GoogleGenAI, Type } = await getGenAI();
     // Initialization of AI client
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const agent = getAgent('financial_freedom');
@@ -199,6 +221,7 @@ export const findFinancialOpportunities = async (debts: DebtItem[], income: numb
  * Flow: Backend /api/ai/analyze → 402 = AILimitError → else fallback ke client GenAI.
  */
 export const sendChatMessage = async (message: string, language: string, context: string): Promise<string> => {
+  const { GoogleGenAI, Type } = await getGenAI();
     const prompt = `CONTEXT: ${context}\nLANG: ${language}\nUSER: ${message}`;
     const systemInstruction = "Anda adalah asisten keuangan pribadi yang cerdas dan ramah dari Paydone.id.";
 
@@ -228,6 +251,7 @@ export const sendChatMessage = async (message: string, language: string, context
  * OPPORTUNITY DETAILS: Mengambil detail langkah eksekusi untuk peluang finansial.
  */
 export const getOpportunityDetails = async (opp: Opportunity, language: string) => {
+  const { GoogleGenAI, Type } = await getGenAI();
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     try {
@@ -259,6 +283,7 @@ export const getOpportunityDetails = async (opp: Opportunity, language: string) 
  * ONBOARDING PARSER: Ekstraksi data dari percakapan awal user.
  */
 export const parseOnboardingResponse = async (step: string, input: string) => {
+  const { GoogleGenAI, Type } = await getGenAI();
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const agent = getAgent('new_user_wizard');
 
@@ -281,7 +306,8 @@ export const parseOnboardingResponse = async (step: string, input: string) => {
 /**
  * DEV DEBATE: AI vs AI comparison for code auditing.
  */
-export const runDevDebate = async (history: {role: string, text: string}[], localCode: string, remoteCode: string, targetAi: 'FRONTEND_AI' | 'BACKEND_AI'): Promise<string> => {
+export const runDevDebate = async (history: {
+  const { GoogleGenAI, Type } = await getGenAI();role: string, text: string}[], localCode: string, remoteCode: string, targetAi: 'FRONTEND_AI' | 'BACKEND_AI'): Promise<string> => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const agent = getAgent('dev_auditor');
     

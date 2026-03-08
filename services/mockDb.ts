@@ -108,6 +108,12 @@ export const availableBadges: Badge[] = [
   { id: 'b3', name: 'Consistent Payer', description: 'Membayar tepat waktu 3 bulan', icon: 'clock', color: 'text-blue-500' }
 ];
 
+export const saveDB = (db: DBSchema) => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  // Dispatch event for reactive updates across tabs/components
+  window.dispatchEvent(new Event('PAYDONE_DB_UPDATE'));
+};
+
 export const getDB = (): DBSchema => {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) {
@@ -146,11 +152,6 @@ export const getDB = (): DBSchema => {
   return JSON.parse(raw);
 };
 
-export const saveDB = (db: DBSchema) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-  // Dispatch event for reactive updates across tabs/components
-  window.dispatchEvent(new Event('PAYDONE_DB_UPDATE'));
-};
 
 // --- CONFIG ---
 export const getConfig = (): AppConfig => {

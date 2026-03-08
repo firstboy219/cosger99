@@ -207,21 +207,16 @@ export default function Dashboard({
       setCrossingData(crossing);
   }, [debts, income, allocations, extraPayment, freedomMode, debtInstallments]);
 
-  // --- 3. GENERATE AI SUMMARY ---
+  // --- 3. GENERATE LOCAL AI SUMMARY (no external API needed) ---
   useEffect(() => {
       const getSummary = async () => {
           if (Number(income || 0) <= 0 && debts.length === 0) return;
-          try {
-              const summary = await generateDashboardSummary(metrics);
-              setAiSummary(summary);
-          } catch (e) {
-              const lcRatio = Number(income) > 0 ? (metrics.livingCost / Number(income)) * 100 : 0;
-              if (metrics.dsr > 40) setAiSummary("DSR kamu " + metrics.dsr.toFixed(1) + "% — terlalu tinggi. Prioritaskan lunasi hutang konsumtif agar cashflow bernafas.");
-              else if (metrics.runway < 3) setAiSummary("Dana darurat hanya cukup " + metrics.runway.toFixed(1) + " bulan. Tambah tabungan darurat sebelum investasi.");
-              else if (lcRatio > 70) setAiSummary("Living cost " + lcRatio.toFixed(0) + "% dari income — terlalu boros. Review pos pengeluaran dan pangkas yang tidak perlu.");
-              else if (metrics.dsr > 30) setAiSummary("DSR " + metrics.dsr.toFixed(1) + "% masih dalam batas. Jaga agar tidak naik, hindari hutang baru.");
-              else setAiSummary("Kondisi prima! Saatnya gaspol investasi.");
-          }
+          const lcRatio = Number(income) > 0 ? (metrics.livingCost / Number(income)) * 100 : 0;
+          if (metrics.dsr > 40) setAiSummary("DSR kamu " + metrics.dsr.toFixed(1) + "% — terlalu tinggi. Prioritaskan lunasi hutang konsumtif agar cashflow bernafas.");
+          else if (metrics.runway < 3) setAiSummary("Dana darurat hanya cukup " + metrics.runway.toFixed(1) + " bulan. Tambah tabungan darurat sebelum investasi.");
+          else if (lcRatio > 70) setAiSummary("Living cost " + lcRatio.toFixed(0) + "% dari income — terlalu boros. Review pos pengeluaran dan pangkas yang tidak perlu.");
+          else if (metrics.dsr > 30) setAiSummary("DSR " + metrics.dsr.toFixed(1) + "% masih dalam batas. Jaga agar tidak naik, hindari hutang baru.");
+          else setAiSummary("Kondisi finansial prima! DSR " + metrics.dsr.toFixed(1) + "% — saatnya agresif investasi.");
       };
       const timeout = setTimeout(getSummary, 1500);
       return () => clearTimeout(timeout);

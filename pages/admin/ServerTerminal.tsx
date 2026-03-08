@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { getConfig } from '../../services/mockDb';
 import { getHeaders, getAdminHeaders } from '../../services/cloudSync';
-import { GoogleGenAI } from "@google/genai";
+// @google/genai removed — using backend proxy via fetch
 
 interface TerminalLine {
     id: string;
@@ -612,8 +612,8 @@ export default function ServerTerminal() {
         const config = getConfig();
         
         try {
-            const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
-            const model = ai.getGenerativeModel({ model: 'gemini-3-flash-preview' });
+            // AI via backend proxy
+const model = ai.getGenerativeModel({ model: 'gemini-3-flash-preview' });
             
             const prompt = `
                 ROLE: Senior Node.js Backend Developer.

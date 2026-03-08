@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { getAdminHeaders } from '../../services/cloudSync';
 import { Database, Play, Trash2, AlertCircle, Code, Terminal, Sparkles, Loader2, Save, Clock, ChevronRight, FileJson, Download, Table as TableIcon, History, Search } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
+// @google/genai removed — using backend proxy via fetch
 import { getConfig } from '../../services/mockDb';
 
 export default function SQLStudio() {
@@ -76,8 +76,8 @@ export default function SQLStudio() {
       const config = getConfig();
       
       try {
-          const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
-          const model = ai.getGenerativeModel({ model: 'gemini-3-flash-preview' });
+          // AI via backend proxy
+const model = ai.getGenerativeModel({ model: 'gemini-3-flash-preview' });
           const prompt = `
             You are a PostgreSQL expert. Write a SQL query based on this request: "${aiPrompt}".
             The database has tables: users, debts, incomes, daily_expenses, tasks, allocations, debt_installments.

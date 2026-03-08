@@ -306,8 +306,8 @@ export const parseOnboardingResponse = async (step: string, input: string) => {
 /**
  * DEV DEBATE: AI vs AI comparison for code auditing.
  */
-export const runDevDebate = async (history: {
-  const { GoogleGenAI, Type } = await getGenAI();role: string, text: string}[], localCode: string, remoteCode: string, targetAi: 'FRONTEND_AI' | 'BACKEND_AI'): Promise<string> => {
+export const runDevDebate = async (history: {role: string, text: string}[], localCode: string, remoteCode: string, targetAi: 'FRONTEND_AI' | 'BACKEND_AI'): Promise<string> => {
+  const { GoogleGenAI, Type } = await getGenAI();
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const agent = getAgent('dev_auditor');
     

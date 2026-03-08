@@ -19,6 +19,9 @@ export default function SalesUsers() {
   const [showManualSub, setShowManualSub] = useState(false);
   const [manualSubUserId, setManualSubUserId] = useState('');
   const [manualSubMonths, setManualSubMonths] = useState(1);
+  // [V50.66 FIX #3] packageId for manual-sub (backend requires this field)
+  const [manualSubPackageId, setManualSubPackageId] = useState('');
+  const [packages, setPackages] = useState<{ id: string; name: string; price: number }[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
@@ -32,7 +35,15 @@ export default function SalesUsers() {
     }
   }, []);
 
-  useEffect(() => { loadUsers(); }, [loadUsers]);
+  // [V50.66 FIX #3] Load packages list for manual-sub package selector
+  const loadPackages = useCallback(async () => {
+    try {
+      const data = await api.get('/packages');
+      if (Array.isArray(data)) setPackages(data);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadUsers(); loadPackages(); }, [loadUsers, loadPackages]);
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ show: true, message, type });
@@ -70,6 +81,9 @@ export default function SalesUsers() {
   const openManualSub = (userId: string) => {
     setManualSubUserId(userId);
     setManualSubMonths(1);
+    // [V50.66 FIX #3] Pre-select first non-free package (or leave empty for backend fallback)
+    const firstPaid = packages.find(p => p.price > 0);
+    setManualSubPackageId(firstPaid?.id || packages[0]?.id || '');
     setActiveMenu(null);
     setShowManualSub(true);
   };
@@ -78,7 +92,10 @@ export default function SalesUsers() {
     if (!manualSubUserId) return;
     setActionLoading(manualSubUserId);
     try {
-      const res = await api.post(`/sales/users/${manualSubUserId}/manual-sub`, { months: manualSubMonths });
+      // [V50.66 FIX #3] Include packageId in payload — backend requires it
+      const payload: Record<string, any> = { months: manualSubMonths };
+      if (manualSubPackageId) payload.packageId = manualSubPackageId;
+      const res = await api.post(`/sales/users/${manualSubUserId}/manual-sub`, payload);
       showToast(res.message || `Akses Premium ${manualSubMonths} bulan berhasil diberikan.`, 'success');
       setShowManualSub(false);
       loadUsers();
@@ -87,7 +104,7 @@ export default function SalesUsers() {
     } finally {
       setActionLoading(null);
     }
-  }, [manualSubUserId, manualSubMonths, loadUsers]);
+  }, [manualSubUserId, manualSubMonths, manualSubPackageId, loadUsers]);
 
   const filteredUsers = users.filter(u => {
     if (!search.trim()) return true;
@@ -276,6 +293,21 @@ export default function SalesUsers() {
                   className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none text-sm font-bold"
                 />
               </div>
+              {/* [V50.66 FIX #3] Package selector — backend requires packageId */}
+              {packages.length > 0 && (
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Paket</label>
+                  <select
+                    value={manualSubPackageId}
+                    onChange={e => setManualSubPackageId(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none text-sm font-bold"
+                  >
+                    {packages.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} {p.price > 0 ? `— Rp${Number(p.price).toLocaleString('id-ID')}` : '(Free)'}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="flex gap-3 justify-end pt-2">
                 <button onClick={() => setShowManualSub(false)} className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-700 transition">Batal</button>
                 <button

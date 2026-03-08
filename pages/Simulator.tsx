@@ -5,7 +5,7 @@ import { LoanType, SimulationInput, SimulationResult } from '../types';
 import { runSimulation, formatCurrency } from '../services/financeUtils';
 import { getConfig } from '../services/mockDb';
 import { Calculator, Info, AlertTriangle, Gauge, ArrowLeft, Wallet } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from '../components/LazyCharts';
 
 export default function Simulator() {
   const [input, setInput] = useState<SimulationInput>({

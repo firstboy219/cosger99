@@ -5,7 +5,7 @@ import { formatCurrency, toLocalISOString } from '../services/financeUtils';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import { getConfig } from '../services/mockDb';
 import { Plus, Briefcase, Trash2, Edit2, X, TrendingUp, Loader2, Save, Sparkles, Repeat, Calendar as CalendarIcon, PieChart, ChevronLeft, ChevronRight, Wallet, Target, ArrowUpRight, Filter, Clock } from 'lucide-react';
-import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip } from '../components/LazyCharts';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 
 interface IncomeManagerProps {

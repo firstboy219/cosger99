@@ -8,7 +8,7 @@ import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import { parseTransactionAI } from '../services/geminiService';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import FeatureGate from '../components/FeatureGate';
-import { PieChart as RechartsPie, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { PieChart as RechartsPie, Pie, Cell, ResponsiveContainer, Tooltip } from '../components/LazyCharts';
 
 // --- SCROLL REVEAL ---
 function Reveal({ children, className = '', delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {

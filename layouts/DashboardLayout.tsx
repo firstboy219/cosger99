@@ -110,7 +110,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
           if (found) setCurrentUser(found);
           const data = getUserData(userId);
           const today = new Date().getDate();
-          const upcomingDebts = data.debts.map(d => {
+          const upcomingDebts = (data.debts || []).map(d => {
               let diff = d.dueDate - today;
               if (diff < 0) diff += 30;
               return { ...d, diff };

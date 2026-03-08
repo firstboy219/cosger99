@@ -6,7 +6,7 @@ import { parseTransactionAI } from '../services/geminiService';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import { getConfig } from '../services/mockDb';
 import { Plus, Tag, Trash2, Edit2, X, Sparkles, Send, Loader2, ChevronLeft, ChevronRight, Receipt, Wallet, AlertCircle, CreditCard, ShoppingBag, Coffee, Bus, Zap, TrendingUp, Calendar, ArrowRight, Activity, Filter, Target, GripVertical, CheckCircle2 } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip, Legend } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip, Legend } from '../components/LazyCharts';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 
 interface DailyExpensesProps {

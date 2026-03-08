@@ -1,9 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, LineChart, Line, Legend, ReferenceLine, BarChart, Bar, RadialBarChart, RadialBar
-} from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend, ReferenceLine, BarChart, Bar, RadialBarChart, RadialBar } from '../components/LazyCharts';
 import { 
   Zap, AlertTriangle, CheckCircle2, Target, Info, Scissors, PieChart as PieIcon,
   Wallet, TrendingDown, AlertCircle, Calculator, Sparkles, BrainCircuit,
@@ -136,12 +133,13 @@ export default function Dashboard({
   // Filtered crossing data based on selected debt chips
   const filteredCrossingData = useMemo(() => {
     if (!crossingData) return null;
-    const allDebtIds = metrics.activeDebts.map(d => d.id);
-    const selectedIds = crossingDebtFilter.length === 0 ? allDebtIds : crossingDebtFilter;
-    if (selectedIds.length === allDebtIds.length) return crossingData;
+    // Use debts directly (metrics may not be evaluated yet at this point)
+    const activeDebtIds = (debts || []).filter(d => !d._deleted && d.remainingPrincipal > 100).map(d => d.id);
+    const selectedIds = crossingDebtFilter.length === 0 ? activeDebtIds : crossingDebtFilter;
+    if (selectedIds.length === activeDebtIds.length) return crossingData;
     const filteredDebts = debts.filter(d => selectedIds.includes(d.id));
     return generateCrossingAnalysis(Number(income) || 0, filteredDebts, allocations, debtInstallments);
-  }, [crossingData, crossingDebtFilter, debts, income, allocations, debtInstallments, metrics.activeDebts]);
+  }, [crossingData, crossingDebtFilter, debts, income, allocations, debtInstallments]);
   
   // AI COMMAND STATE
   const [commandInput, setCommandInput] = useState('');

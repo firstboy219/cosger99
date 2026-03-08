@@ -293,7 +293,7 @@ function StrategyCard({ title, subtitle, desc, icon: Icon, color, pros, cons, ex
       <div className={`p-4 ${c.bg} rounded-xl border ${c.border}`}>
         <p className={`text-[10px] font-bold ${c.text} uppercase tracking-wider mb-2`}>Contoh Urutan Pelunasan</p>
         <div className="space-y-1.5">
-          {example.debts.map((d, i) => (
+          {(example.debts || []).map((d, i) => (
             <div key={i} className="flex items-center gap-2 text-xs text-slate-600">
               <span className={`w-5 h-5 ${c.accent} text-white rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0`}>{i + 1}</span>
               {d}
@@ -989,7 +989,7 @@ export default function LandingPage() {
                 </div>
               </div>
               <div className="space-y-2.5">
-                {currentTab.items.map((item, i) => (
+                {(currentTab?.items || []).map((item, i) => (
                   <div
                     key={i}
                     className={`flex justify-between items-center p-3 text-sm rounded-xl transition-all ${item.isHidden ? 'bg-amber-50/80 border border-amber-100' : 'border border-slate-100'}`}

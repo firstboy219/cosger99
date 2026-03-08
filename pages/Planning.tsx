@@ -162,13 +162,13 @@ export default function Planning({ tasks, debts, debtInstallments, setDebtInstal
           const userId = localStorage.getItem('paydone_active_user');
           if (userId) {
               const userData = getUserData(userId);
-              const updatedTask = userData.tasks.find(t => t.id === task.id);
+              const updatedTask = (userData.tasks || []).find(t => t.id === task.id);
               if (updatedTask) {
                   const newStatus: 'pending' | 'completed' = updatedTask.status === 'pending' ? 'completed' : 'pending';
                   const finalTask: TaskItem = { ...updatedTask, status: newStatus, updatedAt: new Date().toISOString() };
                   
                   // Update Local
-                  const newTasks = userData.tasks.map(t => t.id === task.id ? finalTask : t);
+                  const newTasks = (userData.tasks || []).map(t => t.id === task.id ? finalTask : t);
                   saveUserData(userId, { ...userData, tasks: newTasks });
                   
                   // Direct PUT

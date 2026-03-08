@@ -94,14 +94,14 @@ export default function AIStrategist({ debts, onAddTasks }: AIStrategistProps) {
         
         setMessages([{ role: 'model', content: result.text, timestamp: new Date() }]);
         
-        const actionsWithId = result.actions.map((act, idx) => ({
+        const actionsWithId = (result.actions || []).map((act, idx) => ({
           id: `ai-act-${idx}`,
           text: act,
           checked: true
         }));
         setSuggestedActions(actionsWithId);
         
-        if (result.actions.length > 0) {
+        if ((result.actions || []).length > 0) {
           setTimeout(() => setShowPlanForm(true), 1000);
         }
     } catch (e: any) {

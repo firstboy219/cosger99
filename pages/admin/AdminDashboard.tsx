@@ -162,9 +162,9 @@ export default function AdminDashboard() {
                  return {
                      ...u,
                      lastLogin: u.lastLogin, 
-                     totalDebt: data.debts.reduce((a, b) => a + (b.remainingPrincipal || 0), 0),
-                     totalIncome: data.incomes.reduce((a, b) => a + (b.amount || 0), 0),
-                     monthlyObligation: data.debts.reduce((a, b) => a + (b.monthlyPayment || 0), 0)
+                     totalDebt: (data.debts || []).reduce((a, b) => a + (b.remainingPrincipal || 0), 0),
+                     totalIncome: (data.incomes || []).reduce((a, b) => a + (b.amount || 0), 0),
+                     monthlyObligation: (data.debts || []).reduce((a, b) => a + (b.monthlyPayment || 0), 0)
                  };
               });
           }

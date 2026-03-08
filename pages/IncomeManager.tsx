@@ -438,12 +438,14 @@ export default function IncomeManager({ incomes = [], setIncomes, userId }: Inco
                                    }`}
                                >
                                    <span className="text-xs font-bold">{month}</span>
-                                   {hasData && !isSelected && (
-                                       <div className="w-1 h-1 bg-green-500 rounded-full mt-1"></div>
-                                   )}
-                                   {isSelected && hasData && (
-                                       <span className="text-[10px] font-mono mt-1 text-green-300 opacity-80">
-                                           {(monthTotal/1000000).toFixed(1)}m
+                                   {hasData && (
+                                       <span className={`text-[10px] font-bold mt-0.5 ${
+                                           isSelected ? 'text-green-300' : 'text-emerald-600'
+                                       }`}>
+                                           {monthTotal >= 1_000_000
+                                               ? `${(monthTotal/1_000_000).toFixed(1)}jt`
+                                               : `${(monthTotal/1_000).toFixed(0)}rb`
+                                           }
                                        </span>
                                    )}
                                </button>

@@ -166,19 +166,33 @@ export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onTogg
       assignedAccountId: string;
   }>({ name: '', target: 0, current: 0, deadline: '', category: 'Other', assignedAccountId: '' });
 
-  // Bug 3: compute real income from props (monthly recurring + one-time for current month)
+  // Compute real income for the selected month — mirrors IncomeManager's strict filter logic
   const BASE_INCOME = React.useMemo(() => {
+    const viewStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
     const monthKey = currentMonthKey;
     const total = incomes
       .filter(i => !i._deleted)
       .reduce((sum, inc) => {
-        const isMonthly = inc.frequency === 'monthly';
-        const isThisMonth = inc.dateReceived?.startsWith(monthKey);
-        if (isMonthly || isThisMonth) return sum + Number(inc.amount || 0);
+        if (inc.frequency === 'monthly') {
+          // Must have started ON or BEFORE the selected month
+          if (inc.dateReceived) {
+            const start = new Date(inc.dateReceived);
+            const startFirst = new Date(start.getFullYear(), start.getMonth(), 1);
+            if (viewStart < startFirst) return sum; // selected month is before income start date → skip
+          }
+          // Must not have ended BEFORE the selected month
+          if (inc.endDate) {
+            const end = new Date(inc.endDate);
+            if (viewStart > end) return sum;
+          }
+          return sum + Number(inc.amount || 0);
+        }
+        // One-time: strictly match selected month
+        if (inc.dateReceived?.startsWith(monthKey)) return sum + Number(inc.amount || 0);
         return sum;
       }, 0);
-    return total; // Returns 0 if no income set — do NOT use dummy value
-  }, [incomes, currentMonthKey]);
+    return total;
+  }, [incomes, currentDate, currentMonthKey]);
 
   // --- METRICS ---
   const metrics = useMemo(() => {
@@ -211,7 +225,7 @@ export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onTogg
       { name: 'Needs', value: metrics.needs, color: '#3b82f6' },
       { name: 'Wants', value: metrics.wants, color: '#f59e0b' },
       { name: 'Debt/Save', value: metrics.savings, color: '#ef4444' },
-      ...(metrics.remaining > 0 ? [{ name: 'Sisa', value: metrics.remaining, color: '#e2e8f0' }] : []),
+      // 'Sisa' segment removed — pie shows only allocated breakdown (Needs/Wants/D/S)
     ].filter(d => d.value > 0);
   }, [metrics]);
 

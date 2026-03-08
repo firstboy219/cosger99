@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { DailyExpense, ExpenseItem, DebtInstallment, SinkingFund } from '../types';
+import { DailyExpense, ExpenseItem, DebtInstallment, SinkingFund, BankAccount } from '../types';
 import { formatCurrency, safeDateISO, toLocalISOString } from '../services/financeUtils';
 import { parseTransactionAI } from '../services/geminiService';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
@@ -19,6 +19,7 @@ interface DailyExpensesProps {
   setDebtInstallments: React.Dispatch<React.SetStateAction<DebtInstallment[]>>;
   sinkingFunds?: SinkingFund[]; 
   setSinkingFunds?: React.Dispatch<React.SetStateAction<SinkingFund[]>>;
+  bankAccounts?: BankAccount[];
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -30,7 +31,7 @@ const CATEGORY_COLORS: Record<string, string> = {
     Others: '#94a3b8'      // Slate
 };
 
-export default function DailyExpenses({ expenses = [], setExpenses, allocations = [], monthlyExpenses, userId, debtInstallments = [], setDebtInstallments, sinkingFunds = [], setSinkingFunds }: DailyExpensesProps) {
+export default function DailyExpenses({ expenses = [], setExpenses, allocations = [], monthlyExpenses, userId, debtInstallments = [], setDebtInstallments, sinkingFunds = [], setSinkingFunds, bankAccounts = [] }: DailyExpensesProps) {
   const [filterDate, setFilterDate] = useState(toLocalISOString(new Date()));
   const [startDate, setStartDate] = useState(new Date());
   const [quickText, setQuickText] = useState('');
@@ -413,7 +414,10 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
                                       </div>
                                       <div className="flex items-center gap-2 mt-1">
                                           <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-100 px-2 py-0.5 rounded">{item.category}</span>
-                                          {item.allocationId && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold flex items-center gap-1 border border-green-200"><CheckCircle2 size={10}/> Paid from Budget</span>}
+                                          {item.allocationId && (() => {
+                                              const allocName = [...(Object.values(monthlyExpenses || {}).flat()), ...allocations].find(a => a.id === item.allocationId)?.name;
+                                              return <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold flex items-center gap-1 border border-green-200"><CheckCircle2 size={10}/> {allocName || 'Budget'}</span>;
+                                          })()}
                                           {item.sinkingFundId && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold flex items-center gap-1 border border-blue-200"><Target size={10}/> Saved to Sinking Fund</span>}
                                           {item.notes && <span className="text-[10px] text-slate-400 truncate max-w-[150px] italic">- {item.notes}</span>}
                                       </div>
@@ -439,22 +443,46 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
                   </h3>
                   <div className="space-y-3 pr-1">
                       {/* Allocations (Pay) - NOW SHOWING PAID/TRANSFERRED */}
-                      {activeAllocations.map(alloc => (
+                      {activeAllocations.map(alloc => {
+                          const usedAmt = expenses.filter(e => e.allocationId === alloc.id).reduce((s, e) => s + Number(e.amount || 0), 0);
+                          const usedPct = alloc.amount > 0 ? Math.min(100, (usedAmt / alloc.amount) * 100) : 0;
+                          const remaining = alloc.amount - usedAmt;
+                          const bankName = bankAccounts.find(b => b.id === alloc.assignedAccountId)?.bankName || alloc.assignedAccountId || null;
+                          const isOverBudget = usedAmt > alloc.amount;
+                          return (
                           <div 
                             key={alloc.id}
                             className="p-4 rounded-3xl border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition-all cursor-default group relative overflow-hidden"
                           >
                               <div className="flex justify-between items-start mb-2 relative z-10">
-                                  <div>
-                                      <span className="text-xs font-black text-slate-700 uppercase tracking-wide block mb-1">{alloc.name}</span>
+                                  <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5 mb-0.5">
+                                          <span className="text-xs font-black text-slate-700 uppercase tracking-wide truncate">{alloc.name}</span>
+                                          {bankName && <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{bankName}</span>}
+                                      </div>
                                       <span className="text-lg font-black text-slate-900">{formatCurrency(alloc.amount)}</span>
                                   </div>
                                   <div className="p-2 bg-white rounded-xl shadow-sm text-slate-400 group-hover:text-blue-500 transition-colors">
                                       <Wallet size={18}/>
                                   </div>
                               </div>
+
+                              {/* Usage bar */}
+                              <div className="mb-2 relative z-10">
+                                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                      <div className={`h-full rounded-full transition-all duration-500 ${isOverBudget ? 'bg-red-500' : usedPct > 80 ? 'bg-amber-500' : 'bg-blue-500'}`} style={{width: `${Math.min(100, usedPct)}%`}}/>
+                                  </div>
+                                  <div className="flex justify-between mt-1">
+                                      <span className={`text-[9px] font-bold ${isOverBudget ? 'text-red-600' : 'text-slate-500'}`}>
+                                          Terpakai {formatCurrency(usedAmt)}
+                                      </span>
+                                      <span className={`text-[9px] font-bold ${isOverBudget ? 'text-red-600' : 'text-slate-500'}`}>
+                                          {isOverBudget ? `Lebih ${formatCurrency(Math.abs(remaining))}` : `Sisa ${formatCurrency(remaining)}`}
+                                      </span>
+                                  </div>
+                              </div>
                               
-                              <div className="flex items-center gap-2 mt-2 relative z-10">
+                              <div className="flex items-center gap-2 relative z-10">
                                   <button 
                                     onClick={() => { 
                                         setEditingId(null); 
@@ -477,7 +505,8 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
                                   <span className="text-[9px] text-slate-400 italic group-hover:text-blue-400 transition-colors">Drop here to pay</span>
                               </div>
                           </div>
-                      ))}
+                          );
+                      })}
 
                       {/* Sinking Funds (Save) */}
                       {activeSinkingFunds.map(sf => {

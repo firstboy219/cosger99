@@ -34,7 +34,7 @@ export default function UserManagement() {
               };
               if (editForm.password) payload.password = editForm.password;
 
-              const res = await fetch(`${baseUrl}/api/admin/users/${editingUser.id}`, {
+              const res = await fetch(`${baseUrl}/api/admin/users-crud/${editingUser.id}`, {
                   method: 'PUT',
                   headers: getAdminHeaders(adminId),
                   body: JSON.stringify(payload)

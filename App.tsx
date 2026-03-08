@@ -29,6 +29,7 @@ import UpgradePage from './pages/UpgradePage';
 import BillingPage from './pages/BillingPage';
 import AdminDashboard from './pages/admin/AdminDashboard'; 
 import AICenter from './pages/admin/AICenter';
+import AIKnowledge from './pages/admin/AIKnowledge';
 import SQLStudio from './pages/admin/SQLStudio';
 import Tickets from './pages/admin/Tickets';
 import BAAnalyst from './pages/admin/BAAnalyst';
@@ -467,7 +468,7 @@ export default function App() {
             <Route path="my-debts" element={<MyDebts debts={debts} setDebts={setDebts} paymentRecords={paymentRecords} setPaymentRecords={setPaymentRecords} userId={currentUserId || ''} debtInstallments={debtInstallments} setDebtInstallments={setDebtInstallments} />} />
             <Route path="income" element={<IncomeManager incomes={incomes} setIncomes={setIncomes} userId={currentUserId || ''} />} />
             {/* UPDATED: Pass debtInstallments props AND sinkingFunds */}
-            <Route path="expenses" element={<DailyExpenses expenses={dailyExpenses} setExpenses={setDailyExpenses} allocations={monthlyExpenses[currentMonthKey] || []} monthlyExpenses={monthlyExpenses} userId={currentUserId || ''} debtInstallments={debtInstallments} setDebtInstallments={setDebtInstallments} sinkingFunds={sinkingFunds} setSinkingFunds={setSinkingFunds} />} />
+            <Route path="expenses" element={<DailyExpenses expenses={dailyExpenses} setExpenses={setDailyExpenses} allocations={monthlyExpenses[currentMonthKey] || []} monthlyExpenses={monthlyExpenses} userId={currentUserId || ''} debtInstallments={debtInstallments} setDebtInstallments={setDebtInstallments} sinkingFunds={sinkingFunds} setSinkingFunds={setSinkingFunds} bankAccounts={bankAccounts} />} />
             <Route path="ai-strategist" element={<AIStrategist debts={debts} onAddTasks={tasks => setTasks(prev => [...prev, ...tasks])} />} />
             <Route path="allocation" element={<Allocation monthlyExpenses={monthlyExpenses} setMonthlyExpenses={setMonthlyExpenses} onAddToDailyLog={handleAIAction} dailyExpenses={dailyExpenses} onToggleAllocation={handleToggleAllocation} sinkingFunds={sinkingFunds} setSinkingFunds={setSinkingFunds} userId={currentUserId || ''} bankAccounts={bankAccounts} setBankAccounts={setBankAccounts} incomes={incomes} />} />
             <Route path="calendar" element={<CalendarPage debts={debts} debtInstallments={debtInstallments} setDebtInstallments={setDebtInstallments} paymentRecords={paymentRecords} setPaymentRecords={setPaymentRecords} />} />
@@ -490,6 +491,7 @@ export default function App() {
             <Route path="developer" element={<DeveloperTools />} />
             <Route path="logs" element={<ActivityLogs userType="admin" />} />
             <Route path="ai-center" element={<AICenter />} />
+            <Route path="ai-knowledge" element={<AIKnowledge />} />
             <Route path="tickets" element={<Tickets />} />
             <Route path="ba" element={<BAAnalyst />} />
             <Route path="qa" element={<QAAnalyst />} />

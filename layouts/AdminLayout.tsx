@@ -142,6 +142,7 @@ export default function AdminLayout({ onLogout }: { onLogout: () => void }) {
             <div className="space-y-1">
                 <SidebarItem to="/admin/settings" icon={Settings} label="Global Settings" />
                 <SidebarItem to="/admin/ai-center" icon={Bot} label="AI Neural Center" />
+                <SidebarItem to="/admin/ai-knowledge" icon={Bot} label="AI Knowledge Base" />
             </div>
           </div>
           

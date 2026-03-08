@@ -10,11 +10,11 @@ import {
   Command, Send, Mic, ArrowUpRight, Activity, ShieldCheck, Clock, 
   ChevronRight, ArrowRight, TrendingUp, Flame, Award, Heart, 
   Calendar, DollarSign, CreditCard, Building2, Car, BarChart3,
-  Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, Lightbulb, Rocket
+  Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, Lightbulb, Rocket, Home, Plus
 } from 'lucide-react';
 import { DebtItem, ExpenseItem, TaskItem, DailyExpense, SinkingFund, DebtInstallment } from '../types';
 import { formatCurrency, generateGlobalProjection, generateCrossingAnalysis, getCurrentInstallment } from '../services/financeUtils';
-import { generateDashboardSummary, parseTransactionAI } from '../services/geminiService';
+import { matchRules, fetchKnowledgeRules, AIKnowledgeRule, AIParseResult, reportUnknownPrompt } from '../services/localAI';
 import { pullUserDataFromCloud } from '../services/cloudSync';
 import { getConfig } from '../services/mockDb';
 import LivingCostWidget from '../components/widgets/LivingCostWidget';
@@ -130,12 +130,28 @@ export default function Dashboard({
   const [showBalances, setShowBalances] = useState(true);
   const [expandedDebt, setExpandedDebt] = useState<string | null>(null);
   const [activeMetricTab, setActiveMetricTab] = useState<'overview' | 'debts' | 'cashflow'>('overview');
+  const [debtProgressFilter, setDebtProgressFilter] = useState<string>('all');
+  const [crossingDebtFilter, setCrossingDebtFilter] = useState<string[]>([]);
+
+  // Filtered crossing data based on selected debt chips
+  const filteredCrossingData = useMemo(() => {
+    if (!crossingData) return null;
+    const allDebtIds = metrics.activeDebts.map(d => d.id);
+    const selectedIds = crossingDebtFilter.length === 0 ? allDebtIds : crossingDebtFilter;
+    if (selectedIds.length === allDebtIds.length) return crossingData;
+    const filteredDebts = debts.filter(d => selectedIds.includes(d.id));
+    return generateCrossingAnalysis(Number(income) || 0, filteredDebts, allocations, debtInstallments);
+  }, [crossingData, crossingDebtFilter, debts, income, allocations, debtInstallments, metrics.activeDebts]);
   
   // AI COMMAND STATE
   const [commandInput, setCommandInput] = useState('');
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiFeedback, setAiFeedback] = useState<{type: 'success'|'error', msg: string} | null>(null);
   const [commandHistory, setCommandHistory] = useState<{input: string; response: string; type: 'success'|'error'}[]>([]);
+  const [knowledgeRules, setKnowledgeRules] = useState<AIKnowledgeRule[]>([]);
+  const [aiConfirmModal, setAiConfirmModal] = useState<AIParseResult | null>(null);
+  const [confirmFields, setConfirmFields] = useState<Record<string, any>>({});
+  const [selectedMatchIdx, setSelectedMatchIdx] = useState(0);
 
   // BRAND CONFIG
   const appConfig = getConfig();
@@ -199,8 +215,11 @@ export default function Dashboard({
               const summary = await generateDashboardSummary(metrics);
               setAiSummary(summary);
           } catch (e) {
-              if (metrics.dsr > 40) setAiSummary("DSR Kamu tinggi! Fokus turunkan hutang konsumtif.");
-              else if (metrics.runway < 3) setAiSummary("Dana darurat tipis. Tambah cash sebelum investasi.");
+              const lcRatio = Number(income) > 0 ? (metrics.livingCost / Number(income)) * 100 : 0;
+              if (metrics.dsr > 40) setAiSummary("DSR kamu " + metrics.dsr.toFixed(1) + "% — terlalu tinggi. Prioritaskan lunasi hutang konsumtif agar cashflow bernafas.");
+              else if (metrics.runway < 3) setAiSummary("Dana darurat hanya cukup " + metrics.runway.toFixed(1) + " bulan. Tambah tabungan darurat sebelum investasi.");
+              else if (lcRatio > 70) setAiSummary("Living cost " + lcRatio.toFixed(0) + "% dari income — terlalu boros. Review pos pengeluaran dan pangkas yang tidak perlu.");
+              else if (metrics.dsr > 30) setAiSummary("DSR " + metrics.dsr.toFixed(1) + "% masih dalam batas. Jaga agar tidak naik, hindari hutang baru.");
               else setAiSummary("Kondisi prima! Saatnya gaspol investasi.");
           }
       };
@@ -208,8 +227,13 @@ export default function Dashboard({
       return () => clearTimeout(timeout);
   }, [metrics.dsr, metrics.runway]);
 
+  // Load knowledge rules for local AI
+  useEffect(() => {
+    fetchKnowledgeRules().then(setKnowledgeRules);
+  }, []);
+
   // --- 4. AI COMMAND HANDLER ---
-  const handleAICommand = async (e?: React.FormEvent) => {
+  const handleAICommand = (e?: React.FormEvent) => {
       if (e) e.preventDefault();
       if (!commandInput.trim()) return;
 
@@ -217,24 +241,34 @@ export default function Dashboard({
       setAiFeedback(null);
 
       try {
-          const result = await parseTransactionAI(commandInput);
-          if (onAIAction && result && result.intent !== 'ERROR' && result.intent !== 'CLARIFICATION') {
-              onAIAction(result);
-              const msg = `Berhasil: ${result.intent.replace('ADD_', 'Catat ')}`;
-              setAiFeedback({ type: 'success', msg });
-              setCommandHistory(prev => [{ input: commandInput, response: msg, type: 'success' }, ...prev].slice(0, 5));
-              setCommandInput('');
+          const result = matchRules(commandInput, knowledgeRules);
+
+          if (result.status === 'unknown' || result.matches.length === 0) {
+              setAiFeedback({ type: 'error', msg: "Saya belum mengerti maksudnya. Coba 'catat makan 25rb' atau 'gaji masuk 10jt'." });
+              setCommandHistory(prev => [{ input: commandInput, response: 'Tidak dikenali', type: 'error' }, ...prev].slice(0, 5));
           } else {
-              const msg = "Maaf, saya kurang paham. Coba 'Catat makan 20rb'.";
-              setAiFeedback({ type: 'error', msg });
-              setCommandHistory(prev => [{ input: commandInput, response: msg, type: 'error' }, ...prev].slice(0, 5));
+              // Show confirmation modal
+              setSelectedMatchIdx(0);
+              setConfirmFields({ ...result.matches[0].parsedFields });
+              setAiConfirmModal(result);
           }
-      } catch (err) {
-          setAiFeedback({ type: 'error', msg: "Gagal memproses perintah." });
       } finally {
           setIsAiProcessing(false);
-          setTimeout(() => setAiFeedback(null), 3000);
+          setTimeout(() => setAiFeedback(null), 4000);
       }
+  };
+
+  const handleAIConfirm = () => {
+      if (!aiConfirmModal || !onAIAction) return;
+      const match = aiConfirmModal.matches[selectedMatchIdx];
+      if (!match) return;
+      onAIAction({ intent: match.rule.action, data: confirmFields });
+      const msg = `✓ ${match.rule.label} berhasil dicatat!`;
+      setAiFeedback({ type: 'success', msg });
+      setCommandHistory(prev => [{ input: aiConfirmModal.rawInput, response: msg, type: 'success' }, ...prev].slice(0, 5));
+      setCommandInput('');
+      setAiConfirmModal(null);
+      setTimeout(() => setAiFeedback(null), 3000);
   };
 
   // --- COLORS ---
@@ -287,6 +321,133 @@ export default function Dashboard({
 
   return (
     <div className="space-y-6 pb-20 font-sans">
+
+      {/* ========= AI CONFIRM MODAL ========= */}
+      {aiConfirmModal && (() => {
+        const isAmbiguous = aiConfirmModal.status === 'ambiguous';
+        const currentMatch = aiConfirmModal.matches[selectedMatchIdx];
+        const ACTION_FIELD_MAP: Record<string, {key: string; label: string; type: string; options?: string[]}[]> = {
+          ADD_EXPENSE: [
+            { key: 'title', label: 'Nama Pengeluaran', type: 'text' },
+            { key: 'amount', label: 'Jumlah (Rp)', type: 'number' },
+            { key: 'category', label: 'Kategori', type: 'select', options: ['Food','Transport','Shopping','Utilities','Entertainment','Others'] },
+            { key: 'date', label: 'Tanggal', type: 'date' },
+          ],
+          ADD_INCOME: [
+            { key: 'description', label: 'Keterangan', type: 'text' },
+            { key: 'amount', label: 'Jumlah (Rp)', type: 'number' },
+            { key: 'source', label: 'Sumber', type: 'text' },
+            { key: 'date', label: 'Tanggal', type: 'date' },
+          ],
+          ADD_TASK: [
+            { key: 'title', label: 'Judul Tugas', type: 'text' },
+            { key: 'dueDate', label: 'Tenggat', type: 'date' },
+            { key: 'priority', label: 'Prioritas', type: 'select', options: ['low','medium','high'] },
+            { key: 'notes', label: 'Catatan', type: 'text' },
+          ],
+        };
+        const fields = ACTION_FIELD_MAP[currentMatch?.rule?.action || ''] || [];
+
+        return (
+          <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" style={{backdropFilter:'blur(4px)', backgroundColor:'rgba(0,0,0,0.5)'}}>
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-5 text-white">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"/>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-300">Cosger Semi AI</span>
+                </div>
+                <h3 className="text-base font-black">
+                  {isAmbiguous ? '🤔 Maksud kamu yang mana?' : `Konfirmasi: ${currentMatch?.rule?.label}`}
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-0.5">Input: "{aiConfirmModal.rawInput}"</p>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Ambiguous: option picker */}
+                {isAmbiguous && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Pilih aksi yang dimaksud:</p>
+                    <div className="space-y-2">
+                      {aiConfirmModal.matches.map((m, idx) => (
+                        <button
+                          key={m.rule.id}
+                          onClick={() => { setSelectedMatchIdx(idx); setConfirmFields({ ...m.parsedFields }); }}
+                          className={`w-full p-3 rounded-xl border text-left transition-all ${selectedMatchIdx === idx ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 hover:border-blue-300 text-slate-700'}`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-black">{m.rule.label}</span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${selectedMatchIdx === idx ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                              {m.confidence === 'high' ? '✓ Yakin' : m.confidence === 'medium' ? '~ Mungkin' : '? Kurang yakin'}
+                            </span>
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${selectedMatchIdx === idx ? 'text-blue-100' : 'text-slate-400'}`}>{m.rule.example}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Editable fields */}
+                {fields.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase mb-2">
+                      {isAmbiguous ? 'Detail (bisa diedit):' : 'AI sudah mengisi otomatis — cek & edit jika perlu:'}
+                    </p>
+                    <div className="space-y-2.5">
+                      {fields.map(field => (
+                        <div key={field.key}>
+                          <label className="text-[10px] font-bold text-slate-500 block mb-1">{field.label}</label>
+                          {field.type === 'select' ? (
+                            <select
+                              value={confirmFields[field.key] || ''}
+                              onChange={e => setConfirmFields(prev => ({ ...prev, [field.key]: e.target.value }))}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                            >
+                              {field.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : (
+                            <input
+                              type={field.type}
+                              value={confirmFields[field.key] || ''}
+                              onChange={e => setConfirmFields(prev => ({ ...prev, [field.key]: field.type === 'number' ? Number(e.target.value) : e.target.value }))}
+                              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* No form needed (CHECK_HEALTH / SHOW_DEBTS) */}
+                {fields.length === 0 && currentMatch && (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-slate-600 font-bold">{currentMatch.rule.description}</p>
+                    <p className="text-xs text-slate-400 mt-1">Tidak ada data yang perlu diisi.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex gap-2 px-5 pb-5">
+                <button
+                  onClick={() => setAiConfirmModal(null)}
+                  className="flex-1 py-2.5 border border-slate-200 rounded-2xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleAIConfirm}
+                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-2xl text-sm font-bold hover:bg-blue-700 transition"
+                >
+                  ✓ Konfirmasi & Simpan
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       
       {/* ============================================ */}
       {/* SECTION 1: AI COMMAND CENTER (THE BRAIN)     */}
@@ -392,21 +553,98 @@ export default function Dashboard({
             </div>
             
             <div className="flex-1 flex items-center justify-center py-2">
-              <HealthGauge score={metrics.healthScore} label="Score" />
+              <HealthGauge score={metrics.healthScore} label="/ 100" />
             </div>
 
-            <div className="grid grid-cols-3 gap-2 mt-4">
-              <div className="text-center p-2 rounded-xl bg-slate-50">
-                <p className="text-[9px] font-bold text-slate-400 uppercase">DSR</p>
-                <p className={`text-sm font-black ${dsrStatus.color}`}>{metrics.dsr.toFixed(1)}%</p>
-              </div>
-              <div className="text-center p-2 rounded-xl bg-slate-50">
-                <p className="text-[9px] font-bold text-slate-400 uppercase">Runway</p>
-                <p className="text-sm font-black text-slate-800">{metrics.runway.toFixed(1)} bln</p>
-              </div>
-              <div className="text-center p-2 rounded-xl bg-slate-50">
-                <p className="text-[9px] font-bold text-slate-400 uppercase">Hutang</p>
-                <p className="text-sm font-black text-slate-800">{metrics.activeDebts.length}</p>
+            {/* 4 metric rows: DSR, Runway, Living Cost, Hutang */}
+            <div className="space-y-2 mt-4">
+              {/* DSR */}
+              {(() => {
+                const dsrBg = metrics.dsr <= 30 ? 'bg-emerald-50 border-emerald-100' : metrics.dsr <= 40 ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100';
+                const dsrBarColor = metrics.dsr <= 30 ? 'bg-emerald-500' : metrics.dsr <= 40 ? 'bg-amber-500' : 'bg-red-500';
+                const dsrLabel = metrics.dsr <= 30 ? 'Sehat' : metrics.dsr <= 40 ? 'Waspada' : 'Kritis';
+                return (
+                  <div className={`p-2.5 rounded-xl border ${dsrBg}`}>
+                    <div className="flex justify-between items-center mb-1">
+                      <div>
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">DSR</span>
+                        <span className="text-[9px] text-slate-400 ml-1">· % gaji untuk cicilan hutang</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className={`text-xs font-black ${dsrStatus.color}`}>{metrics.dsr.toFixed(1)}%</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${metrics.dsr <= 30 ? 'bg-emerald-200 text-emerald-700' : metrics.dsr <= 40 ? 'bg-amber-200 text-amber-700' : 'bg-red-200 text-red-700'}`}>{dsrLabel}</span>
+                      </div>
+                    </div>
+                    <div className="w-full bg-white/70 h-1 rounded-full overflow-hidden">
+                      <div className={`h-full ${dsrBarColor} rounded-full transition-all`} style={{width: `${Math.min(100, metrics.dsr / 50 * 100)}%`}}/>
+                    </div>
+                    <p className="text-[8px] text-slate-400 mt-0.5">Ideal ≤30% · Max 40%</p>
+                  </div>
+                );
+              })()}
+
+              {/* Runway */}
+              {(() => {
+                const rwBg = metrics.runway >= 6 ? 'bg-emerald-50 border-emerald-100' : metrics.runway >= 3 ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100';
+                const rwBarColor = metrics.runway >= 6 ? 'bg-emerald-500' : metrics.runway >= 3 ? 'bg-amber-500' : 'bg-red-500';
+                const rwLabel = metrics.runway >= 6 ? 'Aman' : metrics.runway >= 3 ? 'Cukup' : 'Tipis';
+                const totalLiquid = metrics.totalLiquid;
+                return (
+                  <div className={`p-2.5 rounded-xl border ${rwBg}`}>
+                    <div className="flex justify-between items-center mb-1">
+                      <div>
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Runway</span>
+                        <span className="text-[9px] text-slate-400 ml-1">· bulan bisa bertahan tanpa income</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs font-black text-slate-800">{metrics.runway.toFixed(1)} bln</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${metrics.runway >= 6 ? 'bg-emerald-200 text-emerald-700' : metrics.runway >= 3 ? 'bg-amber-200 text-amber-700' : 'bg-red-200 text-red-700'}`}>{rwLabel}</span>
+                      </div>
+                    </div>
+                    <div className="w-full bg-white/70 h-1 rounded-full overflow-hidden">
+                      <div className={`h-full ${rwBarColor} rounded-full transition-all`} style={{width: `${Math.min(100, metrics.runway / 12 * 100)}%`}}/>
+                    </div>
+                    <p className="text-[8px] text-slate-400 mt-0.5">Dana darurat: {showBalances ? formatCurrency(totalLiquid) : '••••'} · Ideal ≥6 bln</p>
+                  </div>
+                );
+              })()}
+
+              {/* Living Cost Ratio */}
+              {(() => {
+                const lcRatio = Number(income) > 0 ? (metrics.livingCost / Number(income)) * 100 : 0;
+                const lcBg = lcRatio <= 50 ? 'bg-emerald-50 border-emerald-100' : lcRatio <= 70 ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100';
+                const lcBarColor = lcRatio <= 50 ? 'bg-emerald-500' : lcRatio <= 70 ? 'bg-amber-500' : 'bg-red-500';
+                const lcLabel = lcRatio <= 50 ? 'Efisien' : lcRatio <= 70 ? 'Tinggi' : 'Boros';
+                return (
+                  <div className={`p-2.5 rounded-xl border ${lcBg}`}>
+                    <div className="flex justify-between items-center mb-1">
+                      <div>
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Living Cost</span>
+                        <span className="text-[9px] text-slate-400 ml-1">· % gaji untuk kebutuhan hidup</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs font-black text-slate-800">{lcRatio.toFixed(1)}%</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${lcRatio <= 50 ? 'bg-emerald-200 text-emerald-700' : lcRatio <= 70 ? 'bg-amber-200 text-amber-700' : 'bg-red-200 text-red-700'}`}>{lcLabel}</span>
+                      </div>
+                    </div>
+                    <div className="w-full bg-white/70 h-1 rounded-full overflow-hidden">
+                      <div className={`h-full ${lcBarColor} rounded-full transition-all`} style={{width: `${Math.min(100, lcRatio)}%`}}/>
+                    </div>
+                    <p className="text-[8px] text-slate-400 mt-0.5">{showBalances ? formatCurrency(metrics.livingCost) : '••••'}/bln · Ideal ≤50%</p>
+                  </div>
+                );
+              })()}
+
+              {/* Hutang aktif count */}
+              <div className="p-2.5 rounded-xl border bg-slate-50 border-slate-100 flex justify-between items-center">
+                <div>
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Hutang Aktif</span>
+                  <span className="text-[9px] text-slate-400 ml-1">· total kewajiban berjalan</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-black text-slate-800">{metrics.activeDebts.length}</span>
+                  <span className="text-[9px] text-slate-500">pinjaman</span>
+                </div>
               </div>
             </div>
 
@@ -422,76 +660,240 @@ export default function Dashboard({
 
         {/* Metric Cards Grid */}
         <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Card: Total Hutang */}
+          {/* Card: Yearly Debt Progress */}
           <Reveal delay={150}>
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-              <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-red-50 opacity-50 group-hover:scale-150 transition-transform duration-500" />
-              <div className="relative z-10">
+            {(() => {
+              const today = new Date();
+              const selectedDebt = debtProgressFilter === 'all' ? null : metrics.activeDebts.find(d => d.id === debtProgressFilter);
+              const debtsToShow = selectedDebt ? [selectedDebt] : metrics.activeDebts;
+              
+              // Calculate total original principal
+              const totalOriginal = debtsToShow.reduce((s, d) => s + Number(d.originalPrincipal || d.remainingPrincipal), 0);
+              const totalRemaining = debtsToShow.reduce((s, d) => s + Number(d.remainingPrincipal || 0), 0);
+              const totalPaid = totalOriginal - totalRemaining;
+              const paidPct = totalOriginal > 0 ? Math.min(100, (totalPaid / totalOriginal) * 100) : 0;
+
+              // Yearly breakdown: current year + next 3 years
+              const years = [];
+              for (let y = today.getFullYear(); y <= today.getFullYear() + 3; y++) {
+                let balanceAtYearEnd = 0;
+                debtsToShow.forEach(d => {
+                  const end = new Date(d.endDate);
+                  if (end.getFullYear() < y) return; // already paid
+                  if (end.getFullYear() === y) return; // finishes this year → 0 at year end
+                  // Rough estimate: remaining decreases linearly each month
+                  const totalMonths = (end.getFullYear() - new Date(d.startDate).getFullYear()) * 12 + (end.getMonth() - new Date(d.startDate).getMonth());
+                  const monthsLeft = (end.getFullYear() - y) * 12 + end.getMonth();
+                  const ratio = totalMonths > 0 ? Math.max(0, monthsLeft / totalMonths) : 0;
+                  balanceAtYearEnd += Number(d.originalPrincipal || d.remainingPrincipal) * ratio;
+                });
+                const paidByYear = totalOriginal - balanceAtYearEnd;
+                const pctByYear = totalOriginal > 0 ? Math.min(100, (paidByYear / totalOriginal) * 100) : 0;
+                years.push({ year: y, balance: balanceAtYearEnd, pct: pctByYear });
+              }
+
+              return (
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all h-full flex flex-col">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <div className="p-2 bg-red-50 text-red-500 rounded-xl"><CreditCard size={16}/></div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Hutang</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Progress Hutang</p>
                   </div>
-                  <Sparkline data={[100, 95, 88, 82, 75, 70].map(v => v * (metrics.totalDebt / 100 || 1))} color="#ef4444" />
+                  <select
+                    value={debtProgressFilter}
+                    onChange={e => setDebtProgressFilter(e.target.value)}
+                    className="text-[9px] font-bold border border-slate-200 rounded-lg px-1.5 py-1 text-slate-600 bg-white focus:outline-none cursor-pointer"
+                  >
+                    <option value="all">Semua</option>
+                    {metrics.activeDebts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
                 </div>
-                <h3 className="text-2xl font-black text-slate-900">
-                  {showBalances ? formatCurrency(metrics.totalDebt) : <span className="text-slate-300">{'* * * * * *'}</span>}
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-1 font-medium">{metrics.activeDebts.length} hutang aktif</p>
+
+                {/* Overall progress */}
+                <div className="mb-3">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-[10px] font-bold text-slate-500">Sudah terbayar</span>
+                    <span className="text-[10px] font-black text-emerald-600">{paidPct.toFixed(1)}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all duration-1000" style={{width: `${paidPct}%`}}/>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[9px] text-emerald-600 font-bold">{showBalances ? formatCurrency(totalPaid) : '••••'} lunas</span>
+                    <span className="text-[9px] text-red-500 font-bold">{showBalances ? formatCurrency(totalRemaining) : '••••'} sisa</span>
+                  </div>
+                </div>
+
+                {/* Year-by-year timeline */}
+                <div className="space-y-1.5 flex-1">
+                  {years.map(({ year, balance, pct }) => {
+                    const isCurrentYear = year === today.getFullYear();
+                    const isDone = balance <= 0;
+                    return (
+                      <div key={year} className={`flex items-center gap-2 p-1.5 rounded-lg ${isCurrentYear ? 'bg-blue-50 border border-blue-100' : 'bg-slate-50'}`}>
+                        <span className={`text-[9px] font-black w-8 shrink-0 ${isCurrentYear ? 'text-blue-600' : 'text-slate-500'}`}>{year}</span>
+                        <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${isDone ? 'bg-emerald-500' : isCurrentYear ? 'bg-blue-500' : 'bg-slate-400'}`} style={{width: `${pct}%`}}/>
+                        </div>
+                        <span className={`text-[9px] font-bold shrink-0 w-16 text-right ${isDone ? 'text-emerald-600' : 'text-slate-600'}`}>
+                          {isDone ? '✓ Lunas' : (showBalances ? formatCurrency(balance) : '••••')}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+              );
+            })()}
           </Reveal>
 
           {/* Card: Net Cashflow */}
           <Reveal delay={200}>
-            <div className={`rounded-3xl p-5 border shadow-sm hover:shadow-md transition-all group relative overflow-hidden ${metrics.netCashflow >= 0 ? 'bg-emerald-950 border-emerald-900' : 'bg-red-950 border-red-900'}`}>
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className={`p-2 rounded-xl ${metrics.netCashflow >= 0 ? 'bg-emerald-900 text-emerald-400' : 'bg-red-900 text-red-400'}`}><TrendingUp size={16}/></div>
+            {(() => {
+              const inc = Number(income) || 0;
+              const debt = metrics.monthlyDebtObligation;
+              const living = metrics.livingCost;
+              const totalOut = debt + living;
+              const cf = metrics.netCashflow;
+              const isSurplus = cf >= 0;
+              const cfPct = inc > 0 ? Math.abs(cf / inc * 100) : 0;
+              const advice = isSurplus
+                ? cfPct >= 20 ? 'Luar biasa! Alokasikan surplus ke investasi atau pelunasan hutang lebih cepat.'
+                : cfPct >= 10 ? 'Cashflow sehat. Pertahankan dan tambah alokasi tabungan.'
+                : 'Surplus tipis. Cek pengeluaran yang bisa dikurangi agar lebih leluasa.'
+                : 'Pengeluaran melebihi income! Segera audit pos anggaran dan potong yang tidak perlu.';
+              return (
+              <div className={`rounded-3xl p-5 border shadow-sm hover:shadow-md transition-all group relative overflow-hidden ${isSurplus ? 'bg-emerald-950 border-emerald-900' : 'bg-red-950 border-red-900'}`}>
+                <div className="relative z-10 h-full flex flex-col">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className={`p-2 rounded-xl ${isSurplus ? 'bg-emerald-900 text-emerald-400' : 'bg-red-900 text-red-400'}`}><TrendingUp size={16}/></div>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Cashflow</p>
                   </div>
+                  <h3 className={`text-2xl font-black ${isSurplus ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {showBalances ? formatCurrency(cf) : <span className="text-slate-600">{'* * * * * *'}</span>}
+                  </h3>
+                  <p className={`text-[9px] mt-0.5 font-bold ${isSurplus ? 'text-emerald-600' : 'text-red-500'}`}>
+                    = Income {showBalances ? formatCurrency(inc) : '••••'} − Hutang {showBalances ? formatCurrency(debt) : '••••'} − Living {showBalances ? formatCurrency(living) : '••••'}
+                  </p>
+                  <div className="mt-3 flex-1">
+                    <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${isSurplus ? 'bg-emerald-500' : 'bg-red-500'}`} style={{width: `${Math.min(100, cfPct * 3)}%`}}/>
+                    </div>
+                    <p className={`text-[9px] mt-2 leading-relaxed italic ${isSurplus ? 'text-emerald-600/80' : 'text-red-500/80'}`}>{advice}</p>
+                  </div>
                 </div>
-                <h3 className={`text-2xl font-black ${metrics.netCashflow >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {showBalances ? formatCurrency(metrics.netCashflow) : <span className="text-slate-600">{'* * * * * *'}</span>}
-                </h3>
-                <p className={`text-[11px] mt-1 font-medium ${metrics.netCashflow >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {metrics.netCashflow >= 0 ? 'Surplus - Keep going!' : 'Defisit - Perlu aksi!'}
-                </p>
               </div>
-            </div>
+              );
+            })()}
           </Reveal>
 
           {/* Card: Kewajiban Bulanan */}
           <Reveal delay={250}>
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 bg-blue-50 text-blue-500 rounded-xl"><Calendar size={16}/></div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kewajiban / Bulan</p>
+            {(() => {
+              const today = new Date();
+              const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+              const inc = Number(income) || 1;
+              // Find dangerous months: months where debt installments spike (STEPUP)
+              const dangerMonths: string[] = [];
+              metrics.activeDebts.forEach(d => {
+                if ((d.interestStrategy||'').toUpperCase().includes('STEP')) {
+                  let stepUp: any[] = [];
+                  try { stepUp = typeof d.stepUpSchedule === 'string' ? JSON.parse(d.stepUpSchedule) : (d.stepUpSchedule || []); } catch(e){}
+                  stepUp.forEach((range: any) => {
+                    const absMonth = Number(range.startMonth ?? range.mulai ?? 0);
+                    const amount = Number(range.amount ?? range.cicilan ?? 0);
+                    if (amount > 0) {
+                      const startDate = new Date(d.startDate);
+                      const targetDate = new Date(startDate.getFullYear(), startDate.getMonth() + absMonth - 1, 1);
+                      const dsr = (amount / inc) * 100;
+                      if (dsr > 35 && targetDate >= today) {
+                        dangerMonths.push(`${monthNames[targetDate.getMonth()]} ${targetDate.getFullYear()} (naik ke ${amount < 1e6 ? (amount/1000).toFixed(0)+'rb' : (amount/1e6).toFixed(1)+'jt'})`);
+                      }
+                    }
+                  });
+                }
+              });
+              const uniqueDanger = [...new Set(dangerMonths)].slice(0, 2);
+              const thisMonth = monthNames[today.getMonth()] + ' ' + today.getFullYear();
+              return (
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all h-full flex flex-col">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-blue-50 text-blue-500 rounded-xl"><Calendar size={16}/></div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kewajiban Bulan Ini</p>
+                      <p className="text-[9px] text-slate-400">{thisMonth}</p>
+                    </div>
+                  </div>
                 </div>
+                <h3 className="text-2xl font-black text-slate-900">
+                  {showBalances ? formatCurrency(metrics.monthlyDebtObligation) : <span className="text-slate-300">{'* * * * *'}</span>}
+                </h3>
+                <p className="text-[9px] text-slate-400 mt-0.5">Total cicilan semua hutang aktif bulan ini</p>
+                
+                {/* DSR Bar */}
+                <div className="mt-3">
+                  <div className="flex justify-between mb-1">
+                    <div className="flex items-center gap-1">
+                      <span className={`text-[10px] font-black ${dsrStatus.color}`}>{dsrStatus.label}</span>
+                      <span className="text-[9px] text-slate-400">· DSR {metrics.dsr.toFixed(1)}%</span>
+                    </div>
+                    <span className="text-[9px] text-slate-400">Ideal ≤30%</span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all duration-1000 ${dsrStatus.bg}`} style={{ width: `${Math.min(100, metrics.dsr)}%` }} />
+                  </div>
+                  <p className="text-[8px] text-slate-400 mt-1">DSR = cicilan hutang ÷ income × 100%. Makin kecil makin sehat.</p>
+                </div>
+
+                {/* Danger months */}
+                {uniqueDanger.length > 0 && (
+                  <div className="mt-3 p-2 bg-red-50 border border-red-100 rounded-xl flex-1">
+                    <p className="text-[9px] font-black text-red-600 flex items-center gap-1"><AlertTriangle size={10}/> Bulan Berbahaya (cicilan naik):</p>
+                    {uniqueDanger.map((m, i) => (
+                      <p key={i} className="text-[9px] text-red-500 mt-0.5">• {m}</p>
+                    ))}
+                  </div>
+                )}
               </div>
-              <h3 className="text-2xl font-black text-slate-900">
-                {showBalances ? formatCurrency(metrics.monthlyDebtObligation) : <span className="text-slate-300">{'* * * * *'}</span>}
-              </h3>
-              <div className="mt-3 w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-1000 ${dsrStatus.bg}`} style={{ width: `${Math.min(100, metrics.dsr)}%` }} />
-              </div>
-              <div className="flex justify-between mt-1.5">
-                <span className={`text-[10px] font-bold ${dsrStatus.color}`}>{dsrStatus.label} ({metrics.dsr.toFixed(1)}% DSR)</span>
-                <span className="text-[10px] text-slate-400">Max 30%</span>
-              </div>
-            </div>
+              );
+            })()}
           </Reveal>
 
-          {/* Card: Living Cost Widget */}
+          {/* Card: Tagihan Terdekat & Dana Cadangan — replaces LivingCost (moved to FinHealth) */}
           <Reveal delay={300}>
-            <LivingCostWidget 
-              income={Number(income)} 
-              dailyExpenses={dailyExpenses} 
-              debtInstallments={debtInstallments} 
-              allocations={allocations} 
-            />
+            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all h-full flex flex-col gap-3">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="p-2 bg-amber-50 text-amber-500 rounded-xl"><Zap size={16}/></div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ringkasan Kewajiban</p>
+              </div>
+              {metrics.activeDebts.map(d => {
+                const orig = Number(d.originalPrincipal || d.remainingPrincipal);
+                const rem = Number(d.remainingPrincipal);
+                const paid = orig - rem;
+                const pct = orig > 0 ? Math.min(100, paid/orig*100) : 0;
+                const end = new Date(d.endDate);
+                const monthsLeft = Math.max(0, (end.getFullYear() - new Date().getFullYear())*12 + (end.getMonth() - new Date().getMonth()));
+                return (
+                  <div key={d.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-[10px] font-black text-slate-700 truncate max-w-[120px]">{d.name}</span>
+                      <span className="text-[9px] text-slate-400">{monthsLeft} bln lagi</span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full" style={{width: `${pct}%`}}/>
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="text-[9px] text-emerald-600 font-bold">{pct.toFixed(0)}% lunas</span>
+                      <span className="text-[9px] text-slate-500">{showBalances ? formatCurrency(rem) : '••••'} sisa</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {metrics.activeDebts.length === 0 && (
+                <div className="text-center py-6 text-slate-400 text-xs">Tidak ada hutang aktif 🎉</div>
+              )}
+            </div>
           </Reveal>
         </div>
       </div>
@@ -732,44 +1134,129 @@ export default function Dashboard({
       {/* ============================================ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
-        {/* CROSSING ANALYSIS - FIXED: Use ComposedChart for mixed Area+Line */}
+        {/* CROSSING ANALYSIS */}
         <FeatureGate featureKey="crossing_analysis" fallback="lock" title="Crossing Analysis">
         <Reveal delay={100}>
+          {(() => {
+            const activeDebts = metrics.activeDebts;
+            const allDebtIds = activeDebts.map(d => d.id);
+            const selectedIds = crossingDebtFilter.length === 0 ? allDebtIds : crossingDebtFilter;
+
+            // Filter crossingData to only selected debts
+            const displayData = filteredCrossingData || crossingData;
+            const hasCrossing = !!displayData?.dangerMonth;
+            const isSingleDebt = selectedIds.length === 1;
+            const singleDebt = isSingleDebt ? activeDebts.find(d => d.id === selectedIds[0]) : null;
+
+            // Compute impact: what % of total debt is currently selected
+            const totalObligation = activeDebts.reduce((s,d)=>s+Number(d.monthlyPayment||0),0);
+            const selectedObligation = activeDebts.filter(d=>selectedIds.includes(d.id)).reduce((s,d)=>s+Number(d.monthlyPayment||0),0);
+            const selectedPct = totalObligation > 0 ? Math.round(selectedObligation/totalObligation*100) : 100;
+
+            return (
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-widest">
-                <Target className="text-blue-600" size={16}/> Crossing Analysis
-              </h2>
-              {crossingData?.dangerMonth && (
-                <span className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[10px] font-bold flex items-center gap-1 border border-red-100 animate-pulse">
-                  <AlertTriangle size={10}/> Bahaya @ {crossingData.dangerMonth.name}
+            {/* Header */}
+            <div className="flex justify-between items-start mb-2">
+              <div>
+                <h2 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-widest">
+                  <Target className="text-blue-600" size={16}/> Crossing Analysis
+                </h2>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Proyeksi ke depan: kapan total pengeluaran akan melampaui income?
+                </p>
+              </div>
+              {hasCrossing && (
+                <span className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[10px] font-bold flex items-center gap-1 border border-red-100 animate-pulse shrink-0">
+                  <AlertTriangle size={10}/> Bahaya @ {displayData.dangerMonth.name}
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 mb-4">Proyeksi hingga akhir tenor hutang: kapan pengeluaran melebihi pemasukan?</p>
 
-            {/* Summary Pills */}
-            {crossingData && (
-              <div className="flex flex-wrap gap-2 mb-4">
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="text-[10px] font-bold text-emerald-700">Income: {formatCurrency(crossingData.data?.[0]?.Income || 0)}</span>
+            {/* WHY THIS WIDGET EXISTS */}
+            <div className={`mb-4 p-3 rounded-xl border text-[10px] leading-relaxed ${hasCrossing ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
+              <p className={`font-black mb-0.5 ${hasCrossing ? 'text-red-600' : 'text-emerald-700'}`}>
+                {hasCrossing ? '⚠ Perlu Aksi Sebelum ' + displayData.dangerMonth.name : '✓ Cashflow Aman Hingga Lunas'}
+              </p>
+              <p className={hasCrossing ? 'text-red-700' : 'text-emerald-700'}>
+                {hasCrossing
+                  ? `Grafik ini memproyeksikan pengeluaranmu ke depan sampai hutang lunas. Pada ${displayData.dangerMonth.name}, cicilan STEPUP atau biaya hidup naik sehingga total pengeluaran melampaui income. Kamu perlu menyiapkan dana tambahan atau refinancing sebelum bulan itu.`
+                  : `Berdasarkan proyeksi saat ini, pengeluaran tidak akan melampaui income hingga semua hutang lunas. Tetap jaga cashflow positif.`}
+              </p>
+            </div>
+
+            {/* DEBT FILTER CHIPS */}
+            {activeDebts.length > 1 && (
+              <div className="mb-4">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Filter Hutang — lihat impact per hutang ke grafik:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setCrossingDebtFilter([])}
+                    className={`px-2.5 py-1 rounded-full text-[9px] font-black border transition-all ${crossingDebtFilter.length === 0 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}
+                  >
+                    Semua ({selectedPct === 100 ? '100' : selectedPct}%)
+                  </button>
+                  {activeDebts.map(d => {
+                    const isActive = crossingDebtFilter.includes(d.id);
+                    const cicilan = Number(d.monthlyPayment || 0);
+                    const pct = totalObligation > 0 ? Math.round(cicilan/totalObligation*100) : 0;
+                    return (
+                      <button
+                        key={d.id}
+                        onClick={() => {
+                          setCrossingDebtFilter(prev => {
+                            if (prev.includes(d.id)) return prev.filter(x => x !== d.id);
+                            return [...prev, d.id];
+                          });
+                        }}
+                        className={`px-2.5 py-1 rounded-full text-[9px] font-black border transition-all flex items-center gap-1 ${isActive ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300'}`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70"/>
+                        {d.name.length > 18 ? d.name.slice(0,18)+'…' : d.name}
+                        <span className="opacity-70">·{pct}%</span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-100">
-                  <div className="w-2 h-2 rounded-full bg-red-500" />
-                  <span className="text-[10px] font-bold text-red-700">Expense: {formatCurrency(crossingData.data?.[0]?.TotalExpense || 0)}</span>
-                </div>
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-100">
-                  <div className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span className="text-[10px] font-bold text-blue-700">Hutang: {formatCurrency(crossingData.data?.[0]?.Debt || 0)}</span>
-                </div>
+                {crossingDebtFilter.length > 0 && crossingDebtFilter.length < allDebtIds.length && (
+                  <p className="text-[9px] text-blue-600 mt-1.5">
+                    Menampilkan {crossingDebtFilter.length} dari {allDebtIds.length} hutang · {selectedPct}% total kewajiban · Grafik berubah untuk menunjukkan proyeksi tanpa hutang yang tidak dipilih
+                  </p>
+                )}
               </div>
             )}
 
-            <div className="h-[300px] w-full">
-              {crossingData && crossingData.data && crossingData.data.length > 0 ? (
+            {/* Summary Pills */}
+            {displayData && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="text-[10px] font-bold text-emerald-700">Income: {formatCurrency(displayData.data?.[0]?.Income || 0)}</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-100">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-[10px] font-bold text-red-700">Expense: {formatCurrency(displayData.data?.[0]?.TotalExpense || 0)}</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-100">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span className="text-[10px] font-bold text-blue-700">
+                    {isSingleDebt ? singleDebt?.name : 'Semua'} Hutang: {formatCurrency(displayData.data?.[0]?.Debt || 0)}
+                  </span>
+                </div>
+                {crossingDebtFilter.length > 0 && crossingDebtFilter.length < allDebtIds.length && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-100">
+                    <div className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span className="text-[10px] font-bold text-amber-700">
+                      {hasCrossing ? '⚠ Masih crossing' : '✓ Tanpa hutang lain: aman'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="h-[280px] w-full">
+              {displayData && displayData.data && displayData.data.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={crossingData.data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <AreaChart data={displayData.data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                     <defs>
                       <linearGradient id="colorExpenseFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#ef4444" stopOpacity={0.15}/>
@@ -789,13 +1276,11 @@ export default function Dashboard({
                       labelStyle={{fontSize: '10px', fontWeight: 'bold', color: '#475569', marginBottom: '4px'}}
                     />
                     <Legend verticalAlign="top" iconType="circle" height={36} wrapperStyle={{fontSize: '10px', fontWeight: 'bold'}}/>
-                    
                     <Area type="monotone" dataKey="TotalExpense" stroke="#ef4444" fill="url(#colorExpenseFill)" name="Total Pengeluaran" strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: '#ef4444', stroke: '#fff', strokeWidth: 2 }}/>
                     <Area type="monotone" dataKey="Debt" stroke="#3b82f6" fill="url(#colorDebtFill)" name="Porsi Hutang" strokeWidth={2} dot={false} activeDot={{ r: 3, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }}/>
                     <Area type="monotone" dataKey="Income" stroke="#10b981" fill="none" name="Pemasukan" strokeWidth={2} strokeDasharray="6 3" dot={false} activeDot={{ r: 3, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}/>
-                    
-                    {crossingData.dangerMonth && (
-                      <ReferenceLine x={crossingData.dangerMonth.name} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: 'CROSSING!', fill: '#ef4444', fontSize: 9, fontWeight: 'bold' }} />
+                    {displayData.dangerMonth && (
+                      <ReferenceLine x={displayData.dangerMonth.name} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: 'CROSSING!', fill: '#ef4444', fontSize: 9, fontWeight: 'bold' }} />
                     )}
                   </AreaChart>
                 </ResponsiveContainer>
@@ -808,94 +1293,262 @@ export default function Dashboard({
               )}
             </div>
           </div>
+            );
+          })()}
         </Reveal>
         </FeatureGate>
 
         {/* RIGHT COLUMN: DECISION + STRUCTURE */}
         <div className="space-y-6">
           
-          {/* "WHICH PAIN" DECISION */}
+          {/* "WHICH PAIN" DECISION — EXPANDED */}
           <Reveal delay={150}>
-            <div className="bg-slate-900 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-6 opacity-[0.04]"><Scissors size={120}/></div>
-              
-              <div className="relative z-10">
-                <h3 className="text-sm font-black text-amber-400 mb-1 flex items-center gap-2 uppercase tracking-widest">
-                  <Target size={14}/> The "Which Pain" Decision
-                </h3>
-                <p className="text-slate-400 text-[11px] mb-4 leading-relaxed">
-                  Rekomendasi berdasarkan DSR {metrics.dsr.toFixed(1)}%:
-                </p>
+            {(() => {
+              const inc = Number(income) || 1;
+              const debt = metrics.monthlyDebtObligation;
+              const dsr = metrics.dsr;
+              const living = metrics.livingCost;
+              const totalOut = debt + living;
+              const surplus = inc - totalOut;
 
-                <div className="grid grid-cols-2 gap-3">
-                  {/* OPTION A */}
-                  <div className={`p-4 rounded-2xl border transition-all ${metrics.dsr < 40 ? 'bg-blue-600/90 border-blue-500 shadow-lg ring-2 ring-blue-400/20' : 'bg-slate-800/50 border-slate-700/50 opacity-50'}`}>
-                    <div className="flex items-center gap-2 mb-2 font-bold text-xs">
-                      <Wallet size={14}/> Opsi A
-                    </div>
-                    <p className="text-[10px] text-blue-100 mb-1">Cari Tambahan Income:</p>
-                    <div className="text-lg font-black">{formatCurrency(metrics.monthlyDebtObligation / 0.3 - Number(income || 0) > 0 ? metrics.monthlyDebtObligation / 0.3 - Number(income || 0) : 0)}</div>
+              // How much extra income needed to hit 30% DSR
+              const targetIncome = debt / 0.30;
+              const incomeGap = Math.max(0, targetIncome - inc);
+
+              // How much debt to cut to hit 30% DSR
+              const targetDebt = inc * 0.30;
+              const debtToElim = Math.max(0, debt - targetDebt);
+
+              // Ideal cicilan if refinancing all to 30% DSR ceiling
+              const idealCicilan = inc * 0.30;
+              // At idealCicilan per month for remaining balance, estimate tenor
+              const totalRem = metrics.activeDebts.reduce((s,d) => s + Number(d.remainingPrincipal||0), 0);
+              const avgRate = metrics.activeDebts.length > 0
+                ? metrics.activeDebts.reduce((s,d) => s + Number(d.interestRate||0), 0) / metrics.activeDebts.length
+                : 5;
+              const monthlyRate = (avgRate / 100) / 12;
+              const refinanceTenorMonths = idealCicilan > 0 && totalRem > 0
+                ? Math.ceil(monthlyRate > 0
+                    ? Math.log(idealCicilan / (idealCicilan - totalRem * monthlyRate)) / Math.log(1 + monthlyRate)
+                    : totalRem / idealCicilan)
+                : 0;
+              const refinanceTenorYears = (refinanceTenorMonths / 12).toFixed(1);
+
+              // Sewa opsi: estimate monthly rental income from highest-value debt asset
+              const kprDebt = metrics.activeDebts.find(d => (d.debtType||'').toUpperCase().includes('KPR') || (d.name||'').toLowerCase().includes('rumah') || (d.name||'').toLowerCase().includes('graha'));
+              const estimatedRental = kprDebt ? Math.round(Number(kprDebt.remainingPrincipal) * 0.005) : 0; // ~0.5%/month of property value
+              const rentalDsrImpact = estimatedRental > 0 ? ((estimatedRental / inc) * 100).toFixed(1) : '0';
+
+              const problem = dsr > 40
+                ? `DSR kamu ${dsr.toFixed(1)}% — setiap bulan ${dsr.toFixed(0)}% gaji langsung habis untuk cicilan. Batas aman adalah 30%, artinya kamu kelebihan beban cicilan ${formatCurrency(debtToElim)}/bln.`
+                : `DSR kamu ${dsr.toFixed(1)}% — mendekati batas waspada 40%. Kamu perlu ${formatCurrency(incomeGap)}/bln income tambahan untuk turun ke zona aman.`;
+
+              const options = [
+                {
+                  id: 'A',
+                  icon: <Wallet size={14}/>,
+                  title: 'Tambah Pendapatan',
+                  color: 'bg-blue-600/90 border-blue-500',
+                  highlight: 'ring-2 ring-blue-400/30',
+                  value: formatCurrency(incomeGap),
+                  valueLabel: '/bulan tambahan income',
+                  why: `Dengan tambahan ${formatCurrency(incomeGap)}/bln, DSR langsung turun ke 30% (zona sehat). Cashflow bertambah dan kamu tidak perlu mengubah gaya hidup.`,
+                  impact: `DSR turun dari ${dsr.toFixed(1)}% → 30% · Surplus bertambah ${formatCurrency(incomeGap)}/bln`,
+                  recommended: dsr <= 45,
+                },
+                {
+                  id: 'B',
+                  icon: <Scissors size={14}/>,
+                  title: 'Jual Aset / Hemat',
+                  color: 'bg-amber-600/90 border-amber-500',
+                  highlight: 'ring-2 ring-amber-400/30',
+                  value: formatCurrency(debtToElim),
+                  valueLabel: 'cicilan perlu dipangkas/bln',
+                  why: `Lunasi atau jual aset yang cicilannya memberatkan agar total cicilan turun ${formatCurrency(debtToElim)}/bln. Pilih hutang dengan bunga tertinggi atau nilai aset terbesar.`,
+                  impact: `Mengurangi beban ${formatCurrency(debtToElim)}/bln · DSR turun ke 30% · Bebas dari 1 kewajiban`,
+                  recommended: dsr > 45,
+                },
+                {
+                  id: 'C',
+                  icon: <Building2 size={14}/>,
+                  title: 'Pindah Bank / Refinancing',
+                  color: 'bg-purple-600/90 border-purple-500',
+                  highlight: 'ring-2 ring-purple-400/30',
+                  value: formatCurrency(idealCicilan),
+                  valueLabel: `/bln (tenor ~${refinanceTenorYears} thn)`,
+                  why: `Ajukan refinancing ke bank dengan bunga lebih rendah. Target cicilan ideal ${formatCurrency(idealCicilan)}/bln (30% income). Dengan sisa hutang ${formatCurrency(totalRem)}, estimasi tenor baru ~${refinanceTenorYears} tahun.`,
+                  impact: `Cicilan turun ke ${formatCurrency(idealCicilan)}/bln · DSR ke 30% · Tenor ~${refinanceTenorYears} thn`,
+                  recommended: dsr > 40 && refinanceTenorMonths > 0 && refinanceTenorMonths < 300,
+                },
+                ...(estimatedRental > 0 ? [{
+                  id: 'D',
+                  icon: <Home size={14}/>,
+                  title: 'Sewakan Properti',
+                  color: 'bg-emerald-600/90 border-emerald-500',
+                  highlight: 'ring-2 ring-emerald-400/30',
+                  value: `+${formatCurrency(estimatedRental)}`,
+                  valueLabel: '/bulan estimasi sewa',
+                  why: `${kprDebt?.name || 'Properti'} bisa disewakan. Estimasi sewa ~0.5% dari nilai properti = ${formatCurrency(estimatedRental)}/bln. Penghasilan sewa bisa langsung menutup sebagian cicilan.`,
+                  impact: `Menutup ${rentalDsrImpact}% dari DSR · DSR efektif turun ke ~${Math.max(0, dsr - Number(rentalDsrImpact)).toFixed(1)}%`,
+                  recommended: false,
+                }] : []),
+              ];
+
+              return (
+              <div className="bg-slate-900 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-6 opacity-[0.03]"><Scissors size={120}/></div>
+                <div className="relative z-10">
+                  <h3 className="text-sm font-black text-amber-400 mb-1 flex items-center gap-2 uppercase tracking-widest">
+                    <Target size={14}/> The "Which Pain" Decision
+                  </h3>
+
+                  {/* Problem Statement */}
+                  <div className="mb-4 p-3 bg-red-900/30 border border-red-800/40 rounded-xl">
+                    <p className="text-[10px] font-black text-red-400 uppercase tracking-wider mb-1">⚠ Masalah yang Dihadapi</p>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">{problem}</p>
                   </div>
 
-                  {/* OPTION B */}
-                  <div className={`p-4 rounded-2xl border transition-all ${metrics.dsr >= 40 ? 'bg-red-600/90 border-red-500 shadow-lg ring-2 ring-red-400/20' : 'bg-slate-800/50 border-slate-700/50 opacity-50'}`}>
-                    <div className="flex items-center gap-2 mb-2 font-bold text-xs">
-                      <Scissors size={14}/> Opsi B
-                    </div>
-                    <p className="text-[10px] text-red-100 mb-1">Jual Aset / Hemat:</p>
-                    <div className="text-lg font-black truncate">{formatCurrency(highestDebt?.monthlyPayment || 0)}</div>
+                  {/* Options Grid */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {options.map(opt => (
+                      <div key={opt.id} className={`p-3.5 rounded-2xl border transition-all ${opt.color} ${opt.recommended ? opt.highlight : 'opacity-75'}`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-1.5 font-black text-xs">{opt.icon} {opt.title}</div>
+                          {opt.recommended && <span className="text-[8px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-bold">Disarankan</span>}
+                        </div>
+                        <div className="text-base font-black text-white">{opt.value}</div>
+                        <p className="text-[9px] text-white/70 mb-2">{opt.valueLabel}</p>
+                        <div className="border-t border-white/10 pt-2">
+                          <p className="text-[9px] text-white/80 leading-relaxed mb-1.5">{opt.why}</p>
+                          <div className="bg-white/10 rounded-lg px-2 py-1">
+                            <p className="text-[8px] font-black text-white/90">📈 Impact: {opt.impact}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
-            </div>
+              );
+            })()}
           </Reveal>
 
           {/* STRUKTUR PENGELUARAN - ENHANCED */}
           <Reveal delay={200}>
-            <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
-              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-widest mb-5">
-                <PieIcon size={14} className="text-slate-400"/> Struktur Cashflow
-              </h3>
-              
-              <div className="flex items-center gap-6">
-                <div className="flex-1 space-y-3">
-                  {structureData.map((item, idx) => (
-                    <div key={idx}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: item.color}} />
-                          <span className="text-xs font-medium text-slate-600">{item.name}</span>
-                        </div>
-                        <span className="text-xs font-black text-slate-800">{item.percent}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${item.percent}%`, backgroundColor: item.color }} />
-                      </div>
-                    </div>
-                  ))}
+            {(() => {
+              const inc = Number(income) || 1;
+              // Actual percentages vs income (not vs total spending)
+              const needsPct  = Math.round((structureData[0].value / inc) * 100);
+              const wantsPct  = Math.round((structureData[1].value / inc) * 100);
+              const debtPct   = Math.round((structureData[2].value / inc) * 100);
+              const savePct   = Math.max(0, 100 - needsPct - wantsPct - debtPct);
+
+              // Ideal targets (50/30/20 adapted with debt awareness)
+              const idealNeeds = 50; const idealWants = 20; const idealDebt = 30; const idealSave = 20;
+
+              const rows = [
+                { name: 'Kebutuhan', desc: 'biaya hidup & operasional', pct: needsPct, ideal: idealNeeds, color: COLORS.needs, idealNote: '≤50% income' },
+                { name: 'Keinginan', desc: 'gaya hidup & hiburan', pct: wantsPct, ideal: idealWants, color: COLORS.wants, idealNote: '≤20% income' },
+                { name: 'Cicilan Hutang', desc: 'DSR — semua kewajiban kredit', pct: debtPct, ideal: idealDebt, color: COLORS.debt, idealNote: '≤30% income' },
+                { name: 'Tersisa / Nabung', desc: 'sisa untuk tabungan & investasi', pct: savePct, ideal: idealSave, color: '#10b981', idealNote: '≥20% income' },
+              ];
+
+              // Overall health note
+              const problemRows = rows.filter(r => {
+                if (r.name === 'Tersisa / Nabung') return r.pct < r.ideal;
+                return r.pct > r.ideal;
+              });
+              const whyText = problemRows.length === 0
+                ? 'Distribusi pengeluaranmu sudah ideal! Pertahankan dan tingkatkan porsi tabungan.'
+                : `Widget ini menunjukkan ke mana setiap rupiah income-mu pergi. ${problemRows.map(r => r.name === 'Tersisa / Nabung' ? `Tabungan hanya ${r.pct}% (seharusnya ≥${r.ideal}%)` : `${r.name} ${r.pct}% melebihi ideal ${r.ideal}%`).join('; ')}.`;
+
+              const pieData = [
+                { name: 'Kebutuhan', value: structureData[0].value, color: COLORS.needs },
+                { name: 'Keinginan', value: structureData[1].value, color: COLORS.wants },
+                { name: 'Cicilan', value: structureData[2].value, color: COLORS.debt },
+                ...(savePct > 0 ? [{ name: 'Sisa', value: Math.max(0, inc - totalStructure), color: '#10b981' }] : []),
+              ];
+
+              return (
+              <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-widest">
+                      <PieIcon size={14} className="text-slate-400"/> Struktur Cashflow
+                    </h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Distribusi ke mana income-mu pergi setiap bulan</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] text-slate-400">Total Keluar</p>
+                    <p className="text-sm font-black text-slate-900">{showBalances ? formatCurrency(totalStructure) : '••••'}</p>
+                  </div>
                 </div>
-                
-                <div className="w-28 h-28 relative shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={structureData} innerRadius={30} outerRadius={45} paddingAngle={4} dataKey="value">
-                        {structureData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <span className="text-[10px] font-black text-slate-400">OUT</span>
+
+                {/* Why this widget exists */}
+                <div className={`mb-4 p-3 rounded-xl border text-[10px] leading-relaxed ${problemRows.length === 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
+                  <span className="font-black">{problemRows.length === 0 ? '✓ Distribusi Sehat' : '⚠ Perlu Perhatian'}:</span> {whyText}
+                </div>
+
+                <div className="flex items-start gap-5">
+                  {/* Bar rows with ideal comparison */}
+                  <div className="flex-1 space-y-3">
+                    {rows.map((item, idx) => {
+                      const isOver = item.name === 'Tersisa / Nabung' ? item.pct < item.ideal : item.pct > item.ideal;
+                      const gap = Math.abs(item.pct - item.ideal);
+                      return (
+                        <div key={idx}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor: item.color}} />
+                              <div>
+                                <span className="text-[10px] font-black text-slate-700">{item.name}</span>
+                                <span className="text-[9px] text-slate-400 ml-1">· {item.desc}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={`text-[10px] font-black ${isOver ? 'text-red-500' : 'text-emerald-600'}`}>{item.pct}%</span>
+                              <span className="text-[9px] text-slate-300">|</span>
+                              <span className="text-[9px] text-slate-400">ideal {item.idealNote}</span>
+                            </div>
+                          </div>
+                          {/* Stacked bar: actual vs ideal */}
+                          <div className="relative w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, item.pct)}%`, backgroundColor: item.color, opacity: isOver ? 1 : 0.8 }} />
+                            {/* Ideal marker line */}
+                            <div className="absolute top-0 h-full w-0.5 bg-slate-400/60" style={{ left: `${Math.min(100, item.ideal)}%` }} />
+                          </div>
+                          {isOver && gap > 0 && (
+                            <p className="text-[8px] mt-0.5" style={{color: item.color}}>
+                              {item.name === 'Tersisa / Nabung'
+                                ? `Kurang ${gap}% (${showBalances ? formatCurrency(inc * gap/100) : '••••'}/bln)`
+                                : `Lebih ${gap}% dari ideal (${showBalances ? formatCurrency(inc * gap/100) : '••••'}/bln)`}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Donut chart */}
+                  <div className="w-24 h-24 relative shrink-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={pieData} innerRadius={28} outerRadius={42} paddingAngle={3} dataKey="value">
+                          {pieData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className="text-[8px] font-black text-slate-400">INCOME</span>
+                      <span className="text-[8px] font-black text-slate-600">{showBalances ? (inc >= 1e6 ? (inc/1e6).toFixed(1)+'jt' : (inc/1e3).toFixed(0)+'rb') : '••'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-              
-              <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-[10px] text-slate-400 font-bold">Total Pengeluaran</span>
-                <span className="text-sm font-black text-slate-900">{formatCurrency(totalStructure)}</span>
-              </div>
-            </div>
+              );
+            })()}
           </Reveal>
         </div>
       </div>
@@ -904,54 +1557,121 @@ export default function Dashboard({
       {/* SECTION 7: KAPASITAS BAYAR                   */}
       {/* ============================================ */}
       <Reveal delay={100}>
-        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
-          <div className="flex justify-between items-center mb-5">
-            <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-widest">
-              <BarChart3 className="text-blue-600" size={16}/> Kapasitas Bayar
-            </h3>
-            <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-bold">Income - Needs vs Cicilan</span>
-          </div>
-          
-          <div className="space-y-5">
-            <div>
-              <div className="flex justify-between text-[11px] font-bold mb-2">
-                <span className="text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"/>Kapasitas (Uang Nganggur)</span>
-                <span className="text-slate-900">{formatCurrency(metrics.netCashflow + metrics.monthlyDebtObligation)}</span>
+        {(() => {
+          const inc = Number(income) || 1;
+          const living = metrics.livingCost;
+          const debt = metrics.monthlyDebtObligation;
+          // Kapasitas = uang yang tersisa setelah biaya hidup, SEBELUM bayar hutang
+          const kapasitas = Math.max(0, inc - living);
+          // Rasio = berapa persen kapasitas yang "habis" untuk bayar cicilan
+          const ratio = kapasitas > 0 ? Math.min(200, (debt / kapasitas) * 100) : 100;
+          const sisa = kapasitas - debt;
+          const isCritical = ratio >= 100;
+          const isWarning = ratio >= 75 && ratio < 100;
+
+          const statusColor = isCritical ? 'text-red-600' : isWarning ? 'text-amber-600' : 'text-emerald-600';
+          const statusBg = isCritical ? 'bg-red-50 border-red-200' : isWarning ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200';
+          const statusLabel = isCritical ? 'Kritis — cicilan melebihi kemampuan' : isWarning ? 'Waspada — hampir di batas maksimum' : 'Sehat — masih ada ruang bernafas';
+
+          const advice = isCritical
+            ? `Cicilan hutang (${formatCurrency(debt)}) melebihi kapasitas bayarmu (${formatCurrency(kapasitas)}). Artinya kamu sedang "nombok" dari tabungan atau kamu menekan kebutuhan hidup. Ini tidak sustainable — segera cari solusi tambah income atau lunasi hutang terbesar.`
+            : isWarning
+            ? `${ratio.toFixed(0)}% dari uang bebas-mu habis untuk cicilan. Hanya tersisa ${formatCurrency(sisa)}/bln. Ruang gerak sangat sempit — hindari hutang baru dan fokus kurangi saldo cicilan terbesar.`
+            : `Kapasitas bayarmu sehat. ${ratio.toFixed(0)}% dari uang bebas dipakai untuk cicilan, sisa ${formatCurrency(sisa)}/bln bisa untuk tabungan atau pelunasan ekstra. Optimalkan surplus ini untuk mempercepat lunas.`;
+
+          // Bar data: show income breakdown as a single stacked bar
+          const livingPct  = Math.min(100, (living / inc) * 100);
+          const debtPct    = Math.min(100 - livingPct, (debt / inc) * 100);
+          const sisaPct    = Math.max(0, 100 - livingPct - debtPct);
+
+          return (
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-widest">
+                  <BarChart3 className="text-blue-600" size={16}/> Kapasitas Bayar
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-0.5">Seberapa kuat income-mu menanggung cicilan setelah kebutuhan hidup terpenuhi</p>
               </div>
-              <div className="h-8 bg-slate-100 rounded-xl overflow-hidden relative">
-                <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-xl flex items-center px-3 text-white text-xs font-black shadow-sm transition-all duration-1000"
-                  style={{ width: `${Math.min(100, Math.max(10, 80))}%` }}>
-                </div>
-              </div>
+              <span className={`px-2 py-1 rounded-lg text-[10px] font-black border ${statusBg} ${statusColor}`}>{statusLabel}</span>
             </div>
-            <div>
-              <div className="flex justify-between text-[11px] font-bold mb-2">
-                <span className="text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-red-500"/>Kewajiban Hutang</span>
-                <span className="text-slate-900">{formatCurrency(metrics.monthlyDebtObligation)}</span>
-              </div>
-              <div className="h-8 bg-slate-100 rounded-xl overflow-hidden relative">
-                <div className="h-full bg-gradient-to-r from-red-500 to-red-400 rounded-xl flex items-center px-3 text-white text-xs font-black shadow-sm transition-all duration-1000"
-                  style={{ width: `${Math.min(100, Math.max(5, (metrics.monthlyDebtObligation / (metrics.netCashflow + metrics.monthlyDebtObligation)) * 80))}%` }}>
+
+            {/* How to read + Explanation */}
+            <div className="mb-4 p-3 rounded-xl border bg-slate-50 border-slate-100">
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-wider mb-1">💡 Fungsi Widget Ini</p>
+              <p className="text-[10px] text-slate-600 leading-relaxed">
+                Mengukur seberapa besar cicilan hutang menyita <strong>ruang gerak</strong> setelah semua kebutuhan hidup terpenuhi.
+                Semakin kecil Rasio Cicilan, semakin banyak uang bebas untuk ditabung atau investasi.
+              </p>
+            </div>
+            <div className={`mb-5 p-3 rounded-xl border ${statusBg}`}>
+              <p className="text-[10px] font-black mb-1" style={{color: isCritical ? '#dc2626' : isWarning ? '#d97706' : '#059669'}}>
+                {isCritical ? '🔴 Status Kritis' : isWarning ? '🟡 Status Waspada' : '🟢 Status Sehat'}
+              </p>
+              <p className="text-[10px] leading-relaxed" style={{color: isCritical ? '#dc2626' : isWarning ? '#d97706' : '#059669'}}>{advice}</p>
+            </div>
+
+            {/* Stacked income bar — visual breakdown of 1 month's income */}
+            <div className="mb-4">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Distribusi Setiap Rp 100 Income</p>
+              <div className="flex h-8 rounded-xl overflow-hidden w-full gap-0.5">
+                <div className="flex items-center justify-center text-[9px] font-black text-white transition-all duration-1000 shrink-0"
+                  style={{ width: `${livingPct}%`, background: '#3b82f6' }}
+                  title={`Kebutuhan Hidup: ${livingPct.toFixed(0)}%`}>
+                  {livingPct > 12 ? `${livingPct.toFixed(0)}%` : ''}
                 </div>
+                <div className="flex items-center justify-center text-[9px] font-black text-white transition-all duration-1000 shrink-0"
+                  style={{ width: `${debtPct}%`, background: isCritical ? '#ef4444' : '#f97316' }}
+                  title={`Cicilan Hutang: ${debtPct.toFixed(0)}%`}>
+                  {debtPct > 8 ? `${debtPct.toFixed(0)}%` : ''}
+                </div>
+                <div className="flex items-center justify-center text-[9px] font-black text-emerald-800 transition-all duration-1000 flex-1"
+                  style={{ background: '#d1fae5' }}
+                  title={`Sisa Bebas: ${sisaPct.toFixed(0)}%`}>
+                  {sisaPct > 5 ? `${sisaPct.toFixed(0)}% sisa` : ''}
+                </div>
+              </div>
+              <div className="flex justify-between mt-1">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-[9px] text-slate-500 flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500 inline-block"/>Kebutuhan {showBalances ? formatCurrency(living) : '••••'}</span>
+                  <span className="text-[9px] text-slate-500 flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-orange-500 inline-block"/>Cicilan {showBalances ? formatCurrency(debt) : '••••'}</span>
+                  <span className="text-[9px] text-slate-500 flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-200 inline-block"/>Sisa {showBalances ? formatCurrency(Math.max(0, sisa)) : '••••'}</span>
+                </div>
+                <span className="text-[9px] font-black text-slate-600">{showBalances ? formatCurrency(inc) : '••••'}/bln</span>
               </div>
             </div>
 
-            {/* Ratio Indicator */}
-            <div className="flex items-center justify-center gap-4 pt-2">
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <div className="w-6 h-1.5 bg-emerald-500 rounded-full" />
-                <span className="text-slate-500 font-medium">Kapasitas</span>
+            {/* Key ratio metric */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-slate-50 rounded-xl text-center">
+                <p className="text-[9px] text-slate-400 font-bold uppercase">Kapasitas Bebas</p>
+                <p className="text-sm font-black text-slate-800">{showBalances ? formatCurrency(kapasitas) : '••••'}</p>
+                <p className="text-[8px] text-slate-400">income − living cost</p>
               </div>
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <div className="w-6 h-1.5 bg-red-500 rounded-full" />
-                <span className="text-slate-500 font-medium">Kewajiban</span>
+              <div className={`p-3 rounded-xl text-center ${isCritical ? 'bg-red-50' : isWarning ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+                <p className="text-[9px] text-slate-400 font-bold uppercase">Rasio Cicilan</p>
+                <p className={`text-sm font-black ${statusColor}`}>{ratio.toFixed(0)}%</p>
+                <p className="text-[8px] text-slate-400">dari kapasitas bebas</p>
               </div>
-              <div className="px-2 py-1 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500">
-                Rasio: {metrics.netCashflow + metrics.monthlyDebtObligation > 0 ? ((metrics.monthlyDebtObligation / (metrics.netCashflow + metrics.monthlyDebtObligation)) * 100).toFixed(0) : 0}%
+              <div className={`p-3 rounded-xl text-center ${sisa < 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                <p className="text-[9px] text-slate-400 font-bold uppercase">Sisa Bersih</p>
+                <p className={`text-sm font-black ${sisa < 0 ? 'text-red-600' : 'text-slate-800'}`}>{showBalances ? formatCurrency(sisa) : '••••'}</p>
+                <p className="text-[8px] text-slate-400">untuk nabung/investasi</p>
               </div>
             </div>
+
+            {/* Action target */}
+            {ratio > 60 && (
+              <div className="mt-3 p-3 rounded-xl bg-blue-50 border border-blue-100">
+                <p className="text-[9px] font-black text-blue-700 mb-0.5">🎯 Yang Harus Kamu Lakukan:</p>
+                <p className="text-[10px] text-blue-600 leading-relaxed">
+                  Untuk masuk zona aman (Rasio ≤75%), cicilan perlu turun ke maksimal <strong>{showBalances ? formatCurrency(kapasitas * 0.75) : '••••'}/bln</strong> — atau income perlu naik ke minimal <strong>{showBalances ? formatCurrency(debt / 0.75 + living) : '••••'}/bln</strong>.
+                </p>
+              </div>
+            )}
           </div>
-        </div>
+          );
+        })()}
       </Reveal>
 
       {/* INLINE CSS ANIMATIONS */}

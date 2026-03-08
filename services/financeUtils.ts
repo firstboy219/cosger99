@@ -141,6 +141,13 @@ export const generateInstallmentsForDebt = (
     // PMT Formula: P * (r(1+r)^n) / ((1+r)^n - 1)
     const annuityPayment = calculatePMT(monthlyRate, totalMonths, originalPrincipal);
 
+    // STEPUP FIX: extend totalMonths if the step-up schedule has periods beyond the computed tenor.
+    // E.g. period 95-95 adjustment row on a 94-month loan must still be generated.
+    if (strategy === 'STEPUP' && stepUpSchedule.length > 0) {
+        const maxStepMonth = Math.max(...stepUpSchedule.map(r => r.endMonth));
+        if (maxStepMonth > totalMonths) totalMonths = maxStepMonth;
+    }
+
     for (let i = 1; i <= totalMonths; i++) {
         let monthlyAmount = 0;
         let principalPart = 0;
@@ -200,22 +207,25 @@ export const generateInstallmentsForDebt = (
             principalPart = Math.max(0, monthlyAmount - interestPart);
         }
 
-        // --- SAFETY CHECKS (CRITICAL FIX) ---
+        // --- SAFETY CHECKS ---
         // Prevent principal part from exceeding remaining balance (natural end-of-loan)
         if (principalPart > currentBalance) {
             principalPart = currentBalance;
-            if (strategy === 'ANNUITY') {
-                // For annuity: recalculate final payment as remaining balance + final interest
-                monthlyAmount = principalPart + interestPart;
-            } else if (strategy === 'STEPUP') {
-                // For STEPUP/FLAT: final payment = remaining balance + flat interest
-                // (interestPart is already the flat interest = originalPrincipal × monthlyRate)
+            if (strategy === 'ANNUITY' || strategy === 'FIXED' || strategy === 'FLAT') {
+                // Recalculate final payment as exact remaining balance + final interest
                 monthlyAmount = principalPart + interestPart;
             }
+            // STEPUP: do NOT override monthlyAmount — the cicilan table amount is authoritative.
+            // The bank's step schedule already encodes the correct final payment.
+            // We only trim principalPart to avoid negative balance.
         }
 
-        const dueDateObj = new Date(start);
-        dueDateObj.setMonth(start.getMonth() + i);
+        // CRITICAL FIX: Set day to 1 BEFORE calling setMonth() to prevent day-overflow.
+        // Bug: new Date("2024-05-29"), setMonth(25) → Feb 2026, day 29 → Feb has 28 days
+        //      → JS overflows to Mar 1, 2026 → setDate(26) → Mar 26 (wrong month!)
+        //      Period 21 = Mar 26 AND period 22 = Mar 26 (duplicate), Feb skipped entirely.
+        // Fix: anchor to day 1 first, then add months safely, then set target day.
+        const dueDateObj = new Date(start.getFullYear(), start.getMonth() + i, 1);
         
         const targetDay = debt.dueDate || 1;
         const maxDayInMonth = new Date(dueDateObj.getFullYear(), dueDateObj.getMonth() + 1, 0).getDate();
@@ -317,26 +327,36 @@ export const generateGlobalProjection = (
 
         tempDebtsStd.forEach(d => {
             if (d.isPaid) return;
-            
+
             let pay = Number(d.monthlyPayment || 0);
-            
-            // Handle Strategies in Projection
+
+            // Determine payment amount from strategy
             if (d.normalizedStrategy === 'STEPUP' && d.parsedStepUp.length > 0) {
                 const absMonth = d.monthsPassedStart + m + 1;
                 const range = d.parsedStepUp.find((r: any) => absMonth >= Number(r.startMonth) && absMonth <= Number(r.endMonth));
-                if (range) pay = Number(range.amount);
-            } 
-
-            const interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
-            let principal = pay - interest;
-            
-            if (principal > d.simBalance) principal = d.simBalance;
-            
-            if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED') {
-                 const orig = d.originalPrincipal || d.remainingPrincipal; 
-                 const flatInterest = (orig * (d.interestRate || 0) / 100) / 12;
-                 principal = pay - flatInterest;
+                if (range) {
+                    pay = Number(range.amount);
+                } else {
+                    // Past end of schedule: use last step's amount (not default monthlyPayment)
+                    const sorted = [...d.parsedStepUp].sort((a: any, b: any) => Number(b.endMonth) - Number(a.endMonth));
+                    if (sorted.length > 0) pay = Number(sorted[0].amount);
+                }
             }
+
+            // Compute interest based on strategy
+            const orig = (d.originalPrincipal || d.startBalance);
+            let interest: number;
+            if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED' || d.normalizedStrategy === 'STEPUP') {
+                // FLAT rate: interest = original principal × monthly rate (constant)
+                interest = (orig * (d.interestRate || 0) / 100) / 12;
+            } else {
+                // ANNUITY / effective rate
+                interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+            }
+
+            let principal = pay - interest;
+            if (principal <= 0) principal = 0; // Safety: never let balance grow
+            if (principal > d.simBalance) principal = d.simBalance;
 
             d.simBalance -= principal;
             if (d.simBalance <= 1000) { d.simBalance = 0; d.isPaid = true; }
@@ -379,16 +399,24 @@ export const generateGlobalProjection = (
                 if ((d.normalizedStrategy === 'STEPUP') && d.parsedStepUp.length > 0) {
                     const absMonth = d.monthsPassedStart + m + 1;
                     const range = d.parsedStepUp.find((r: any) => absMonth >= Number(r.startMonth) && absMonth <= Number(r.endMonth));
-                    if (range) pay = Number(range.amount);
+                    if (range) {
+                        pay = Number(range.amount);
+                    } else {
+                        const sorted = [...d.parsedStepUp].sort((a: any, b: any) => Number(b.endMonth) - Number(a.endMonth));
+                        if (sorted.length > 0) pay = Number(sorted[0].amount);
+                    }
                 }
 
-                let interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
-                if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED') {
-                     const orig = d.originalPrincipal || d.remainingPrincipal;
-                     interest = (orig * (d.interestRate || 0) / 100) / 12;
+                const orig = (d.originalPrincipal || d.startBalance);
+                let interest: number;
+                if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED' || d.normalizedStrategy === 'STEPUP') {
+                    interest = (orig * (d.interestRate || 0) / 100) / 12;
+                } else {
+                    interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
                 }
 
                 let principal = pay - interest;
+                if (principal <= 0) principal = 0; // Safety: never grow balance
                 
                 if (principal > d.simBalance) {
                     extraPool += (principal - d.simBalance); 
@@ -425,16 +453,24 @@ export const generateGlobalProjection = (
                 if ((d.normalizedStrategy === 'STEPUP') && d.parsedStepUp.length > 0) {
                     const absMonth = d.monthsPassedStart + m + 1;
                     const range = d.parsedStepUp.find((r: any) => absMonth >= Number(r.startMonth) && absMonth <= Number(r.endMonth));
-                    if (range) pay = Number(range.amount);
+                    if (range) {
+                        pay = Number(range.amount);
+                    } else {
+                        const sorted = [...d.parsedStepUp].sort((a: any, b: any) => Number(b.endMonth) - Number(a.endMonth));
+                        if (sorted.length > 0) pay = Number(sorted[0].amount);
+                    }
                 }
-                
-                let interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
-                if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED') {
-                     const orig = d.originalPrincipal || d.remainingPrincipal;
-                     interest = (orig * (d.interestRate || 0) / 100) / 12;
+
+                const orig = (d.originalPrincipal || d.startBalance);
+                let interest: number;
+                if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED' || d.normalizedStrategy === 'STEPUP') {
+                    interest = (orig * (d.interestRate || 0) / 100) / 12;
+                } else {
+                    interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
                 }
 
                 let principal = pay - interest;
+                if (principal <= 0) principal = 0; // Safety: never grow balance
                 if (principal > d.simBalance) principal = d.simBalance;
                 d.simBalance -= principal;
                 if (d.simBalance <= 1000) { d.simBalance = 0; d.isPaid = true; }

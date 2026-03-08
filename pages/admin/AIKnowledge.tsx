@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Bot, Plus, Trash2, Save, CheckCircle2, AlertCircle, RefreshCw,
   ChevronDown, ChevronUp, Tag, Lightbulb, MessageSquare, CheckCheck,
   XCircle, Zap, AlertTriangle, Edit2 } from 'lucide-react';
-import { getAdminHeaders, myAdminId } from '../../services/cloudSync';
+import { getAdminHeaders } from '../../services/cloudSync';
+const myAdminId = () => localStorage.getItem('paydone_active_user') || 'admin';
 import {
   AIKnowledgeRule, DEFAULT_RULES, saveKnowledgeRules, fetchKnowledgeRules,
   UnknownPrompt, fetchUnknownPrompts, resolveUnknownPrompt, AIActionType

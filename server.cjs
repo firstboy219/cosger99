@@ -771,6 +771,27 @@ const initDB = async () => {
             "ALTER TABLE client_telemetry ADD COLUMN IF NOT EXISTS event_type VARCHAR(50) DEFAULT 'crash'",
             // [V50.57] Pastikan route_url di client_telemetry cukup panjang untuk URL kompleks
             "ALTER TABLE client_telemetry ALTER COLUMN route_url TYPE VARCHAR(500)",
+            // [V50.66] Missing columns discovered via schema audit
+            "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'task'",
+            "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_completed BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS related_id VARCHAR(255)",
+            "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority VARCHAR(50) DEFAULT 'medium'",
+            "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS context VARCHAR(255)",
+            "ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS holder_name VARCHAR(255)",
+            "ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS color VARCHAR(100)",
+            "ALTER TABLE incomes ADD COLUMN IF NOT EXISTS date DATE",
+            "ALTER TABLE incomes ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE incomes ADD COLUMN IF NOT EXISTS category VARCHAR(100)",
+            "ALTER TABLE incomes ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE daily_expenses ADD COLUMN IF NOT EXISTS notes TEXT",
+            "ALTER TABLE daily_expenses ADD COLUMN IF NOT EXISTS allocation_id VARCHAR(255)",
+            "ALTER TABLE daily_expenses ADD COLUMN IF NOT EXISTS date DATE",
+            "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE ai_unknown_prompts ADD COLUMN IF NOT EXISTS resolved_actions JSONB DEFAULT '[]'::jsonb",
+            "ALTER TABLE qa_scenarios ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE promos ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE packages ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
         ];
         for (const sql of migrations) { await client.query(sql).catch(() => {}); }
 
@@ -1654,7 +1675,7 @@ app.get("/api/activity-logs", async (req, res) => {
 // SalesPaymentMethods.tsx calls GET /sales/payment-methods to load the list.
 // Previously only POST existed. Now GET is added for sales role.
 app.get("/api/sales/payment-methods", requireRole(['sales']), async (req, res) => {
-    try { const r = await pool.query("SELECT * FROM payment_methods ORDER BY created_at DESC"); res.json(keysToCamel(r.rows)); } catch (e) { res.status(500).json({ error: e.message }); }
+    try { const r = await pool.query("SELECT * FROM payment_methods ORDER BY updated_at DESC"); res.json(keysToCamel(r.rows)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // [V50.61 NEW] DELETE /api/sales/payment-methods/:id
@@ -1691,7 +1712,7 @@ app.post("/api/sales/payment-methods", requireRole(['sales']), async (req, res) 
 app.get("/api/sales/promos", requireRole(['sales']), async (req, res) => {
     // V50.59: Return raw snake_case rows — Promo type di types.ts pakai snake_case
     // (discount_percentage, discount_nominal, valid_until, target_user_id, image_url)
-    try { const r = await pool.query("SELECT * FROM promos ORDER BY created_at DESC"); res.json(r.rows); } catch (e) { res.status(500).json({ error: e.message }); }
+    try { const r = await pool.query("SELECT * FROM promos ORDER BY updated_at DESC"); res.json(r.rows); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/sales/promos", requireRole(['sales']), async (req, res) => {
@@ -2247,13 +2268,13 @@ app.get("/api/sync", async (req, res) => {
             return pkg;
         });
         const pmRes     = await client.query("SELECT * FROM payment_methods WHERE is_active = TRUE");
-        const promosRes = await client.query("SELECT * FROM promos ORDER BY created_at DESC");
+        const promosRes = await client.query("SELECT * FROM promos ORDER BY updated_at DESC");
         const subsRes   = await client.query(
             `SELECT s.*, p.name as package_name, p.features, p.ai_limit
              FROM subscriptions s
              LEFT JOIN packages p ON s.package_id = p.id
              WHERE s.user_id = $1
-             ORDER BY s.created_at DESC LIMIT 5`,
+             ORDER BY s.updated_at DESC LIMIT 5`,
             [userId]
         );
 
@@ -2319,8 +2340,8 @@ app.post('/api/sync', async (req, res) => {
         if (Array.isArray(incomes) && incomes.length) {
             for (const item of incomes) {
                 const i = keysToCamel(item);
-                await client.query(`INSERT INTO incomes (id,user_id,source,amount,type,frequency,date_received,notes,end_date,metadata,updated_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (id) DO UPDATE SET source=EXCLUDED.source,amount=EXCLUDED.amount,type=EXCLUDED.type,frequency=EXCLUDED.frequency,date_received=EXCLUDED.date_received,notes=EXCLUDED.notes,end_date=EXCLUDED.end_date,metadata=EXCLUDED.metadata,updated_at=LEAST(EXCLUDED.updated_at,NOW()) WHERE incomes.updated_at < LEAST(EXCLUDED.updated_at,NOW())`,
-                    [i.id, reqUserId, i.source, i.amount ?? 0, i.type, i.frequency, i.dateReceived, i.notes, i.endDate, safeMeta(i), now, i.createdAt || now]);
+                await client.query(`INSERT INTO incomes (id,user_id,source,amount,type,frequency,date_received,date,is_recurring,category,notes,end_date,metadata,updated_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (id) DO UPDATE SET source=EXCLUDED.source,amount=EXCLUDED.amount,type=EXCLUDED.type,frequency=EXCLUDED.frequency,date_received=EXCLUDED.date_received,date=EXCLUDED.date,is_recurring=EXCLUDED.is_recurring,category=EXCLUDED.category,notes=EXCLUDED.notes,end_date=EXCLUDED.end_date,metadata=EXCLUDED.metadata,updated_at=LEAST(EXCLUDED.updated_at,NOW()) WHERE incomes.updated_at < LEAST(EXCLUDED.updated_at,NOW())`,
+                    [i.id, reqUserId, i.source, i.amount ?? 0, i.type, i.frequency, i.dateReceived, i.date || i.dateReceived, i.isRecurring ?? false, i.category || 'salary', i.notes, i.endDate, safeMeta(i), now, i.createdAt || now]);
             }
         }
 
@@ -2367,8 +2388,8 @@ app.post('/api/sync', async (req, res) => {
         if (Array.isArray(bankAccounts) && bankAccounts.length) {
             for (const item of bankAccounts) {
                 const b = keysToCamel(item);
-                await client.query(`INSERT INTO bank_accounts (id,user_id,bank_name,account_name,account_number,balance,type,color,metadata,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET bank_name=EXCLUDED.bank_name,account_name=EXCLUDED.account_name,account_number=EXCLUDED.account_number,balance=EXCLUDED.balance,type=EXCLUDED.type,color=EXCLUDED.color,metadata=EXCLUDED.metadata,updated_at=LEAST(EXCLUDED.updated_at,NOW()) WHERE bank_accounts.updated_at < LEAST(EXCLUDED.updated_at,NOW())`,
-                    [b.id, reqUserId, b.bankName, b.accountName, b.accountNumber, b.balance ?? 0, b.type, b.color, safeMeta(b), now]);
+                await client.query(`INSERT INTO bank_accounts (id,user_id,bank_name,account_name,holder_name,account_number,balance,type,color,is_primary,metadata,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (id) DO UPDATE SET bank_name=EXCLUDED.bank_name,account_name=EXCLUDED.account_name,holder_name=EXCLUDED.holder_name,account_number=EXCLUDED.account_number,balance=EXCLUDED.balance,type=EXCLUDED.type,color=EXCLUDED.color,is_primary=EXCLUDED.is_primary,metadata=EXCLUDED.metadata,updated_at=LEAST(EXCLUDED.updated_at,NOW()) WHERE bank_accounts.updated_at < LEAST(EXCLUDED.updated_at,NOW())`,
+                    [b.id, reqUserId, b.bankName, b.accountName, b.holderName || b.accountName, b.accountNumber, b.balance ?? 0, b.type, b.color, b.isPrimary ?? false, safeMeta(b), now]);
             }
         }
 

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { ShieldCheck, Database, LogOut, Users, Settings, Briefcase, Server, Code, Rocket, RefreshCw, Wifi, WifiOff, History, LayoutDashboard, Terminal, Workflow, Ticket, ArrowLeftRight, Bot, Activity, Building2, DatabaseZap, Eye, X, Copy, ArrowUpRight, ArrowDownLeft, GitBranch } from 'lucide-react';
+import { ShieldCheck, Database, LogOut, Users, Settings, Briefcase, Server, Code, Rocket, RefreshCw, Wifi, WifiOff, History, LayoutDashboard, Terminal, Workflow, Ticket, ArrowLeftRight, Bot, Activity, Building2, DatabaseZap, Eye, X, Copy, ArrowUpRight, ArrowDownLeft, GitBranch, FileText } from 'lucide-react';
 import { getConfig } from '../services/mockDb';
 
 const SidebarItem = ({ to, icon: Icon, label, badge }: { to: string, icon: any, label: string, badge?: string }) => {
@@ -143,6 +143,7 @@ export default function AdminLayout({ onLogout }: { onLogout: () => void }) {
                 <SidebarItem to="/admin/settings" icon={Settings} label="Global Settings" />
                 <SidebarItem to="/admin/ai-center" icon={Bot} label="AI Neural Center" />
                 <SidebarItem to="/admin/ai-knowledge" icon={Bot} label="AI Knowledge Base" />
+                <SidebarItem to="/admin/narrative" icon={FileText} label="Narasi Keuangan" />
             </div>
           </div>
           

@@ -14,6 +14,12 @@ import { formatCurrency, generateGlobalProjection, generateCrossingAnalysis, get
 import { matchRules, fetchKnowledgeRules, AIKnowledgeRule, AIParseResult, reportUnknownPrompt } from '../services/localAI';
 import { pullUserDataFromCloud } from '../services/cloudSync';
 import { getConfig } from '../services/mockDb';
+import {
+  NarrativeTemplate,
+  fetchNarrativeTemplates,
+  generateNarrativeFromTemplates,
+  DEFAULT_NARRATIVE_TEMPLATES,
+} from '../services/narrativeService';
 import LivingCostWidget from '../components/widgets/LivingCostWidget';
 import FeatureGate from '../components/FeatureGate';
 
@@ -123,7 +129,8 @@ export default function Dashboard({
   const [freedomMode, setFreedomMode] = useState<'lump_sum' | 'cutoff'>('lump_sum');
   const [freedomMatrix, setFreedomMatrix] = useState<any>(null);
   const [crossingData, setCrossingData] = useState<any>(null);
-  const [aiSummary, setAiSummary] = useState("AI sedang menganalisa data keuanganmu...");
+  const [narrativeOpen, setNarrativeOpen] = useState(false);
+  const [narrativeTemplates, setNarrativeTemplates] = useState<NarrativeTemplate[]>(DEFAULT_NARRATIVE_TEMPLATES);
   const [showBalances, setShowBalances] = useState(true);
   const [expandedDebt, setExpandedDebt] = useState<string | null>(null);
   const [activeMetricTab, setActiveMetricTab] = useState<'overview' | 'debts' | 'cashflow'>('overview');
@@ -205,20 +212,10 @@ export default function Dashboard({
       setCrossingData(crossing);
   }, [debts, income, allocations, extraPayment, freedomMode, debtInstallments]);
 
-  // --- 3. GENERATE LOCAL AI SUMMARY (no external API needed) ---
+  // --- 3. LOAD NARRATIVE TEMPLATES FROM CLOUD ---
   useEffect(() => {
-      const getSummary = async () => {
-          if (Number(income || 0) <= 0 && debts.length === 0) return;
-          const lcRatio = Number(income) > 0 ? (metrics.livingCost / Number(income)) * 100 : 0;
-          if (metrics.dsr > 40) setAiSummary("DSR kamu " + metrics.dsr.toFixed(1) + "% — terlalu tinggi. Prioritaskan lunasi hutang konsumtif agar cashflow bernafas.");
-          else if (metrics.runway < 3) setAiSummary("Dana darurat hanya cukup " + metrics.runway.toFixed(1) + " bulan. Tambah tabungan darurat sebelum investasi.");
-          else if (lcRatio > 70) setAiSummary("Living cost " + lcRatio.toFixed(0) + "% dari income — terlalu boros. Review pos pengeluaran dan pangkas yang tidak perlu.");
-          else if (metrics.dsr > 30) setAiSummary("DSR " + metrics.dsr.toFixed(1) + "% masih dalam batas. Jaga agar tidak naik, hindari hutang baru.");
-          else setAiSummary("Kondisi finansial prima! DSR " + metrics.dsr.toFixed(1) + "% — saatnya agresif investasi.");
-      };
-      const timeout = setTimeout(getSummary, 1500);
-      return () => clearTimeout(timeout);
-  }, [metrics.dsr, metrics.runway]);
+    fetchNarrativeTemplates().then(setNarrativeTemplates);
+  }, []);
 
   // Load knowledge rules for local AI
   useEffect(() => {
@@ -533,6 +530,131 @@ export default function Dashboard({
       </Reveal>
 
       {/* ============================================ */}
+      {/* SECTION 1b: NARRATIVE ANALYSIS WIDGET        */}
+      {/* (Below AI Assistant — per V50.78 requirement) */}
+      {/* ============================================ */}
+      <Reveal delay={80}>
+        {(() => {
+          const inc = Number(income) || 1;
+          const now = new Date();
+          const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+          const totalOriginalN = metrics.activeDebts.reduce((s,d) => s + Number(d.originalPrincipal||d.remainingPrincipal),0);
+          const totalPaidN     = totalOriginalN - metrics.totalDebt;
+          const paidPctN       = totalOriginalN > 0 ? Math.min(100,(totalPaidN/totalOriginalN)*100) : 0;
+          const nearestDebtN   = [...metrics.activeDebts].filter(d => d.endDate).sort((a,b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime())[0];
+          const nearestEndDateN = nearestDebtN ? new Date(nearestDebtN.endDate) : null;
+          const monthsToNearestN = nearestEndDateN
+            ? (nearestEndDateN.getFullYear() - now.getFullYear())*12 + (nearestEndDateN.getMonth() - now.getMonth())
+            : 0;
+          const sfGoalN    = sinkingFunds.reduce((s,f) => s + Number(f.targetAmount||0), 0);
+          const sfCurrentN = metrics.totalLiquid;
+          const sfPctN     = sfGoalN > 0 ? Math.min(100,(sfCurrentN/sfGoalN)*100) : 0;
+          const trendN     = metrics.monthlyTrend;
+          const trendLastN = trendN[trendN.length - 1] || 0;
+          const trendPrevN = trendN[trendN.length - 2] || 0;
+          const trendDeltaN = trendPrevN > 0 ? ((trendLastN - trendPrevN) / trendPrevN) * 100 : 0;
+          const lcRatioN   = inc > 0 ? (metrics.livingCost / inc) * 100 : 0;
+
+          const paragraphs = generateNarrativeFromTemplates(narrativeTemplates, {
+            inc,
+            livingCost: metrics.livingCost,
+            monthlyDebtObligation: metrics.monthlyDebtObligation,
+            netCashflow: metrics.netCashflow,
+            dsr: metrics.dsr,
+            runway: metrics.runway,
+            healthScore: metrics.healthScore,
+            totalDebt: metrics.totalDebt,
+            totalLiquid: metrics.totalLiquid,
+            activeDebts: metrics.activeDebts,
+            sfGoal: sfGoalN,
+            sfCurrent: sfCurrentN,
+            sfPct: sfPctN,
+            paidPct: paidPctN,
+            nearestDebt: nearestDebtN ?? null,
+            monthsToNearest: monthsToNearestN,
+            lcRatio: lcRatioN,
+            trendDelta: trendDeltaN,
+            monthName: monthNames[now.getMonth()],
+            year: now.getFullYear(),
+          });
+
+          if (paragraphs.length === 0) return null;
+
+          const isBad   = metrics.dsr > 40 || metrics.netCashflow < 0;
+          const isWarn  = metrics.dsr > 30 || metrics.runway < 3;
+          const bannerColor = isBad  ? 'from-red-50 to-rose-50 border-red-200'
+                            : isWarn ? 'from-amber-50 to-orange-50 border-amber-200'
+                            : 'from-indigo-50 to-violet-50 border-indigo-200';
+          const iconColor   = isBad  ? 'text-red-500'   : isWarn ? 'text-amber-500'   : 'text-indigo-500';
+          const dotColor    = isBad  ? 'bg-red-500'     : isWarn ? 'bg-amber-500'     : 'bg-emerald-500';
+          const headerBg    = isBad  ? 'bg-red-600'     : isWarn ? 'bg-amber-500'     : 'bg-indigo-600';
+          const badge       = isBad  ? '🚨 Perlu Perhatian' : isWarn ? '⚠️ Ada yang Perlu Dijaga' : '✅ Kondisi Sehat';
+
+          return (
+            <div className={`bg-gradient-to-br ${bannerColor} border rounded-3xl overflow-hidden shadow-sm`}>
+              {/* Header */}
+              <div className="px-6 py-4 flex items-center justify-between border-b border-white/60">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 ${headerBg} text-white rounded-xl shadow-sm`}>
+                    <BrainCircuit size={16}/>
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-slate-800">Analisa Narasi Keuangan</p>
+                    <p className="text-[10px] text-slate-500">{monthNames[now.getMonth()]} {now.getFullYear()} · {paragraphs.length} paragraf analisa</p>
+                  </div>
+                </div>
+                <span className={`${headerBg} text-white text-[10px] font-black px-3 py-1.5 rounded-full shadow-sm`}>
+                  {badge}
+                </span>
+              </div>
+
+              {/* Collapsed toggle */}
+              <button
+                onClick={() => setNarrativeOpen(v => !v)}
+                className="w-full px-6 py-3 flex items-center justify-between group hover:bg-white/30 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles size={13} className={`${iconColor} flex-shrink-0`}/>
+                  <p className="text-[11px] font-bold text-slate-700 group-hover:text-slate-900 transition-colors">
+                    {narrativeOpen ? 'Tutup analisa narasi' : 'Lihat analisa kondisi keuangan lengkap →'}
+                  </p>
+                </div>
+                {!narrativeOpen && paragraphs.length > 0 && (
+                  <p className="text-[10px] text-slate-500 italic max-w-sm truncate ml-3 hidden sm:block">
+                    {paragraphs[0].substring(0, 90)}…
+                  </p>
+                )}
+                <ChevronDown size={14} className={`${iconColor} flex-shrink-0 transition-transform duration-200 ${narrativeOpen ? 'rotate-180' : ''}`}/>
+              </button>
+
+              {/* Expanded paragraphs */}
+              {narrativeOpen && (
+                <div className="px-6 pb-5 space-y-3 border-t border-white/60 pt-4">
+                  {paragraphs.map((para, idx) => (
+                    <div key={idx} className="flex gap-3">
+                      <div className="flex-shrink-0 mt-1.5">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-black
+                          ${idx === 0 ? 'bg-violet-500' : idx === 1 ? dotColor : 'bg-indigo-500'}`}>
+                          {idx + 1}
+                        </div>
+                      </div>
+                      <p className="text-[12px] text-slate-700 leading-relaxed">{para}</p>
+                    </div>
+                  ))}
+                  <div className="mt-3 pt-3 border-t border-slate-200/60 flex items-center gap-1.5">
+                    <Info size={10} className="text-slate-400 flex-shrink-0"/>
+                    <p className="text-[9px] text-slate-400 italic">
+                      Narasi dibuat otomatis dari data keuanganmu. Bukan saran investasi profesional.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </Reveal>
+
+      {/* ============================================ */}
       {/* SECTION 2: HEALTH SCORE + KEY METRICS        */}
       {/* ============================================ */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -646,11 +768,16 @@ export default function Dashboard({
               </div>
             </div>
 
-            {/* AI Summary */}
+            {/* AI Summary — short version from template narrative */}
             <div className="mt-4 p-3 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100">
               <p className="text-[11px] text-slate-600 leading-relaxed flex items-start gap-2">
                 <Sparkles size={14} className="text-blue-500 shrink-0 mt-0.5"/>
-                <span className="italic">{aiSummary.split('.').slice(0, 2).join('.')}.</span>
+                <span className="italic">{
+                  metrics.dsr > 40 ? `DSR ${metrics.dsr.toFixed(1)}% — terlalu tinggi. Prioritaskan lunasi hutang konsumtif agar cashflow bernafas.`
+                  : metrics.runway < 3 ? `Dana darurat hanya cukup ${metrics.runway.toFixed(1)} bulan. Tambah tabungan darurat sebelum investasi.`
+                  : metrics.dsr > 30 ? `DSR ${metrics.dsr.toFixed(1)}% masih dalam batas. Jaga agar tidak naik, hindari hutang baru.`
+                  : `Kondisi finansial prima! DSR ${metrics.dsr.toFixed(1)}% — saatnya agresif investasi.`
+                }</span>
               </p>
             </div>
           </div>
@@ -1997,6 +2124,8 @@ export default function Dashboard({
             : goodCount >= insights.length * 0.7 ? { text: 'Kondisi Keuangan Prima', bg: 'bg-emerald-600', emoji: '✅' }
             : { text: 'Cukup Baik, Terus Jaga', bg: 'bg-blue-600', emoji: '💪' };
 
+          // [V50.78] narrativeParagraphs moved to Section 1b widget (below AI Assistant)
+
           return (
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all overflow-hidden">
             {/* Header */}
@@ -2016,13 +2145,7 @@ export default function Dashboard({
               </span>
             </div>
 
-            {/* AI Summary Banner */}
-            <div className="px-6 py-3 bg-gradient-to-r from-violet-50 to-indigo-50 border-b border-violet-100 flex items-start gap-2">
-              <BrainCircuit size={13} className="text-violet-500 mt-0.5 flex-shrink-0"/>
-              <p className="text-[11px] text-violet-700 leading-relaxed">{aiSummary}</p>
-            </div>
-
-            {/* Insight Grid */}
+            {/* Insight Grid — Narrative moved above Section 2 (below AI Assistant widget) [V50.78] */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-5">
               {insights.map((item, i) => {
                 const st = statusStyle(item.status);

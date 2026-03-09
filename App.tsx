@@ -30,6 +30,7 @@ import BillingPage from './pages/BillingPage';
 import AdminDashboard from './pages/admin/AdminDashboard'; 
 import AICenter from './pages/admin/AICenter';
 import AIKnowledge from './pages/admin/AIKnowledge';
+import NarrativeAdmin from './pages/admin/NarrativeAdmin';
 import SQLStudio from './pages/admin/SQLStudio';
 import Tickets from './pages/admin/Tickets';
 import BAAnalyst from './pages/admin/BAAnalyst';
@@ -582,6 +583,7 @@ export default function App() {
             <Route path="logs" element={<ActivityLogs userType="admin" />} />
             <Route path="ai-center" element={<AICenter />} />
             <Route path="ai-knowledge" element={<AIKnowledge />} />
+            <Route path="narrative" element={<NarrativeAdmin />} />
             <Route path="tickets" element={<Tickets />} />
             <Route path="ba" element={<BAAnalyst />} />
             <Route path="qa" element={<QAAnalyst />} />

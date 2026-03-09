@@ -103,7 +103,7 @@
  * ==============================================================================
  */
 
-console.log("🚀 IGNITING PAYDONE SERVER V50.77 (DEEPSCAN EDITION)...");
+console.log("🚀 IGNITING PAYDONE SERVER V50.78 (NARRATIVE EDITION)...");
 
 const { WebSocketServer } = require('ws');
 require("dotenv").config();
@@ -545,7 +545,7 @@ const SYSTEM_FEATURES = [
 const initDB = async () => {
     const client = await pool.connect();
     try {
-        console.log("🛠️ Checking V50.58 DB Schema...");
+        console.log("🛠️ Checking V50.78 DB Schema...");
 
         await client.query(`CREATE TABLE IF NOT EXISTS global_configs (
             key VARCHAR(255) PRIMARY KEY, value JSONB, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -664,7 +664,11 @@ const initDB = async () => {
         // Seed AI Knowledge Base if empty
         try {
         const kbCheck = await client.query("SELECT value FROM global_configs WHERE key='ai_knowledge_rules'");
-        if (kbCheck.rows.length === 0 || kbCheck.rows[0].value === '[]' || kbCheck.rows[0].value === 'null') {
+        // [V50.78 FIX] value is JSONB — pg returns parsed JS object/array, not the string '[]' or 'null'.
+        // Compare against empty array length or check for null/undefined instead of string equality.
+        const kbVal = kbCheck.rows[0]?.value;
+        const kbEmpty = kbCheck.rows.length === 0 || kbVal === null || kbVal === undefined || (Array.isArray(kbVal) && kbVal.length === 0);
+        if (kbEmpty) {
             const seedRules = [{"id": "exp_food", "label": "Catat Makan/Minum", "action": "ADD_EXPENSE", "priority": 10, "isActive": true, "triggers": ["makan", "minum", "kopi", "teh", "bakso", "nasi", "soto", "ayam", "ikan", "pizza", "burger", "jajan", "snack", "sarapan", "lunch", "dinner", "boba", "susu", "es", "jus", "warung", "resto", "cafe", "kedai", "food", "eat"], "example": "catat makan siang 35rb", "defaultFields": {"category": "Food"}, "description": "Pengeluaran makanan & minuman"}, {"id": "exp_transport", "label": "Catat Transportasi", "action": "ADD_EXPENSE", "priority": 10, "isActive": true, "triggers": ["bensin", "solar", "pertamax", "pertalite", "bbm", "parkir", "grab", "gojek", "tol", "ojek", "busway", "kereta", "mrt", "bus", "angkot", "transportasi", "tiket", "travel", "transport", "uber"], "example": "bensin motor 50rb", "defaultFields": {"category": "Transport"}, "description": "Pengeluaran transportasi"}, {"id": "exp_belanja", "label": "Catat Belanja", "action": "ADD_EXPENSE", "priority": 9, "isActive": true, "triggers": ["beli", "belanja", "shopee", "tokopedia", "lazada", "toko", "mall", "indomaret", "alfamart", "hypermart", "supermarket", "shopping", "purchase", "checkout"], "example": "beli baju di mall 200rb", "defaultFields": {"category": "Shopping"}, "description": "Pengeluaran belanja"}, {"id": "exp_tagihan", "label": "Catat Tagihan/Utilitas", "action": "ADD_EXPENSE", "priority": 9, "isActive": true, "triggers": ["listrik", "air", "pdam", "gas", "internet", "wifi", "indihome", "tagihan", "bayar tagihan", "pln", "token", "pulsa", "kuota", "bills", "utility", "netflix", "spotify", "youtube premium"], "example": "bayar listrik 350rb", "defaultFields": {"category": "Utilities"}, "description": "Pengeluaran tagihan & utilitas"}, {"id": "exp_hiburan", "label": "Catat Hiburan", "action": "ADD_EXPENSE", "priority": 8, "isActive": true, "triggers": ["nonton", "bioskop", "film", "game", "main", "hiburan", "liburan", "wisata", "konser", "event", "entertainment", "subscribe", "langganan"], "example": "nonton bioskop 75rb", "defaultFields": {"category": "Entertainment"}, "description": "Pengeluaran hiburan"}, {"id": "exp_kesehatan", "label": "Catat Kesehatan", "action": "ADD_EXPENSE", "priority": 9, "isActive": true, "triggers": ["obat", "dokter", "rumah sakit", "klinik", "apotek", "vitamin", "suplemen", "check up", "medical", "berobat", "bpjs", "puskesmas"], "example": "beli obat 45rb", "defaultFields": {"category": "Others"}, "description": "Pengeluaran kesehatan"}, {"id": "exp_cicilan", "label": "Catat Bayar Cicilan", "action": "ADD_EXPENSE", "priority": 9, "isActive": true, "triggers": ["bayar cicilan", "bayar kredit", "bayar pinjaman", "angsuran", "bayar hutang", "cicil"], "example": "bayar cicilan motor 900rb", "defaultFields": {"category": "Others"}, "description": "Pengeluaran bayar cicilan"}, {"id": "exp_general", "label": "Catat Pengeluaran Umum", "action": "ADD_EXPENSE", "priority": 5, "isActive": true, "triggers": ["catat", "pengeluaran", "expense", "spend", "keluar", "habis", "bayar"], "example": "catat pengeluaran parkir 5rb", "defaultFields": {"category": "Others"}, "description": "Pengeluaran umum"}, {"id": "inc_gaji", "label": "Log Gaji Masuk", "action": "ADD_INCOME", "priority": 10, "isActive": true, "triggers": ["gaji", "salary", "slip gaji", "take home pay", "thp", "terima gaji", "gajian"], "example": "gaji bulan ini 8jt", "defaultFields": {"source": "Gaji", "category": "salary"}, "description": "Log penerimaan gaji"}, {"id": "inc_freelance", "label": "Log Pendapatan Freelance", "action": "ADD_INCOME", "priority": 9, "isActive": true, "triggers": ["freelance", "project", "fee project", "honor", "klien", "client", "bayaran project", "hasil kerja"], "example": "dapat fee project 3jt", "defaultFields": {"source": "Freelance", "category": "freelance"}, "description": "Log pendapatan freelance"}, {"id": "inc_bonus", "label": "Log Bonus/THR", "action": "ADD_INCOME", "priority": 9, "isActive": true, "triggers": ["bonus", "thr", "insentif", "incentive", "komisi", "commission", "reward", "hadiah uang"], "example": "terima bonus tahunan 5jt", "defaultFields": {"source": "Bonus", "category": "bonus"}, "description": "Log bonus & THR"}, {"id": "inc_transfer", "label": "Log Transfer Masuk", "action": "ADD_INCOME", "priority": 8, "isActive": true, "triggers": ["transfer masuk", "terima transfer", "uang masuk", "dapet transferan", "masuk rekening", "deposit"], "example": "transfer masuk dari ibu 500rb", "defaultFields": {"source": "Transfer", "category": "other"}, "description": "Log transfer masuk"}, {"id": "inc_general", "label": "Log Pemasukan Umum", "action": "ADD_INCOME", "priority": 5, "isActive": true, "triggers": ["pemasukan", "income", "dapat uang", "terima uang", "masuk", "pendapatan", "penghasilan"], "example": "pemasukan hari ini 200rb", "defaultFields": {"source": "Lainnya", "category": "other"}, "description": "Log pemasukan umum"}, {"id": "task_cicilan", "label": "Reminder Bayar Cicilan", "action": "ADD_TASK", "priority": 9, "isActive": true, "triggers": ["ingatkan bayar", "reminder bayar", "jangan lupa bayar", "ingat cicilan", "deadline cicilan"], "example": "ingatkan bayar cicilan besok", "defaultFields": {"priority": "high"}, "description": "Pengingat bayar cicilan"}, {"id": "task_general", "label": "Buat Tugas/Reminder", "action": "ADD_TASK", "priority": 6, "isActive": true, "triggers": ["ingatkan", "remind me", "jangan lupa", "todo", "tugas", "task", "jadwal", "schedule", "besok", "lusa", "minggu depan"], "example": "ingatkan meeting klien besok jam 10", "defaultFields": {"priority": "medium"}, "description": "Tugas dan pengingat umum"}, {"id": "health_check", "label": "Cek Kesehatan Finansial", "action": "CHECK_HEALTH", "priority": 8, "isActive": true, "triggers": ["cek kesehatan", "analisa keuangan", "kondisi keuangan", "gimana keuangan", "financial health", "skor keuangan", "dsr saya", "runway saya", "status keuangan"], "example": "cek kesehatan keuangan saya", "defaultFields": {}, "description": "Analisa kesehatan keuangan"}, {"id": "show_debts", "label": "Lihat Hutang", "action": "SHOW_DEBTS", "priority": 7, "isActive": true, "triggers": ["lihat hutang", "cek hutang", "hutang saya", "total hutang", "cicilan saya", "kredit saya", "daftar hutang", "pinjaman saya"], "example": "lihat semua hutang aktif saya", "defaultFields": {}, "description": "Daftar hutang aktif"}];
             await client.query(
                 "INSERT INTO global_configs(key,value,updated_at) VALUES('ai_knowledge_rules',$1,NOW()) ON CONFLICT(key) DO UPDATE SET value=$1,updated_at=NOW()",
@@ -771,7 +775,7 @@ const initDB = async () => {
         )`);
 
         // Schema migrations
-        console.log("🔧 Applying V50.58 Schema Migrations...");
+        console.log("🔧 Applying V50.78 Schema Migrations...");
         const migrations = [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_id VARCHAR(255)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_hits_used INT DEFAULT 0",
@@ -871,7 +875,7 @@ const initDB = async () => {
         if (process.env.GEMINI_API_KEY) SEED_CONFIG.geminiApiKey = process.env.GEMINI_API_KEY;
         await client.query(`INSERT INTO config (id, data, updated_at) VALUES ('app_config', $1, NOW()) ON CONFLICT (id) DO NOTHING`, [SEED_CONFIG]);
 
-        console.log("✅ V50.58 DB Init Complete. All tables ready.");
+        console.log("✅ V50.78 DB Init Complete. All tables ready.");
     } catch (e) { console.error("❌ DB Init Error:", e.message); }
     finally { client.release(); }
 };
@@ -977,7 +981,7 @@ const checkAiQuota = async (req, res, next) => {
 // =============================================================================
 // --- UTILITY ROUTES ---
 // =============================================================================
-app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.77-deepscan-edition", db: "connected" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.78-narrative-edition", db: "connected" }));
 app.get("/api/features/list", (req, res) => res.json(SYSTEM_FEATURES));
 
 // =============================================================================
@@ -1577,7 +1581,9 @@ app.get("/api/admin/source-code", async (req, res) => {
 // =============================================================================
 app.get("/api/sales/users/idle", requireRole(['sales']), async (req, res) => {
     try {
-        const thresholdDays = (await pool.query("SELECT data FROM config WHERE id = 'app_config'")).rows[0]?.data?.systemRules?.idleThresholdDays || 90;
+        // [V50.78 FIX] parseInt() ensures thresholdDays is always a safe integer before SQL interpolation
+        const rawDays = (await pool.query("SELECT data FROM config WHERE id = 'app_config'")).rows[0]?.data?.systemRules?.idleThresholdDays;
+        const thresholdDays = parseInt(rawDays, 10) || 90;
         const r = await pool.query(`SELECT id, username, email, last_login FROM users WHERE status='active' AND last_login < NOW() - INTERVAL '${thresholdDays} days' ORDER BY last_login ASC`);
         res.json({ thresholdDays, idleUsers: keysToCamel(r.rows) });
     } catch(e) { res.status(500).json({ error: "Fetch failed" }); }
@@ -1642,7 +1648,9 @@ app.post("/api/sales/reactivate", requireRole(['sales']), async (req, res) => {
             );
         } else {
             // Fallback: all idle users
-            const thresholdDays = (await pool.query("SELECT data FROM config WHERE id = 'app_config'")).rows[0]?.data?.systemRules?.idleThresholdDays || 90;
+            // [V50.78 FIX] parseInt() ensures safe integer before SQL interpolation
+            const rawDays2 = (await pool.query("SELECT data FROM config WHERE id = 'app_config'")).rows[0]?.data?.systemRules?.idleThresholdDays;
+            const thresholdDays = parseInt(rawDays2, 10) || 90;
             users = await pool.query(`SELECT email, username FROM users WHERE status='active' AND last_login < NOW() - INTERVAL '${thresholdDays} days'`);
         }
 
@@ -1725,13 +1733,17 @@ app.get("/api/sales/packages", requireRole(['sales']), async (req, res) => {
 
 app.post("/api/sales/packages", requireRole(['sales']), async (req, res) => {
     const { id, name, price, aiLimit, ai_limit, features, isDefaultFree, is_default_free, isActive, is_active, description, badgeColor, badge_color } = req.body;
+    // [V50.78 FIX] Use dedicated client for transaction — pool.query("BEGIN") routes each call to a
+    // different connection so BEGIN/COMMIT are never on the same connection. Atomicity was broken.
+    const client = await pool.connect();
     try {
-        await pool.query("BEGIN");
-        if (isDefaultFree || is_default_free) await pool.query("UPDATE packages SET is_default_free = FALSE");
-        const r = await pool.query("INSERT INTO packages (id, name, price, ai_limit, features, is_default_free, is_active, description, badge_color) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, price=EXCLUDED.price, ai_limit=EXCLUDED.ai_limit, features=EXCLUDED.features, is_default_free=EXCLUDED.is_default_free, is_active=EXCLUDED.is_active, description=EXCLUDED.description, badge_color=EXCLUDED.badge_color RETURNING *",
+        await client.query("BEGIN");
+        if (isDefaultFree || is_default_free) await client.query("UPDATE packages SET is_default_free = FALSE");
+        const r = await client.query("INSERT INTO packages (id, name, price, ai_limit, features, is_default_free, is_active, description, badge_color) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, price=EXCLUDED.price, ai_limit=EXCLUDED.ai_limit, features=EXCLUDED.features, is_default_free=EXCLUDED.is_default_free, is_active=EXCLUDED.is_active, description=EXCLUDED.description, badge_color=EXCLUDED.badge_color RETURNING *",
             [id || `pkg-${crypto.randomUUID()}`, name, price, aiLimit || ai_limit, features ? JSON.stringify(features) : '{}', isDefaultFree || is_default_free || false, isActive ?? is_active ?? true, description, badgeColor || badge_color]);
-        await pool.query("COMMIT"); res.json({ success: true, data: keysToCamel(r.rows[0]) });
-    } catch (e) { await pool.query("ROLLBACK"); res.status(500).json({ error: e.message }); }
+        await client.query("COMMIT");
+        res.json({ success: true, data: keysToCamel(r.rows[0]) });
+    } catch (e) { await client.query("ROLLBACK"); res.status(500).json({ error: e.message }); } finally { client.release(); }
 });
 
 app.get("/api/payment-methods", async (req, res) => {
@@ -1991,8 +2003,11 @@ app.put("/api/sales/users/:id/status", requireRole(['sales']), async (req, res) 
 
 app.post("/api/sales/users/:id/manual-sub", requireRole(['sales']), async (req, res) => {
     const userId = req.params.id;
+    // [V50.78 FIX] Use dedicated client for transaction — pool.query("BEGIN") routes each call to a
+    // different connection so BEGIN/COMMIT are never on the same connection. Atomicity was broken.
+    const client = await pool.connect();
     try {
-        await pool.query("BEGIN");
+        await client.query("BEGIN");
         const subId = `sub-${crypto.randomUUID()}`;
         const endDate = new Date();
         endDate.setMonth(endDate.getMonth() + (req.body.months || 1));
@@ -2002,24 +2017,24 @@ app.post("/api/sales/users/:id/manual-sub", requireRole(['sales']), async (req, 
         // Attempt: first active non-free (paid) package, then default free, then hard-coded sentinel.
         let pkgId = req.body.packageId || req.body.package_id;
         if (!pkgId) {
-            const paidPkg = await pool.query(
+            const paidPkg = await client.query(
                 "SELECT id FROM packages WHERE is_active = TRUE AND (is_default_free = FALSE OR is_default_free IS NULL) ORDER BY price DESC LIMIT 1"
             );
             if (paidPkg.rowCount > 0) {
                 pkgId = paidPkg.rows[0].id;
             } else {
-                const freePkg = await pool.query("SELECT id FROM packages WHERE is_default_free = TRUE LIMIT 1");
+                const freePkg = await client.query("SELECT id FROM packages WHERE is_default_free = TRUE LIMIT 1");
                 pkgId = freePkg.rows[0]?.id || 'pkg-default';
             }
         }
 
-        await pool.query("UPDATE subscriptions SET status = 'expired' WHERE user_id = $1 AND status = 'active'", [userId]);
-        await pool.query("INSERT INTO subscriptions (id, user_id, package_id, status, start_date, end_date, amount_paid, payment_gateway_ref) VALUES ($1, $2, $3, 'active', NOW(), $4, 0, 'MANUAL_OVERRIDE')", [subId, userId, pkgId, endDate]);
-        await pool.query("UPDATE users SET subscription_id = $1, ai_hits_used = 0 WHERE id = $2", [subId, userId]);
-        await pool.query("COMMIT");
+        await client.query("UPDATE subscriptions SET status = 'expired' WHERE user_id = $1 AND status = 'active'", [userId]);
+        await client.query("INSERT INTO subscriptions (id, user_id, package_id, status, start_date, end_date, amount_paid, payment_gateway_ref) VALUES ($1, $2, $3, 'active', NOW(), $4, 0, 'MANUAL_OVERRIDE')", [subId, userId, pkgId, endDate]);
+        await client.query("UPDATE users SET subscription_id = $1, ai_hits_used = 0 WHERE id = $2", [subId, userId]);
+        await client.query("COMMIT");
         if (global.broadcastWS) global.broadcastWS({ type: "FORCE_SYNC", userId });
         res.json({ success: true, message: `Package manually assigned for ${req.body.months} months.` });
-    } catch (e) { await pool.query("ROLLBACK"); res.status(500).json({ error: e.message }); }
+    } catch (e) { await client.query("ROLLBACK"); res.status(500).json({ error: e.message }); } finally { client.release(); }
 });
 
 app.post("/api/sales/settings/idle-threshold", requireRole(['sales']), async (req, res) => {
@@ -2650,7 +2665,10 @@ app.get("/api/ai/knowledge-rules", verifyToken, async (req, res) => {
     try {
         const r = await pool.query("SELECT value FROM global_configs WHERE key = 'ai_knowledge_rules'");
         if (r.rows.length === 0) return res.json({ rules: [] });
-        const rules = JSON.parse(r.rows[0].value || '[]');
+        // [V50.78 FIX] global_configs.value is JSONB — pg returns it already parsed as a JS object/array.
+        // JSON.parse(object) would throw SyntaxError. Use the value directly; fallback to [] if null/undefined.
+        const raw = r.rows[0].value;
+        const rules = Array.isArray(raw) ? raw : (typeof raw === 'string' ? JSON.parse(raw) : []);
         res.json({ rules });
     } catch (e) { res.json({ rules: [] }); }
 });
@@ -2720,7 +2738,7 @@ app.patch("/api/admin/ai/unknown-prompts/:id", requireAdminSecretOrRole, async (
         if (status === 'resolved' && Array.isArray(resolved_actions) && resolved_actions.length > 0) {
             const r = await pool.query("SELECT value FROM global_configs WHERE key='ai_knowledge_rules'");
             let rules = [];
-            try { rules = JSON.parse(r.rows[0]?.value || '[]'); } catch {}
+            const rawRules = r.rows[0]?.value; rules = Array.isArray(rawRules) ? rawRules : (typeof rawRules === 'string' ? (()=>{ try { return JSON.parse(rawRules); } catch { return []; } })() : []);
             const rawInput = (await pool.query("SELECT raw_input FROM ai_unknown_prompts WHERE id=$1", [id])).rows[0]?.raw_input || '';
             // Add the raw input as a trigger to the first matching rule or create new rule
             resolved_actions.forEach(ra => {
@@ -2979,8 +2997,10 @@ app.post("/api/telemetry/event", async (req, res) => {
 // Alias ini menjaga kompatibilitas jika ada klien lama.
 app.get("/api/sales/idle-users", requireRole(['sales']), async (req, res) => {
     try {
-        const thresholdDays = (await pool.query("SELECT data FROM config WHERE id = 'app_config'"))
-            .rows[0]?.data?.systemRules?.idleThresholdDays || 90;
+        // [V50.78 FIX] parseInt() ensures safe integer before SQL interpolation
+        const rawDays = (await pool.query("SELECT data FROM config WHERE id = 'app_config'"))
+            .rows[0]?.data?.systemRules?.idleThresholdDays;
+        const thresholdDays = parseInt(rawDays, 10) || 90;
         const r = await pool.query(
             `SELECT id, username, email, last_login FROM users
              WHERE status='active' AND last_login < NOW() - INTERVAL '${thresholdDays} days'
@@ -3179,6 +3199,41 @@ app.put("/api/sales/promos/:id", requireRole(['sales']), async (req, res) => {
 // =============================================================================
 
 // =============================================================================
+// --- V50.78 NARRATIVE TEMPLATES ENDPOINTS ---
+// =============================================================================
+
+// GET /api/narrative-templates — user auth — fetch templates for dashboard
+app.get("/api/narrative-templates", verifyToken, async (req, res) => {
+    try {
+        const r = await pool.query("SELECT value FROM global_configs WHERE key = 'narrative_templates'");
+        if (r.rows.length === 0) return res.json({ templates: [] });
+        // [V50.78 FIX] global_configs.value is JSONB — pg returns it already parsed as a JS object/array.
+        // JSON.parse(object) would throw SyntaxError. Use the value directly.
+        const raw = r.rows[0].value;
+        const templates = Array.isArray(raw) ? raw : (typeof raw === 'string' ? JSON.parse(raw) : []);
+        res.json({ templates });
+    } catch (e) { res.json({ templates: [] }); }
+});
+
+// POST /api/admin/narrative-templates — admin only — save/update templates
+app.post("/api/admin/narrative-templates", requireAdminSecretOrRole, async (req, res) => {
+    try {
+        const { templates } = req.body;
+        if (!Array.isArray(templates)) return res.status(400).json({ error: 'templates must be array' });
+        if (templates.length === 0) return res.status(400).json({ error: 'templates cannot be empty' });
+        const value = JSON.stringify(templates);
+        await pool.query(
+            "INSERT INTO global_configs(key, value, updated_at) VALUES('narrative_templates', $1, NOW()) ON CONFLICT(key) DO UPDATE SET value=$1, updated_at=NOW()",
+            [value]
+        );
+        res.json({ success: true, count: templates.length });
+    } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+
+// --- END V50.78 NARRATIVE TEMPLATES ENDPOINTS ---
+// =============================================================================
+
+// =============================================================================
 // --- SPA FALLBACK ---
 // =============================================================================
 app.get(/^\/.*$/, (req, res) => res.sendFile(path.join(__dirname, "dist", "index.html")));
@@ -3187,7 +3242,7 @@ app.get(/^\/.*$/, (req, res) => res.sendFile(path.join(__dirname, "dist", "index
 // --- 14. SERVER START + WEBSOCKETS + CRON ---
 // =============================================================================
 const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Paydone V50.68 (DeepAudit Edition) Running on Port ${PORT}`);
+    console.log(`✅ Paydone V50.78 (Narrative Edition) Running on Port ${PORT}`);
 });
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 10485760 });
@@ -3205,7 +3260,7 @@ wss.on('connection', (ws) => {
             }
         } catch (e) {}
     });
-    ws.send(JSON.stringify({ type: 'WELCOME', message: 'Connected to Paydone V50.68 DeepAudit Edition' }));
+    ws.send(JSON.stringify({ type: 'WELCOME', message: 'Connected to Paydone V50.78 Narrative Edition' }));
 });
 
 const startCron = () => {
@@ -3239,8 +3294,14 @@ const startCron = () => {
         try {
             const mailQueue = await pool.query("SELECT id, to_email, subject, body_html FROM email_queues WHERE status = 'pending' AND scheduled_at <= NOW() LIMIT 10");
             for (let mail of mailQueue.rows) {
-                await sendEmailEngine(mail.to_email, mail.subject, mail.body_html);
-                await pool.query("UPDATE email_queues SET status = 'sent' WHERE id = $1", [mail.id]);
+                try {
+                    await sendEmailEngine(mail.to_email, mail.subject, mail.body_html);
+                    await pool.query("UPDATE email_queues SET status = 'sent' WHERE id = $1", [mail.id]);
+                } catch (mailErr) {
+                    // [V50.78 FIX] Mark as 'failed' so it doesn't loop forever on send errors
+                    await pool.query("UPDATE email_queues SET status = 'failed' WHERE id = $1", [mail.id]).catch(() => {});
+                    console.error(`[EMAIL CRON] Failed to send ${mail.id}:`, mailErr.message);
+                }
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
         } catch(e) {}

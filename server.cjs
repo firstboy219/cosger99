@@ -380,6 +380,24 @@ const verifyAdminSecret = (req) => {
     return secret === SERVER_SECRET;
 };
 
+// [FIX] Async helper: accept admin-secret OR valid admin/super_admin JWT
+// Used to replace all inline verifyAdminSecret checks
+const verifyAdminOrRole = async (req) => {
+    // Fast path: valid secret header
+    if (verifyAdminSecret(req)) return true;
+    // Fallback: check JWT + role
+    const userId = req.headers['x-user-id'];
+    const token  = req.headers['x-session-token'] || (req.headers['authorization'] || '').replace('Bearer ', '');
+    if (!userId || !token) return false;
+    try {
+        const sessionOk = await verifySession(userId, token);
+        if (!sessionOk) return false;
+        const r = await pool.query('SELECT role FROM users WHERE id=$1', [userId]);
+        if (r.rowCount === 0) return false;
+        return ['super_admin', 'admin', 'superadmin'].includes(r.rows[0].role);
+    } catch { return false; }
+};
+
 // [V50.66 FIX #1] verifyToken — proper Express middleware
 // Previously used as route middleware but was never defined at module scope.
 // This caused TypeError on server startup, crashing the server.
@@ -396,9 +414,35 @@ const verifyToken = async (req, res, next) => {
 // [V50.66 FIX #2] requireAdminSecret — proper Express middleware wrapper
 // Previously verifyAdminSecret (returns boolean) was used directly as route
 // middleware, so it never called next() and requests would hang forever.
-const requireAdminSecret = (req, res, next) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: 'Forbidden' });
+const requireAdminSecret = async (req, res, next) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     next();
+};
+
+// [FIX] requireAdminSecretOrRole — accepts admin-secret header OR valid super_admin/admin JWT
+// This prevents 403 when admin has the right role but ADMIN_SECRET env var differs from default
+const requireAdminSecretOrRole = async (req, res, next) => {
+    // 1. Try admin secret header first (fast path)
+    if (verifyAdminSecret(req)) return next();
+
+    // 2. Fall back to JWT + role check
+    const userId = req.headers['x-user-id'];
+    const token  = req.headers['x-session-token'] || (req.headers['authorization'] || '').replace('Bearer ', '');
+    if (!userId || !token) return res.status(403).json({ error: 'Forbidden: no valid auth' });
+
+    try {
+        const sessionOk = await verifySession(userId, token);
+        if (!sessionOk) return res.status(403).json({ error: 'Forbidden: session invalid' });
+
+        const r = await pool.query('SELECT role FROM users WHERE id=$1', [userId]);
+        if (r.rowCount === 0) return res.status(403).json({ error: 'Forbidden: user not found' });
+        const role = r.rows[0].role;
+        if (['super_admin', 'admin', 'superadmin'].includes(role)) return next();
+
+        return res.status(403).json({ error: 'Forbidden: insufficient role' });
+    } catch (e) {
+        return res.status(403).json({ error: 'Forbidden: ' + String(e) });
+    }
 };
 
 const getSystemConfig = async () => {
@@ -1197,7 +1241,7 @@ app.post("/api/telemetry/crash", async (req, res) => {
 // --- 6. ADMIN & DEVOPS SUITE ---
 // =============================================================================
 app.get("/api/admin/config/smtp", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         const r = await pool.query("SELECT value FROM global_configs WHERE key = 'smtp_config'");
         if (r.rowCount === 0) return res.json({ configured: false });
@@ -1207,7 +1251,7 @@ app.get("/api/admin/config/smtp", async (req, res) => {
 });
 
 app.post("/api/admin/config/smtp", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const { host, port, user, password, senderName } = req.body;
     try {
         if (!host || !user || !password) return res.status(400).json({ error: "Missing parameters" });
@@ -1219,18 +1263,18 @@ app.post("/api/admin/config/smtp", async (req, res) => {
 });
 
 app.post("/api/admin/shell", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     exec(req.body.cmd, (error, stdout, stderr) => { res.json({ output: error ? stderr : stdout }); });
 });
 
-app.post("/api/admin/files/create", (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+app.post("/api/admin/files/create", async (req, res) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     fs.writeFileSync(path.join(__dirname, path.basename(req.body.filename)), req.body.content);
     res.json({ status: "ok" });
 });
 
 app.delete("/api/admin/users/:id", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const client = await pool.connect();
     try {
         await client.query("BEGIN"); const uid = req.params.id;
@@ -1244,7 +1288,7 @@ app.delete("/api/admin/users/:id", async (req, res) => {
 });
 
 app.post("/api/admin/reset-user-data", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const client = await pool.connect();
     try {
         await client.query("BEGIN"); const uid = req.body.targetUserId;
@@ -1257,7 +1301,7 @@ app.post("/api/admin/reset-user-data", async (req, res) => {
 });
 
 app.post("/api/admin/snapshots/create", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         ensureDirs(); // Guarantee BACKUP_DIR exists before writing
         const label = req.body.label ? req.body.label.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 30) : "";
@@ -1276,7 +1320,7 @@ app.post("/api/admin/snapshots/create", async (req, res) => {
 });
 
 app.post("/api/admin/snapshots/restore", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const safeFilename = path.basename(req.body.filename);
     const filePath = path.join(BACKUP_DIR, safeFilename);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Not found" });
@@ -1287,8 +1331,8 @@ app.post("/api/admin/snapshots/restore", async (req, res) => {
     });
 });
 
-app.get("/api/admin/snapshots", (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+app.get("/api/admin/snapshots", async (req, res) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     fs.readdir(BACKUP_DIR, (err, files) => {
         if (err) return res.json({ snapshots: [] });
         try {
@@ -1301,7 +1345,7 @@ app.get("/api/admin/snapshots", (req, res) => {
 });
 
 app.get("/api/admin/stats", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         const users  = await pool.query("SELECT COUNT(*) FROM users");
         const subs   = await pool.query("SELECT SUM(amount_paid) as revenue FROM subscriptions WHERE status = 'active'");
@@ -1312,7 +1356,7 @@ app.get("/api/admin/stats", async (req, res) => {
 });
 
 app.post("/api/admin/kill-session", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         await pool.query("UPDATE users SET session_tokens = '[]'::jsonb, session_token = NULL WHERE id = $1", [req.body.targetUserId]);
         if (global.broadcastWS) global.broadcastWS({ type: "FORCE_LOGOUT", userId: req.body.targetUserId });
@@ -1321,7 +1365,7 @@ app.post("/api/admin/kill-session", async (req, res) => {
 });
 
 app.post("/api/admin/deploy/start", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         await runCommand(`tar -czf ${path.join(BACKUP_DIR, `pre_deploy_${Date.now()}.tar.gz`)} --exclude=node_modules --exclude=.git --exclude=paydone_storage .`);
         await runCommand(`git fetch --all && git reset --hard origin/${(req.body.branch || "main").replace(/[^a-zA-Z0-9.-]/g, "")} && npm install`);
@@ -1330,8 +1374,8 @@ app.post("/api/admin/deploy/start", async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.toString() }); }
 });
 
-app.get("/api/admin/versions", (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+app.get("/api/admin/versions", async (req, res) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const versions = [];
     try {
         const currentContent = fs.readFileSync(__filename, "utf8");
@@ -1352,7 +1396,7 @@ app.get("/api/admin/versions", (req, res) => {
 });
 
 app.post("/api/admin/versions/save", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         const targetName = req.body.label ? `server.${req.body.label.replace(/[^a-zA-Z0-9.-]/g, "")}.cjs` : `server.backup.${Date.now()}.cjs`;
         const targetPath = path.join(VERSION_DIR, targetName);
@@ -1362,7 +1406,7 @@ app.post("/api/admin/versions/save", async (req, res) => {
 });
 
 app.post("/api/admin/versions/restore", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const targetFile = path.join(VERSION_DIR, req.body.filename);
     const currentFile = path.join(__dirname, "server.cjs");
     if (!fs.existsSync(targetFile)) return res.status(404).json({ error: "Not found" });
@@ -1374,27 +1418,27 @@ app.post("/api/admin/versions/restore", async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post("/api/admin/versions/delete", (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+app.post("/api/admin/versions/delete", async (req, res) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const targetFile = path.join(VERSION_DIR, req.body.filename);
     if (!fs.existsSync(targetFile)) return res.status(404).json({ error: "File not found" });
     try { fs.unlinkSync(targetFile); res.json({ success: true }); } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/admin/execute-sql", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try { const r = await pool.query(req.body.sql || req.body.query); res.json({ success: true, rows: keysToCamel(r.rows) }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get("/api/admin/users", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try { const r = await pool.query("SELECT id, username, email, role, status, last_login FROM users ORDER BY created_at DESC"); res.json(keysToCamel(r.rows)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // [V50.62 NEW #1] GET /api/admin/server-time
 // AdminDashboard.tsx calls this to show the backend server timestamp.
 app.get("/api/admin/server-time", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         const dbTime = await pool.query("SELECT NOW() as server_time");
         res.json({
@@ -1419,7 +1463,7 @@ app.get("/api/admin/server-time", async (req, res) => {
 // [V50.62 NEW #2] PUT /api/admin/users/:id/status
 // UserManagement.tsx calls this to toggle user status (active/inactive/banned).
 app.put("/api/admin/users/:id/status", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const { id } = req.params;
     const { status } = req.body;
     const validStatuses = ['active', 'inactive', 'banned', 'pending_verification'];
@@ -1438,7 +1482,7 @@ app.put("/api/admin/users/:id/status", async (req, res) => {
 });
 // [V50.68 FIX B4] PATCH alias — UserManagement.tsx sends PATCH but backend only had PUT
 app.patch("/api/admin/users/:id/status", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const { id } = req.params;
     const { status } = req.body;
     const validStatuses = ['active', 'inactive', 'banned', 'pending_verification'];
@@ -1459,7 +1503,7 @@ app.patch("/api/admin/users/:id/status", async (req, res) => {
 // [V50.62 NEW #3] GET /api/admin/users/:id/financials
 // UserManagement.tsx calls this to display financial summary of a user.
 app.get("/api/admin/users/:id/financials", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const { id } = req.params;
     try {
         const [debtsR, incomesR, expensesR, subsR] = await Promise.all([
@@ -1481,7 +1525,7 @@ app.get("/api/admin/users/:id/financials", async (req, res) => {
 });
 
 app.get('/api/admin/raw-sample/:table', async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         const allowed = ['users','debts','incomes','daily_expenses','debt_installments','payment_records','tasks','sinking_funds','allocations','ai_agents','config','qa_scenarios','qa_history','tickets','bank_accounts','banks','ba_configurations','activity_logs','packages','payment_methods','promos','subscriptions','contents','leads','notifications','email_campaigns','client_telemetry','global_configs','email_queues'];
         if (!allowed.includes(req.params.table)) return res.status(400).json({ error: "Invalid table" });
@@ -1507,20 +1551,20 @@ app.get("/api/admin/config", async (req, res) => {
 });
 
 app.post("/api/admin/config", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         if (req.body.config) { await pool.query("INSERT INTO config (id, data, updated_at) VALUES ('app_config', $1, NOW()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()", [req.body.config]); }
         const r = await pool.query("SELECT data FROM config WHERE id = 'app_config' LIMIT 1"); res.json(r.rows[0]?.data || {});
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get("/api/view-source", (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).send(`⛔ DENIED`);
+app.get("/api/view-source", async (req, res) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).send(`⛔ DENIED`);
     fs.readFile(__filename, "utf8", (err, data) => { res.send(data); });
 });
 
-app.get("/api/admin/source-code", (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).send(`⛔ DENIED`);
+app.get("/api/admin/source-code", async (req, res) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).send(`⛔ DENIED`);
     fs.readFile(__filename, "utf8", (err, data) => { res.send(data); });
 });
 
@@ -2265,7 +2309,7 @@ app.put("/api/users/:id", async (req, res) => {
 
 // Admin: GET ALL tickets (not filtered by user_id, sorted by created_at desc)
 app.get("/api/admin/tickets", async (req, res) => {
-    if (!verifyAdminSecret(req)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try {
         const r = await pool.query(`SELECT t.*, u.username, u.email FROM tickets t LEFT JOIN users u ON t.user_id = u.id ORDER BY t.created_at DESC LIMIT 500`);
         res.json({ success: true, data: { tickets: keysToCamel(r.rows.map(unpackMetadata)) } });
@@ -2544,7 +2588,7 @@ app.get("/api/ai/knowledge-rules", verifyToken, async (req, res) => {
 });
 
 // POST /api/admin/ai/knowledge-rules — admin only - save rules
-app.post("/api/admin/ai/knowledge-rules", requireAdminSecret, async (req, res) => {
+app.post("/api/admin/ai/knowledge-rules", requireAdminSecretOrRole, async (req, res) => {
     try {
         const { rules } = req.body;
         if (!Array.isArray(rules)) return res.status(400).json({ error: 'rules must be array' });
@@ -2558,7 +2602,7 @@ app.post("/api/admin/ai/knowledge-rules", requireAdminSecret, async (req, res) =
 });
 
 // GET /api/admin/ai/unknown-prompts — list pending unmatched prompts
-app.get("/api/admin/ai/unknown-prompts", requireAdminSecret, async (req, res) => {
+app.get("/api/admin/ai/unknown-prompts", requireAdminSecretOrRole, async (req, res) => {
     try {
         const status = req.query.status || 'pending';
         const r = await pool.query(
@@ -2596,7 +2640,7 @@ app.post("/api/ai/unknown-prompt", verifyToken, async (req, res) => {
 
 // PATCH /api/admin/ai/unknown-prompts/:id — admin resolves a prompt
 // body: { status: 'resolved'|'ignored', resolved_actions: [{action, label, triggers}], admin_notes }
-app.patch("/api/admin/ai/unknown-prompts/:id", requireAdminSecret, async (req, res) => {
+app.patch("/api/admin/ai/unknown-prompts/:id", requireAdminSecretOrRole, async (req, res) => {
     try {
         const { id } = req.params;
         const { status, resolved_actions, admin_notes } = req.body;

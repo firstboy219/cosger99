@@ -366,26 +366,28 @@ export const generateGlobalProjection = (
                 if (range) {
                     pay = Number(range.amount);
                 } else {
-                    // Past end of schedule: use last step's amount (not default monthlyPayment)
                     const sorted = [...d.parsedStepUp].sort((a: any, b: any) => Number(b.endMonth) - Number(a.endMonth));
                     if (sorted.length > 0) pay = Number(sorted[0].amount);
                 }
             }
 
-            // Compute interest based on strategy
-            const orig = (d.originalPrincipal || d.startBalance);
-            let interest: number;
+            let principal: number;
             if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED' || d.normalizedStrategy === 'STEPUP') {
-                // FLAT rate: interest = original principal × monthly rate (constant)
-                interest = (orig * (d.interestRate || 0) / 100) / 12;
+                // [V50.71 FIX] For FLAT/FIXED contracts, the monthly principal reduction is constant:
+                //   principal = remainingPrincipal / remainingMonths
+                // Re-computing interest via originalPrincipal × rate/12 is wrong because
+                // the stored interestRate may not match the bank's original calculation,
+                // causing the simulation to run 3–4× too long.
+                const initialMonths = Number(d.remainingMonths) > 0 ? Number(d.remainingMonths) : 1;
+                const monthsLeft = Math.max(1, initialMonths - m);
+                principal = Math.min(d.simBalance / monthsLeft, d.simBalance);
             } else {
-                // ANNUITY / effective rate
-                interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                // ANNUITY / effective rate: interest decreases as balance decreases
+                const interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                principal = pay - interest;
+                if (principal <= 0) principal = 0;
+                if (principal > d.simBalance) principal = d.simBalance;
             }
-
-            let principal = pay - interest;
-            if (principal <= 0) principal = 0; // Safety: never let balance grow
-            if (principal > d.simBalance) principal = d.simBalance;
 
             d.simBalance -= principal;
             if (d.simBalance <= 1000) { d.simBalance = 0; d.isPaid = true; }
@@ -436,16 +438,17 @@ export const generateGlobalProjection = (
                     }
                 }
 
-                const orig = (d.originalPrincipal || d.startBalance);
-                let interest: number;
+                let principal: number;
                 if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED' || d.normalizedStrategy === 'STEPUP') {
-                    interest = (orig * (d.interestRate || 0) / 100) / 12;
+                    // [V50.71 FIX] Use remaining months to determine principal reduction
+                    const initialMonths = Number(d.remainingMonths) > 0 ? Number(d.remainingMonths) : 1;
+                    const monthsLeft = Math.max(1, initialMonths - m);
+                    principal = Math.min(d.simBalance / monthsLeft, d.simBalance);
                 } else {
-                    interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                    const interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                    principal = pay - interest;
+                    if (principal <= 0) principal = 0;
                 }
-
-                let principal = pay - interest;
-                if (principal <= 0) principal = 0; // Safety: never grow balance
                 
                 if (principal > d.simBalance) {
                     extraPool += (principal - d.simBalance); 
@@ -490,17 +493,18 @@ export const generateGlobalProjection = (
                     }
                 }
 
-                const orig = (d.originalPrincipal || d.startBalance);
-                let interest: number;
+                let principal: number;
                 if (d.normalizedStrategy === 'FLAT' || d.normalizedStrategy === 'FIXED' || d.normalizedStrategy === 'STEPUP') {
-                    interest = (orig * (d.interestRate || 0) / 100) / 12;
+                    // [V50.71 FIX] Use remaining months to determine principal reduction
+                    const initialMonths = Number(d.remainingMonths) > 0 ? Number(d.remainingMonths) : 1;
+                    const monthsLeft = Math.max(1, initialMonths - m);
+                    principal = Math.min(d.simBalance / monthsLeft, d.simBalance);
                 } else {
-                    interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                    const interest = (d.simBalance * (d.interestRate || 0) / 100) / 12;
+                    principal = pay - interest;
+                    if (principal <= 0) principal = 0;
+                    if (principal > d.simBalance) principal = d.simBalance;
                 }
-
-                let principal = pay - interest;
-                if (principal <= 0) principal = 0; // Safety: never grow balance
-                if (principal > d.simBalance) principal = d.simBalance;
                 d.simBalance -= principal;
                 if (d.simBalance <= 1000) { d.simBalance = 0; d.isPaid = true; }
             });

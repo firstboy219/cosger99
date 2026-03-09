@@ -1,11 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../services/api';
+import { getConfig } from '../../services/mockDb';
 import { Subscription } from '../../types';
 import { formatCurrency } from '../../services/financeUtils';
 import {
   Receipt, Loader2, Check, X as XIcon, Eye, Clock,
   CheckCircle, XCircle, AlertCircle, Search, Filter, Image as ImageIcon
 } from 'lucide-react';
+
+// Resolve proof_of_payment URLs: backend stores them as '/uploads/...' (relative to api.cosger.com)
+const resolveProofUrl = (url: string) => {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('http')) return url; // already absolute or base64
+  const base = (getConfig().backendUrl || 'https://api.cosger.com').replace(/\/$/, '');
+  return `${base}${url}`;
+};
 
 export default function SalesTransactions() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -75,7 +84,8 @@ export default function SalesTransactions() {
   }, [rejectId, rejectReason, loadTransactions]);
 
   const openProof = (tx: any) => {
-    setProofImage(tx.proofOfPayment || tx.proof_of_payment || '');
+    const raw = tx.proofOfPayment || tx.proof_of_payment || '';
+    setProofImage(resolveProofUrl(raw));
     setProofTxId(tx.id);
     setShowProof(true);
   };

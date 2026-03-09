@@ -147,12 +147,12 @@ export default function SalesOverview() {
                      <Receipt size={14} />}
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-900">{tx.package_name || tx.package_id || 'N/A'}</p>
-                    <p className="text-[10px] text-slate-400 font-medium">{tx.user_id}</p>
+                    <p className="text-sm font-bold text-slate-900">{tx.packageName || tx.package_name || tx.packageId || tx.package_id || 'N/A'}</p>
+                    <p className="text-[10px] text-slate-400 font-medium">{tx.username || tx.email || tx.userId || tx.user_id || '—'}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-black text-slate-900">{formatCurrency(tx.amount_paid || 0)}</p>
+                  <p className="text-sm font-black text-slate-900">{formatCurrency(tx.amountPaid ?? tx.amount_paid ?? 0)}</p>
                   <p className={`text-[10px] font-bold uppercase tracking-wider ${
                     tx.status === 'active' ? 'text-green-500' :
                     tx.status === 'verifying' ? 'text-amber-500' :

@@ -1758,6 +1758,9 @@ app.get("/api/allocations", async (req, res) => {
 });
 
 // [V50.64 NEW] GET /api/activity-logs - User activity logs (filtered by current user)
+// [V50.71 FIX] GET /api/activity-logs — added unpackMetadata() so fields stored
+// in JSONB metadata column (category, details, username, etc.) are returned correctly.
+// Also added explicit POST route below to fix silent insert failures.
 app.get("/api/activity-logs", async (req, res) => {
     const userId = req.headers["x-user-id"];
     const token  = req.headers["x-session-token"];
@@ -1767,8 +1770,53 @@ app.get("/api/activity-logs", async (req, res) => {
             "SELECT * FROM activity_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100",
             [userId]
         );
-        res.json(keysToCamel(r.rows));
+        // unpackMetadata spreads JSONB metadata back into row fields so
+        // category, details, username, user_type, timestamp are all returned
+        res.json(r.rows.map(row => keysToCamel(unpackMetadata(row))));
     } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// [V50.71 FIX] Dedicated POST /api/activity-logs endpoint.
+// createCrudEndpoints registers a generic POST but drops fields not in the DB schema
+// (category, details, username, user_type, timestamp) into metadata JSONB.
+// This explicit route maps frontend field names correctly to DB columns and metadata.
+app.post("/api/activity-logs", async (req, res) => {
+    const userId = req.headers["x-user-id"];
+    const token  = req.headers["x-session-token"];
+    if (!(await verifySession(userId, token, res))) return res.status(401).json({ error: "Unauthorized" });
+    try {
+        const b = req.body || {};
+        const id = b.id || `activity_logs-${crypto.randomUUID()}`;
+        const action = b.action || b.eventName || "Unknown";
+        // 'details' from frontend maps to 'description' column in DB
+        const description = b.details || b.description || "";
+        const status = b.status || "info";
+        // Fields not in schema → store in metadata for unpackMetadata() to retrieve
+        const metadata = {
+            category: b.category || "System",
+            username: b.username || userId,
+            user_type: b.userType || b.user_type || "user",
+            // Store original timestamp if provided
+            timestamp: b.timestamp || new Date().toISOString(),
+            ...(b.payload !== undefined && b.payload !== null ? { payload: b.payload } : {}),
+            ...(b.response !== undefined && b.response !== null ? { response: b.response } : {})
+        };
+        const payloadJson = (b.payload !== undefined && b.payload !== null)
+            ? JSON.stringify(b.payload) : null;
+        const responseJson = (b.response !== undefined && b.response !== null)
+            ? JSON.stringify(b.response) : null;
+
+        await pool.query(
+            `INSERT INTO activity_logs (id, user_id, action, description, payload, response, status, metadata, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+             ON CONFLICT (id) DO NOTHING`,
+            [id, userId, action, description, payloadJson, responseJson, status, JSON.stringify(metadata)]
+        );
+        res.json({ success: true });
+    } catch (e) {
+        console.error("[activity-logs POST] Error:", e.message);
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // [V50.61 NEW #1] GET /api/sales/payment-methods

@@ -266,34 +266,40 @@ export default function App() {
 
   useEffect(() => {
     const initApp = async () => {
-        // WHITELIST PUBLIC ROUTES: Do NOT check session on landing/login pages
-        const hash = window.location.hash;
-        if (hash === '#/' || hash === '' || hash.includes('#/login') || hash.includes('#/register')) {
-            setIsDataLoaded(true);
-            return;
-        }
+        try {
+            // WHITELIST PUBLIC ROUTES: Do NOT check session on landing/login pages
+            const hash = window.location.hash;
+            if (hash === '#/' || hash === '' || hash.includes('#/login') || hash.includes('#/register')) {
+                setIsDataLoaded(true);
+                return;
+            }
 
-        const storedUserId = localStorage.getItem('paydone_active_user');
-        if (!storedUserId) {
-            setIsDataLoaded(true);
-            return;
-        }
+            const storedUserId = localStorage.getItem('paydone_active_user');
+            if (!storedUserId) {
+                setIsDataLoaded(true);
+                return;
+            }
 
-        // 1. SET USER & AUTH IMMEDIATELY
-        setCurrentUserId(storedUserId);
-        setIsAuthenticated(true);
-        
-        const allUsers = getAllUsers();
-        const foundUser = allUsers.find(u => u.id === storedUserId);
-        const role = foundUser?.role || (storedUserId === 'u1' ? 'admin' : 'user');
-        setUserRole(role);
-
-        // 2. LOAD LOCAL DATA INSTANTLY (No Waiting)
-        if (role === 'user') {
-            loadLocalDataIntoState(storedUserId);
+            // 1. SET USER & AUTH IMMEDIATELY
+            setCurrentUserId(storedUserId);
+            setIsAuthenticated(true);
             
-            // 3. TRIGGER BACKGROUND SYNC
-            performBackgroundSync(storedUserId);
+            const allUsers = getAllUsers();
+            const foundUser = allUsers.find(u => u.id === storedUserId);
+            const role = foundUser?.role || (storedUserId === 'u1' ? 'admin' : 'user');
+            setUserRole(role);
+
+            // 2. LOAD LOCAL DATA INSTANTLY (No Waiting)
+            if (role === 'user') {
+                loadLocalDataIntoState(storedUserId);
+                
+                // 3. TRIGGER BACKGROUND SYNC
+                performBackgroundSync(storedUserId);
+            }
+        } catch (e) {
+            // Ensure the app never gets stuck in a loading state
+            console.error('[App] initApp failed:', e);
+            setIsDataLoaded(true);
         }
     };
     initApp();
@@ -359,6 +365,44 @@ export default function App() {
         // but safe to keep for double check.
     }
   }, [loadLocalDataIntoState]);
+
+  // ADD_ALLOCATION via AI — MUST be declared BEFORE handleAIAction
+  // (handleAIAction's useCallback dep array evaluates handleAIAllocation immediately at render time;
+  //  declaring it after causes a TDZ ReferenceError: "Cannot access 'C' before initialization")
+  const handleAIAllocation = React.useCallback(async (data: any) => {
+    if (!currentUserId) return;
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const currentList = monthlyExpenses[monthKey] || [];
+    const newItem: any = {
+      id: `ai-alloc-${Date.now()}`,
+      userId: currentUserId,
+      name: data.name || 'Alokasi AI',
+      amount: Number(data.amount) || 0,
+      category: data.category || 'needs',
+      priority: currentList.length + 1,
+      isTransferred: false,
+      isRecurring: false,
+      assignedAccountId: null,
+      monthKey,
+      percentage: 0,
+      updatedAt: new Date().toISOString(),
+      _deleted: false,
+    };
+    const updatedList = [...currentList, newItem];
+    setMonthlyExpenses(prev => ({ ...prev, [monthKey]: updatedList }));
+    const config = getConfig();
+    const strategy = config.advancedConfig?.syncStrategy || 'background';
+    try {
+      await saveItemToCloud('allocations', newItem, true);
+    } catch (_e) {
+      if (strategy === 'manual_only') {
+        saveUserData(currentUserId, { allocations: { ...monthlyExpenses, [monthKey]: updatedList } });
+        setHasUnsavedChanges(true);
+      }
+    }
+    setAiResult({show: true, type: 'success', title: 'Alokasi Ditambahkan', message: `${newItem.name} Rp ${newItem.amount.toLocaleString('id')} berhasil dialokasikan.`});
+  }, [currentUserId, monthlyExpenses]);
 
   const handleAIAction = React.useCallback(async (action: any) => {
     if (!currentUserId) return;
@@ -435,42 +479,6 @@ export default function App() {
         await handleAIAllocation(data);
     }
   }, [currentUserId, dailyExpenses, incomes, handleAIAllocation]);
-
-  // ADD_ALLOCATION via AI
-  const handleAIAllocation = React.useCallback(async (data: any) => {
-    if (!currentUserId) return;
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    const currentList = monthlyExpenses[monthKey] || [];
-    const newItem: any = {
-      id: `ai-alloc-${Date.now()}`,
-      userId: currentUserId,
-      name: data.name || 'Alokasi AI',
-      amount: Number(data.amount) || 0,
-      category: data.category || 'needs',
-      priority: currentList.length + 1,
-      isTransferred: false,
-      isRecurring: false,
-      assignedAccountId: null,
-      monthKey,
-      percentage: 0,
-      updatedAt: new Date().toISOString(),
-      _deleted: false,
-    };
-    const updatedList = [...currentList, newItem];
-    setMonthlyExpenses(prev => ({ ...prev, [monthKey]: updatedList }));
-    const config = getConfig();
-    const strategy = config.advancedConfig?.syncStrategy || 'background';
-    try {
-      await saveItemToCloud('allocations', newItem, true);
-    } catch (_e) {
-      if (strategy === 'manual_only') {
-        saveUserData(currentUserId, { allocations: { ...monthlyExpenses, [monthKey]: updatedList } });
-        setHasUnsavedChanges(true);
-      }
-    }
-    setAiResult({show: true, type: 'success', title: 'Alokasi Ditambahkan', message: `${newItem.name} Rp ${newItem.amount.toLocaleString('id')} berhasil dialokasikan.`});
-  }, [currentUserId, monthlyExpenses]);
 
   // ROBUST ALLOCATION TOGGLE (Fixes Crash)
   const handleToggleAllocation = React.useCallback(async (id: string) => {

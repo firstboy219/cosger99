@@ -484,11 +484,13 @@ export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onTogg
   // Budget health score
   const budgetHealth = useMemo(() => {
     const usagePercent = metrics.total > 0 ? (metrics.totalUsed / metrics.total) * 100 : 0;
-    const incomeRatio = (metrics.total / BASE_INCOME) * 100;
+    // Guard: BASE_INCOME may be 0 (user belum input income) — prevent Infinity/NaN
+    const safeBaseIncome = BASE_INCOME > 0 ? BASE_INCOME : 1;
+    const incomeRatio = (metrics.total / safeBaseIncome) * 100;
     if (incomeRatio > 100) return { label: 'Over Budget', color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-200' };
     if (usagePercent > 80) return { label: 'Hampir Habis', color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-200' };
     return { label: 'Terkendali', color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-200' };
-  }, [metrics]);
+  }, [metrics, BASE_INCOME]);
 
   return (
     <div className="space-y-6 pb-24 font-sans">
@@ -539,7 +541,7 @@ export default function Allocation({ monthlyExpenses, setMonthlyExpenses, onTogg
                   </p>
                   <div className="flex items-center gap-1.5 mt-2">
                     <span className={`text-[9px] px-2 py-0.5 rounded-full font-black uppercase ${metrics.total > BASE_INCOME ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-                      {((metrics.total/BASE_INCOME)*100).toFixed(0)}% of income
+                      {BASE_INCOME > 0 ? ((metrics.total / BASE_INCOME) * 100).toFixed(0) : '0'}% of income
                     </span>
                   </div>
                 </div>

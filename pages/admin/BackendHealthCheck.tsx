@@ -41,9 +41,14 @@ export default function BackendHealthCheck() {
       setTargetUrl(baseUrl);
       
       // 2. Auto Check if URL is present
+      // Store timeout ID so we can cancel if component unmounts before 500ms
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       if (baseUrl) {
-          setTimeout(() => checkConnectivity(baseUrl), 500);
+          timeoutId = setTimeout(() => checkConnectivity(baseUrl), 500);
       }
+      return () => {
+          if (timeoutId !== null) clearTimeout(timeoutId);
+      };
   }, []);
 
   const checkConnectivity = async (baseUrl: string) => {

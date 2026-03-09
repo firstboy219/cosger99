@@ -7,6 +7,8 @@ import { BrainCircuit, Sparkles, Send, Bot, CheckCircle, ListPlus, User, Refresh
 // react-markdown removed — using inline renderer to prevent TDZ bundle errors
 const SimpleMarkdown: React.FC<{children: string}> = ({ children }) => {
   const html = (children || '')
+    // Escape raw HTML first to prevent XSS from AI-generated content
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/^- (.+)$/gm, '<li class="text-slate-600">$1</li>')

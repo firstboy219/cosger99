@@ -103,7 +103,7 @@
  * ==============================================================================
  */
 
-console.log("🚀 IGNITING PAYDONE SERVER V50.66 (THE BUG-FIX EDITION)...");
+console.log("🚀 IGNITING PAYDONE SERVER V50.77 (DEEPSCAN EDITION)...");
 
 const { WebSocketServer } = require('ws');
 require("dotenv").config();
@@ -753,6 +753,7 @@ const initDB = async () => {
         await client.query(`CREATE TABLE IF NOT EXISTS notifications (
             id VARCHAR(255) PRIMARY KEY, user_id VARCHAR(255), title VARCHAR(255),
             message TEXT, image_url TEXT, is_read BOOLEAN DEFAULT FALSE,
+            type VARCHAR(50) DEFAULT 'info', link TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
@@ -842,6 +843,8 @@ const initDB = async () => {
             "ALTER TABLE daily_expenses ADD COLUMN IF NOT EXISTS allocation_id VARCHAR(255)",
             "ALTER TABLE daily_expenses ADD COLUMN IF NOT EXISTS date DATE",
             "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'info'",
+            "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link TEXT",
             "ALTER TABLE ai_unknown_prompts ADD COLUMN IF NOT EXISTS resolved_actions JSONB DEFAULT '[]'::jsonb",
             "ALTER TABLE qa_scenarios ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "ALTER TABLE promos ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
@@ -974,7 +977,7 @@ const checkAiQuota = async (req, res, next) => {
 // =============================================================================
 // --- UTILITY ROUTES ---
 // =============================================================================
-app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.70-fullaudit-edition", db: "connected" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.77-deepscan-edition", db: "connected" }));
 app.get("/api/features/list", (req, res) => res.json(SYSTEM_FEATURES));
 
 // =============================================================================
@@ -1547,6 +1550,7 @@ app.get("/api/diagnostics", diagnosticsHandler);
 app.get("/api/diagnostic",  diagnosticsHandler);
 
 app.get("/api/admin/config", async (req, res) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     try { const r = await pool.query("SELECT data FROM config WHERE id = 'app_config' LIMIT 1"); res.json(r.rows[0]?.data || {}); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1616,16 +1620,32 @@ app.post("/api/sales/email-blast", requireRole(['sales']), async (req, res) => {
 });
 
 app.post("/api/sales/reactivate", requireRole(['sales']), async (req, res) => {
-    const { promoCode, scheduledAt, promoId, customMessage } = req.body;
+    const { promoCode, scheduledAt, promoId, customMessage, user_ids, userIds } = req.body;
     try {
         let finalPromoCode = promoCode;
         if (!finalPromoCode && promoId) {
             const pr = await pool.query("SELECT code FROM promos WHERE id=$1", [promoId]);
             if (pr.rows.length > 0) finalPromoCode = pr.rows[0].code;
         }
-        const thresholdDays = (await pool.query("SELECT data FROM config WHERE id = 'app_config'")).rows[0]?.data?.systemRules?.idleThresholdDays || 90;
-        const users = await pool.query(`SELECT email, username FROM users WHERE status='active' AND last_login < NOW() - INTERVAL '${thresholdDays} days'`);
         const sendTime = scheduledAt ? new Date(scheduledAt) : new Date();
+
+        // [V50.77 FIX #5] If specific user_ids are provided (e.g. from SalesReactivate bulk select),
+        // only send to those users. Otherwise fallback to all idle users (original behavior).
+        const targetIds = user_ids || userIds; // Frontend sends user_ids array
+        let users;
+        if (Array.isArray(targetIds) && targetIds.length > 0) {
+            // Targeted: only send to selected users
+            const placeholders = targetIds.map((_, idx) => `$${idx + 1}`).join(',');
+            users = await pool.query(
+                `SELECT email, username FROM users WHERE id IN (${placeholders}) AND status='active'`,
+                targetIds
+            );
+        } else {
+            // Fallback: all idle users
+            const thresholdDays = (await pool.query("SELECT data FROM config WHERE id = 'app_config'")).rows[0]?.data?.systemRules?.idleThresholdDays || 90;
+            users = await pool.query(`SELECT email, username FROM users WHERE status='active' AND last_login < NOW() - INTERVAL '${thresholdDays} days'`);
+        }
+
         for (let u of users.rows) {
             const html = customMessage || `Halo ${u.username}, kami kangen! Yuk balik ke Paydone. Gunakan kode promo <b>${finalPromoCode}</b> untuk diskon spesial.`;
             await pool.query("INSERT INTO email_queues (id, to_email, subject, body_html, scheduled_at) VALUES ($1, $2, $3, $4, $5)", [`q-${crypto.randomUUID()}`, u.email, "Ada hadiah untukmu!", html, sendTime]);
@@ -2538,8 +2558,8 @@ app.post('/api/sync', async (req, res) => {
         if (Array.isArray(tasks) && tasks.length) {
             for (const item of tasks) {
                 const i = keysToCamel(item);
-                await client.query(`INSERT INTO tasks (id,user_id,title,description,category,status,due_date,context,metadata,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,category=EXCLUDED.category,status=EXCLUDED.status,due_date=EXCLUDED.due_date,context=EXCLUDED.context,metadata=EXCLUDED.metadata,updated_at=LEAST(EXCLUDED.updated_at,NOW()) WHERE tasks.updated_at < LEAST(EXCLUDED.updated_at,NOW())`,
-                    [i.id, reqUserId, i.title, i.description, i.category, i.status, i.dueDate, i.context, safeMeta(i), now]);
+                await client.query(`INSERT INTO tasks (id,user_id,title,description,category,status,due_date,context,type,is_completed,priority,related_id,metadata,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,category=EXCLUDED.category,status=EXCLUDED.status,due_date=EXCLUDED.due_date,context=EXCLUDED.context,type=EXCLUDED.type,is_completed=EXCLUDED.is_completed,priority=EXCLUDED.priority,related_id=EXCLUDED.related_id,metadata=EXCLUDED.metadata,updated_at=LEAST(EXCLUDED.updated_at,NOW()) WHERE tasks.updated_at < LEAST(EXCLUDED.updated_at,NOW())`,
+                    [i.id, reqUserId, i.title, i.description, i.category, i.status, i.dueDate, i.context, i.type || 'task', i.isCompleted ?? false, i.priority || 'medium', i.relatedId || null, safeMeta(i), now]);
             }
         }
 
@@ -3204,6 +3224,10 @@ const startCron = () => {
             const expInvoices = await client.query("SELECT promo_id FROM subscriptions WHERE status = 'awaiting_payment' AND created_at < NOW() - INTERVAL '1 day'");
             for (let row of expInvoices.rows) { if (row.promo_id) await client.query("UPDATE promos SET quota = quota + 1 WHERE id = $1", [row.promo_id]); }
             await client.query("UPDATE subscriptions SET status = 'expired' WHERE status = 'awaiting_payment' AND created_at < NOW() - INTERVAL '1 day'");
+            // [V50.77 FIX #4] Delete orphaned subscriptions BEFORE deleting unverified users
+            // assignDefaultFreePackage() creates a subscription for every new user.
+            // Without this, deleted users leave behind orphaned subscription records.
+            await client.query("DELETE FROM subscriptions WHERE user_id IN (SELECT id FROM users WHERE status = 'pending_verification' AND created_at < NOW() - INTERVAL '1 day')");
             await client.query("DELETE FROM users WHERE status = 'pending_verification' AND created_at < NOW() - INTERVAL '1 day'");
             await client.query("UPDATE users SET reset_token = NULL WHERE reset_token IS NOT NULL AND updated_at < NOW() - INTERVAL '1 hour'");
             await client.query("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL '30 days'");

@@ -258,8 +258,14 @@ export default function Tickets() {
 
   const handleRollback = async (ticket: Ticket) => {
       if (ticket.backupData) {
-          // Parse backup, but keep history that rollback happened
-          const backup = JSON.parse(ticket.backupData);
+          // [V50.75 FIX] Wrap JSON.parse - backupData could be malformed if stored incorrectly
+          let backup: any;
+          try {
+              backup = JSON.parse(ticket.backupData);
+          } catch (e) {
+              alert('Gagal membaca backup data: data tidak valid.');
+              return;
+          }
           const rolledBackTicket: Ticket = {
               ...backup,
               fixLogs: [...(ticket.fixLogs || []), `[${new Date().toLocaleTimeString()}] ROLLBACK EXECUTED BY ADMIN.`]

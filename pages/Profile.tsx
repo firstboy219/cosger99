@@ -1,10 +1,9 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { User, Badge, BankAccount } from '../types';
+import { User, BankAccount } from '../types';
 import { getAllUsers, updateUser, availableBadges, addUser } from '../services/mockDb';
 import { compressImage } from '../services/imageUtils';
 import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, Shield, Award, Target, Flag, Loader2, Copy, Plus, Trash2, Landmark, CreditCard, X, Image as ImageIcon, Briefcase, Clock, Zap, Calendar, ArrowUpDown, Upload } from 'lucide-react';
-import { formatCurrency } from '../services/financeUtils';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import FeatureGate from '../components/FeatureGate';

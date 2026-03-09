@@ -21,7 +21,9 @@ export const incomeService = {
                 return [];
             }
             const data = await res.json();
-            return data.map((d: any) => ({
+            // [V50.75 FIX] Guard against server returning non-array (e.g. {incomes:[...]} or error obj)
+            const list = Array.isArray(data) ? data : (data.incomes || data.data || []);
+            return list.map((d: any) => ({
                 ...d,
                 dateReceived: d.dateReceived ? new Date(d.dateReceived).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
             }));

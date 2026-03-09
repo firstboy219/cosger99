@@ -149,7 +149,15 @@ export const getDB = (): DBSchema => {
     saveDB(initialDB);
     return initialDB;
   }
-  return JSON.parse(raw);
+  // [V50.75 FIX] Wrap JSON.parse in try/catch - localStorage can contain corrupted
+  // data after browser crash or partial write → without this the entire app crashes on load
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    console.warn('[mockDb] localStorage corrupted, resetting DB:', e);
+    localStorage.removeItem(STORAGE_KEY);
+    return getDB(); // recurse once to get fresh initialDB
+  }
 };
 
 

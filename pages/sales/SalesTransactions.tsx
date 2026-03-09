@@ -5,7 +5,7 @@ import { Subscription } from '../../types';
 import { formatCurrency } from '../../services/financeUtils';
 import {
   Receipt, Loader2, Check, X as XIcon, Eye, Clock,
-  CheckCircle, XCircle, AlertCircle, Search, Filter, Image as ImageIcon
+  CheckCircle, XCircle, AlertCircle, Search, Image as ImageIcon
 } from 'lucide-react';
 
 // Resolve proof_of_payment URLs: backend stores them as '/uploads/...' (relative to api.cosger.com)

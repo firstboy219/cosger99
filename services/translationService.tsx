@@ -797,6 +797,10 @@ export function loadLocalePreference(): LocalePreference {
 export function saveLocalePreference(p: LocalePreference): void {
   localStorage.setItem(LOCALE_KEY, JSON.stringify(p));
   try { saveConfig({ language: p.language }); } catch {}
+  // Notify all mounted components that locale/currency changed
+  // Uses existing PAYDONE_CONFIG_UPDATE so components with that listener auto re-render
+  try { window.dispatchEvent(new Event('PAYDONE_CONFIG_UPDATE')); } catch {}
+  try { window.dispatchEvent(new CustomEvent('PAYDONE_CURRENCY_UPDATE', { detail: { currency: p.currency } })); } catch {}
 }
 
 // ─── CURRENCY FORMATTER ───────────────────────────────────────────────────────

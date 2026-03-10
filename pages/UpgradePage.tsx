@@ -65,7 +65,17 @@ export default function UpgradePage() {
         // V50.35 TAHAP 3: Backend returns plain Array<FreemiumPackage>, already filtered by is_active
         const data = await api.get('/packages');
         // data is directly an array, no need to access .packages property or filter locally
-        const pkgs = Array.isArray(data) ? data : [];
+        const raw = Array.isArray(data) ? data : [];
+        // Normalize: backend uses keysToCamel() so snake_case fields come as camelCase.
+        // Map both forms so the rest of UpgradePage can safely use snake_case field names.
+        const pkgs: FreemiumPackage[] = raw.map((p: any) => ({
+          ...p,
+          ai_limit:       p.ai_limit       ?? p.aiLimit       ?? 0,
+          is_active:      p.is_active       ?? p.isActive      ?? true,
+          is_default_free:p.is_default_free ?? p.isDefaultFree ?? false,
+          badge_color:    p.badge_color     ?? p.badgeColor    ?? undefined,
+          features:       typeof p.features === 'string' ? JSON.parse(p.features) : (p.features ?? {}),
+        }));
         setPackages(pkgs);
         // Persist to local DB
         const db = getDB();
@@ -74,7 +84,15 @@ export default function UpgradePage() {
       } catch {
         // Fallback to local DB
         const db = getDB();
-        const localPkgs = db.packages || [];
+        const raw = db.packages || [];
+        const localPkgs: FreemiumPackage[] = raw.map((p: any) => ({
+          ...p,
+          ai_limit:        p.ai_limit       ?? p.aiLimit       ?? 0,
+          is_active:       p.is_active       ?? p.isActive      ?? true,
+          is_default_free: p.is_default_free ?? p.isDefaultFree ?? false,
+          badge_color:     p.badge_color     ?? p.badgeColor    ?? undefined,
+          features:        typeof p.features === 'string' ? JSON.parse(p.features) : (p.features ?? {}),
+        }));
         if (localPkgs.length > 0) {
           setPackages(localPkgs);
         } else {

@@ -89,6 +89,9 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 // --- MAIN COMPONENT ---
 
 export default function MyDebts({ debts = [], setDebts, userId, debtInstallments = [], setDebtInstallments }: MyDebtsProps) {
+  // ── i18n ──────────────────────────────────────────────────────────────────
+  const { tDebtType } = useTranslation();
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);

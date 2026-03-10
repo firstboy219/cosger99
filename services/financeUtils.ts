@@ -1,6 +1,39 @@
 
+import React from 'react';
 import { LoanType, SimulationInput, SimulationResult, DebtItem, DailyExpense, ExpenseItem, DebtInstallment } from '../types';
 import { getConfig } from './mockDb';
+
+// ─── CURRENCY SYMBOL MAP (no import cycle — keeps financeUtils standalone) ────
+// Mirrors CURRENCY_LIST in translationService.tsx. Only symbol + locale needed.
+const CURRENCY_SYMBOLS: Record<string, { symbol: string; locale: string; noDecimals: boolean }> = {
+  IDR: { symbol: 'Rp',  locale: 'id-ID', noDecimals: true  },
+  USD: { symbol: '$',   locale: 'en-US', noDecimals: false },
+  CNY: { symbol: '¥',   locale: 'zh-CN', noDecimals: false },
+  INR: { symbol: '₹',   locale: 'hi-IN', noDecimals: false },
+  EUR: { symbol: '€',   locale: 'de-DE', noDecimals: false },
+  RUB: { symbol: '₽',   locale: 'ru-RU', noDecimals: false },
+  SAR: { symbol: 'SR',  locale: 'ar-SA', noDecimals: false },
+  GBP: { symbol: '£',   locale: 'en-GB', noDecimals: false },
+  JPY: { symbol: '¥',   locale: 'ja-JP', noDecimals: true  },
+  KRW: { symbol: '₩',   locale: 'ko-KR', noDecimals: true  },
+  SGD: { symbol: 'S$',  locale: 'en-SG', noDecimals: false },
+  MYR: { symbol: 'RM',  locale: 'ms-MY', noDecimals: false },
+  AUD: { symbol: 'A$',  locale: 'en-AU', noDecimals: false },
+  CAD: { symbol: 'C$',  locale: 'en-CA', noDecimals: false },
+  BRL: { symbol: 'R$',  locale: 'pt-BR', noDecimals: false },
+};
+
+/** Read active currency code from locale preference (localStorage). Falls back to IDR. */
+function getActiveCurrency(): string {
+  try {
+    const raw = localStorage.getItem('paydone_locale_v2');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.currency && CURRENCY_SYMBOLS[parsed.currency]) return parsed.currency;
+    }
+  } catch { /* ignore */ }
+  return 'IDR';
+}
 
 // --- ROBUST DATE HELPER (Anti-Crash & Timezone Fix) ---
 
@@ -43,17 +76,49 @@ export const calculatePMT = (rate: number, nper: number, pv: number): number => 
   return isFinite(pmt) ? pmt : 0;
 };
 
-export const formatCurrency = (amount: number | string): string => {
+export const formatCurrency = (amount: number | string, currencyCode?: string): string => {
   // SAFETY NET: Always coerce to Number first to handle string values from DB
   const numAmount = typeof amount === 'string' ? Number(amount.replace(/[^0-9.\-]+/g, '')) : Number(amount);
   const safeAmount = isNaN(numAmount) || !isFinite(numAmount) ? 0 : numAmount;
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(safeAmount);
+
+  // Priority: explicit param > localStorage preference > IDR
+  const code = currencyCode || getActiveCurrency();
+  const meta = CURRENCY_SYMBOLS[code] ?? CURRENCY_SYMBOLS['IDR'];
+
+  // IDR: keep existing compact Rp format (no decimals, local thousand separator)
+  if (code === 'IDR') {
+    return `Rp\u00A0${Math.round(safeAmount).toLocaleString('id-ID')}`;
+  }
+
+  // Other currencies: symbol swap only — no conversion, no decimals
+  try {
+    const formatted = new Intl.NumberFormat(meta.locale, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(safeAmount);
+    return `${meta.symbol}\u00A0${formatted}`;
+  } catch {
+    return `${meta.symbol}\u00A0${safeAmount.toLocaleString()}`;
+  }
 };
+
+/** Returns current active currency code, reactive to PAYDONE_CURRENCY_UPDATE.
+ *  Use in React components that need to re-render when user changes currency.
+ *  Example: const currency = useActiveCurrency(); → formatCurrency(amount, currency)
+ */
+export function useActiveCurrency(): string {
+  const [currency, setCurrency] = React.useState<string>(getActiveCurrency);
+  React.useEffect(() => {
+    const handler = () => setCurrency(getActiveCurrency());
+    window.addEventListener('PAYDONE_CURRENCY_UPDATE', handler);
+    window.addEventListener('PAYDONE_CONFIG_UPDATE', handler);
+    return () => {
+      window.removeEventListener('PAYDONE_CURRENCY_UPDATE', handler);
+      window.removeEventListener('PAYDONE_CONFIG_UPDATE', handler);
+    };
+  }, []);
+  return currency;
+}
 
 export const getMonthDiff = (d1: Date, d2: Date): number => {
   if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 0;

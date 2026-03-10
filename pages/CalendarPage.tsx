@@ -33,6 +33,8 @@ const StatusBadge: React.FC<{status: string}> = ({status}) => {
 export default function CalendarPage({ debts, debtInstallments, setDebtInstallments, paymentRecords, setPaymentRecords }: CalendarPageProps) {
   const [viewMode, setViewMode] = useState<'calendar' | 'table'>('calendar');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  // false = user hasn't clicked a specific date yet → right panel shows full month
+  const [isDateExplicit, setIsDateExplicit] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'pending' | 'overdue'>('all');
   const [filterDebtId, setFilterDebtId] = useState<string>('all');
@@ -92,6 +94,18 @@ export default function CalendarPage({ debts, debtInstallments, setDebtInstallme
                  d.getFullYear() === selectedDate.getFullYear();
       });
   }, [allInstallments, selectedDate]);
+
+  // All installments in the currently-selected month (used when no date is explicitly clicked)
+  const currentMonthInstallments = useMemo(() => {
+      return allInstallments.filter(inst => {
+          const d = new Date(inst.dueDate);
+          return d.getMonth() === selectedDate.getMonth() &&
+                 d.getFullYear() === selectedDate.getFullYear();
+      });
+  }, [allInstallments, selectedDate]);
+
+  // What to actually render in the right panel
+  const panelEvents = isDateExplicit ? selectedDayEvents : currentMonthInstallments;
 
   // Table data with full filtering and sorting
   const filteredTableData = useMemo(() => {
@@ -260,7 +274,7 @@ export default function CalendarPage({ debts, debtInstallments, setDebtInstallme
                           return (
                               <button
                                   key={day}
-                                  onClick={() => setSelectedDate(new Date(year, monthIndex, day))}
+                                  onClick={() => { setSelectedDate(new Date(year, monthIndex, day)); setIsDateExplicit(true); }}
                                   className={`
                                       aspect-square rounded-lg flex flex-col items-center justify-center relative text-[11px] font-medium transition-all
                                       ${isSelected ? 'bg-slate-900 text-white shadow-lg scale-110 z-10 ring-2 ring-slate-400' : ''}
@@ -335,7 +349,7 @@ export default function CalendarPage({ debts, debtInstallments, setDebtInstallme
               <div className="lg:col-span-2 flex flex-col gap-4">
                   {/* Month navigation */}
                   <div className="flex items-center justify-between bg-white rounded-xl border border-slate-200 px-4 py-2.5">
-                      <button onClick={() => setMonthOffset(prev => prev - 1)} className="p-1.5 hover:bg-slate-100 rounded-lg transition"><ChevronLeft size={16} className="text-slate-500"/></button>
+                      <button onClick={() => { setMonthOffset(prev => prev - 1); setIsDateExplicit(false); }} className="p-1.5 hover:bg-slate-100 rounded-lg transition"><ChevronLeft size={16} className="text-slate-500"/></button>
                       <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-slate-700">
                               {new Date(new Date().getFullYear(), new Date().getMonth() + monthOffset, 1).toLocaleDateString('id-ID', {month: 'long', year: 'numeric'})}
@@ -346,7 +360,7 @@ export default function CalendarPage({ debts, debtInstallments, setDebtInstallme
                               <button onClick={() => setMonthOffset(0)} className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-500 font-semibold transition">Hari ini</button>
                           )}
                       </div>
-                      <button onClick={() => setMonthOffset(prev => prev + 1)} className="p-1.5 hover:bg-slate-100 rounded-lg transition"><ChevronRight size={16} className="text-slate-500"/></button>
+                      <button onClick={() => { setMonthOffset(prev => prev + 1); setIsDateExplicit(false); }} className="p-1.5 hover:bg-slate-100 rounded-lg transition"><ChevronRight size={16} className="text-slate-500"/></button>
                   </div>
 
                   {/* The 3 calendars */}
@@ -365,31 +379,37 @@ export default function CalendarPage({ debts, debtInstallments, setDebtInstallme
                   </div>
               </div>
 
-              {/* Right Panel: Selected Day Detail */}
+              {/* Right Panel: Selected Day or Month Overview */}
               <div className="flex flex-col gap-3">
                   {/* Summary card */}
                   <div className="bg-slate-900 text-white rounded-2xl p-5 relative overflow-hidden">
                       <div className="absolute top-0 right-0 opacity-5"><Banknote size={120}/></div>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
-                          {selectedDate.toLocaleDateString('id-ID', {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'})}
+                          {isDateExplicit
+                            ? selectedDate.toLocaleDateString('id-ID', {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'})
+                            : selectedDate.toLocaleDateString('id-ID', {month: 'long', year: 'numeric'})
+                          }
                       </p>
                       <div className="text-2xl font-bold tracking-tight mt-1">
-                          {formatCurrency(selectedDayEvents.reduce((a, b) => a + Number(b.amount || 0), 0))}
+                          {formatCurrency(panelEvents.reduce((a, b) => a + Number(b.amount || 0), 0))}
                       </div>
                       <p className="text-[10px] text-slate-400 mt-2">
-                          {selectedDayEvents.length > 0 ? `${selectedDayEvents.length} tagihan` : 'Tidak ada tagihan'}
-                          {selectedDayEvents.filter(e => e.status === 'paid').length > 0 && ` \u00B7 ${selectedDayEvents.filter(e => e.status === 'paid').length} lunas`}
+                          {panelEvents.length > 0 ? `${panelEvents.length} tagihan` : 'Tidak ada tagihan'}
+                          {panelEvents.filter(e => e.status === 'paid').length > 0 && ` · ${panelEvents.filter(e => e.status === 'paid').length} lunas`}
+                          {panelEvents.filter(e => e.status === 'overdue').length > 0 && ` · ${panelEvents.filter(e => e.status === 'overdue').length} terlambat`}
                       </p>
                   </div>
 
-                  {/* Day events list */}
+                  {/* Events list */}
                   <div className="bg-white rounded-2xl border border-slate-200 flex-1 flex flex-col overflow-hidden">
                       <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center">
-                          <h3 className="text-xs font-bold text-slate-700">Rincian Tagihan</h3>
-                          {selectedDayEvents.length > 0 && (
+                          <h3 className="text-xs font-bold text-slate-700">
+                              {isDateExplicit ? 'Rincian Tagihan' : `Semua Tagihan ${selectedDate.toLocaleDateString('id-ID', {month: 'long'})}`}
+                          </h3>
+                          {panelEvents.length > 0 && (
                               <button
                                   onClick={() => {
-                                      const pendingIds = selectedDayEvents.filter(e => e.status !== 'paid').map(e => e.id);
+                                      const pendingIds = panelEvents.filter(e => e.status !== 'paid').map(e => e.id);
                                       setSelectedIds(new Set(pendingIds));
                                       handleBulkAction('mark_paid');
                                   }}
@@ -400,21 +420,30 @@ export default function CalendarPage({ debts, debtInstallments, setDebtInstallme
                           )}
                       </div>
                       <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                          {selectedDayEvents.length === 0 ? (
+                          {panelEvents.length === 0 ? (
                               <div className="h-full flex flex-col items-center justify-center text-center py-10">
                                   <CalendarDays size={32} className="text-slate-200 mb-2"/>
-                                  <p className="text-xs text-slate-300">Pilih tanggal yang memiliki tagihan</p>
+                                  <p className="text-xs text-slate-300">
+                                      {isDateExplicit ? 'Tidak ada tagihan di tanggal ini' : 'Tidak ada tagihan di bulan ini'}
+                                  </p>
                               </div>
-                          ) : selectedDayEvents.map(inst => {
+                          ) : panelEvents.map(inst => {
                               const debt = debts.find(d => d.id === inst.debtId);
+                              const instDate = new Date(inst.dueDate);
                               return (
-                                  <div key={inst.id} className={`p-3 rounded-xl border transition-all ${inst.status === 'paid' ? 'bg-slate-50 border-slate-100 opacity-70' : 'bg-white border-slate-200 hover:shadow-sm'}`}>
+                                  <div key={inst.id} className={`p-3 rounded-xl border transition-all ${inst.status === 'paid' ? 'bg-slate-50 border-slate-100 opacity-70' : inst.status === 'overdue' ? 'bg-red-50 border-red-100' : 'bg-white border-slate-200 hover:shadow-sm'}`}>
                                       <div className="flex items-start justify-between gap-2">
                                           <div className="flex-1 min-w-0">
                                               <p className="text-sm font-bold text-slate-800 truncate">{debt?.name || 'Unknown'}</p>
-                                              <div className="flex items-center gap-2 mt-1">
+                                              <div className="flex items-center gap-2 mt-1 flex-wrap">
                                                   <span className="text-[10px] text-slate-400 font-mono">Ke-{inst.period}</span>
                                                   <StatusBadge status={inst.status}/>
+                                                  {/* Show date when in month view */}
+                                                  {!isDateExplicit && (
+                                                    <span className="text-[10px] text-slate-400">
+                                                      {instDate.toLocaleDateString('id-ID', {day: 'numeric', month: 'short'})}
+                                                    </span>
+                                                  )}
                                               </div>
                                           </div>
                                           <div className="text-right shrink-0">

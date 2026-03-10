@@ -21,6 +21,7 @@ import { getConfig } from '../services/mockDb';
 import { api } from '../services/api';
 import { AppConfig, FreemiumPackage } from '../types';
 import { useI18n } from '../services/translationService';
+import { loadCustomTheme, applyTheme, hexToRgb } from '../services/themeService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LANDING PAGE TRANSLATIONS (en, zh, hi, id, es, fr, ru, ar) — all 8 languages
@@ -1189,6 +1190,127 @@ export default function LandingPage() {
   const [scrolled, setScrolled] = useState(false);
   const [config, setConfig] = useState<AppConfig>(getConfig());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // ── Sync theme from admin settings → override landing accent colors ─────────
+  useEffect(() => {
+    const applyLandingAccent = () => {
+      // Ensure global theme CSS vars are applied first
+      const cfg = getConfig();
+      const theme = loadCustomTheme() || (cfg.customTheme as any) || null;
+      if (theme) applyTheme(theme);
+      else if (cfg.currentThemePreset) applyTheme(cfg.currentThemePreset);
+
+      // Read the resolved landing accent from the CSS variable (set by applyTheme)
+      const rootStyle = getComputedStyle(document.documentElement);
+      const accent = rootStyle.getPropertyValue('--t-landing-accent').trim() || '#2563eb';
+      const primary = rootStyle.getPropertyValue('--t-primary').trim() || '#2563eb';
+      const primaryHover = rootStyle.getPropertyValue('--t-primary-h').trim() || '#1d4ed8';
+
+      // Helper: darken a hex color
+      const darken = (hex: string, pct: number): string => {
+        const rgb = hexToRgb(hex.trim());
+        if (!rgb) return hex;
+        const f = 1 - pct / 100;
+        return '#' + rgb.map(v => Math.round(v * f).toString(16).padStart(2, '0')).join('');
+      };
+      const lighten = (hex: string, pct: number): string => {
+        const rgb = hexToRgb(hex.trim());
+        if (!rgb) return hex;
+        const f = pct / 100;
+        return '#' + rgb.map(v => Math.round(v + (255 - v) * f).toString(16).padStart(2, '0')).join('');
+      };
+      const toRgba = (hex: string, alpha: number): string => {
+        const rgb = hexToRgb(hex.trim());
+        if (!rgb) return `rgba(0,0,0,${alpha})`;
+        return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+      };
+
+      const accentD = darken(accent, 12);
+      const accentL = lighten(accent, 15);
+
+      // Inject landing-specific overrides that map emerald/teal → theme accent
+      const css = `
+/* COSGER LANDING ACCENT — synced from admin theme (${accent}) */
+#cosger-landing .text-emerald-400,
+#cosger-landing .text-teal-400 { color: ${accent} !important; }
+#cosger-landing .text-emerald-300,
+#cosger-landing .text-teal-300 { color: ${lighten(accent, 20)} !important; }
+#cosger-landing .text-emerald-500,
+#cosger-landing .text-teal-500 { color: ${darken(accent, 8)} !important; }
+#cosger-landing .text-emerald-600,
+#cosger-landing .text-teal-600 { color: ${darken(accent, 15)} !important; }
+#cosger-landing .text-emerald-700,
+#cosger-landing .text-teal-700 { color: ${darken(accent, 22)} !important; }
+
+#cosger-landing .bg-emerald-400,
+#cosger-landing .bg-teal-400 { background-color: ${accentL} !important; }
+#cosger-landing .bg-emerald-500,
+#cosger-landing .bg-teal-500 { background-color: ${accent} !important; }
+#cosger-landing .bg-emerald-600,
+#cosger-landing .bg-teal-600,
+#cosger-landing .to-teal-600 { background-color: ${accentD} !important; }
+
+#cosger-landing .border-emerald-500,
+#cosger-landing .border-teal-500 { border-color: ${accent} !important; }
+#cosger-landing .border-emerald-400,
+#cosger-landing .border-teal-400 { border-color: ${accentL} !important; }
+
+#cosger-landing .bg-emerald-500\\/10,
+#cosger-landing .bg-emerald-500\\/5,
+#cosger-landing .bg-emerald-500\\/15,
+#cosger-landing .bg-teal-500\\/10 { background-color: ${toRgba(accent, 0.08)} !important; }
+
+#cosger-landing .bg-emerald-500\\/20,
+#cosger-landing .bg-teal-500\\/20 { background-color: ${toRgba(accent, 0.15)} !important; }
+
+#cosger-landing .bg-emerald-500\\/30,
+#cosger-landing .bg-teal-500\\/30 { background-color: ${toRgba(accent, 0.22)} !important; }
+
+#cosger-landing .border-emerald-500\\/30,
+#cosger-landing .border-teal-500\\/30 { border-color: ${toRgba(accent, 0.3)} !important; }
+#cosger-landing .border-emerald-500\\/20,
+#cosger-landing .border-teal-500\\/20 { border-color: ${toRgba(accent, 0.2)} !important; }
+
+/* CTA button gradients */
+#cosger-landing .from-emerald-400 { --tw-gradient-from: ${accentL} !important; }
+#cosger-landing .from-emerald-500 { --tw-gradient-from: ${accent} !important; }
+#cosger-landing .to-teal-500 { --tw-gradient-to: ${darken(accent, 8)} !important; }
+#cosger-landing .hover\\:from-emerald-300:hover { --tw-gradient-from: ${lighten(accent, 25)} !important; }
+#cosger-landing .hover\\:from-emerald-400:hover { --tw-gradient-from: ${accentL} !important; }
+#cosger-landing .hover\\:to-teal-400:hover { --tw-gradient-to: ${accent} !important; }
+#cosger-landing .hover\\:to-teal-500:hover { --tw-gradient-to: ${darken(accent, 8)} !important; }
+
+/* Glow shadows */
+#cosger-landing .shadow-emerald-500\\/20 { box-shadow: 0 0 24px ${toRgba(accent, 0.2)} !important; }
+#cosger-landing .shadow-emerald-500\\/25 { box-shadow: 0 0 24px ${toRgba(accent, 0.25)} !important; }
+#cosger-landing .shadow-emerald-500\\/30 { box-shadow: 0 0 24px ${toRgba(accent, 0.3)} !important; }
+#cosger-landing .hover\\:shadow-emerald-500\\/40:hover { box-shadow: 0 0 32px ${toRgba(accent, 0.4)} !important; }
+
+/* Glow orb background blob */
+#cosger-landing .bg-emerald-500\\/\\[0\\.07\\] { background-color: ${toRgba(accent, 0.07)} !important; }
+
+/* Slider track */
+#cosger-landing input[type="range"]::-webkit-slider-thumb { background-color: ${accent} !important; }
+#cosger-landing input[type="range"]::-moz-range-thumb { background-color: ${accent} !important; }
+      `;
+
+      let el = document.getElementById('cosger-landing-accent') as HTMLStyleElement | null;
+      if (!el) {
+        el = document.createElement('style');
+        el.id = 'cosger-landing-accent';
+        document.head.appendChild(el);
+      }
+      el.textContent = css;
+    };
+
+    applyLandingAccent();
+    window.addEventListener('PAYDONE_CONFIG_UPDATE', applyLandingAccent);
+    return () => {
+      window.removeEventListener('PAYDONE_CONFIG_UPDATE', applyLandingAccent);
+      // Clean up landing override when leaving the page
+      document.getElementById('cosger-landing-accent')?.remove();
+    };
+  }, []);
   const [openFAQ, setOpenFAQ] = useState<number | null>(0);
   const [langDropOpen, setLangDropOpen] = useState(false);
 
@@ -1218,6 +1340,20 @@ export default function LandingPage() {
 
   const s = STRINGS[activeLang];
 
+  // ── Currency follows active language (no conversion — symbol swap only) ──
+  const LANG_CURRENCY: Record<LangCode, string> = {
+    en: 'USD', zh: 'CNY', hi: 'INR', id: 'IDR',
+    es: 'EUR', fr: 'EUR', ru: 'RUB', ar: 'SAR',
+  };
+  const activeCurrency = LANG_CURRENCY[activeLang] || 'IDR';
+  // Shorthand: format a number using the active language currency
+  const fc = (amount: number | string) => formatCurrency(amount, activeCurrency);
+
+  // ── Brand name: from admin config, fallback to 'Paydone' ─────────────────
+  const brandName = config.appName?.trim() || 'Paydone';
+  // Replace any "Paydone" occurrence in a string with the configured brand name
+  const nb = (str: string) => str.replaceAll('Paydone', brandName);
+
   const changeLang = (lang: LangCode) => {
     setActiveLang(lang);
     setLangDropOpen(false);
@@ -1234,7 +1370,10 @@ export default function LandingPage() {
         ar: { cur: 'SAR', tz: 'Asia/Riyadh',   cc: 'SA' },
       };
       const m = meta[lang];
-      if (m) localStorage.setItem('paydone_locale_v2', JSON.stringify({ language: lang, currency: m.cur, timezone: m.tz, country: m.cc, isAuto: false }));
+      if (m) {
+        localStorage.setItem('paydone_locale_v2', JSON.stringify({ language: lang, currency: m.cur, timezone: m.tz, country: m.cc, isAuto: false }));
+        window.dispatchEvent(new CustomEvent('PAYDONE_CURRENCY_UPDATE', { detail: { currency: m.cur } }));
+      }
     } catch {}
     // Apply RTL direction for Arabic
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
@@ -1314,7 +1453,7 @@ export default function LandingPage() {
     finally { setLeadLoading(false); }
   };
 
-  const appName = config.appName || 'Paydone';
+  const appName = brandName; // alias — brandName already derives from config.appName
   const appLogo = config.appLogoUrl;
   const langMeta = LANG_META[activeLang];
 
@@ -1335,12 +1474,12 @@ export default function LandingPage() {
   const tv = useCountUp(35, 1500, statsView.inView);
 
   return (
-    <div id="cosger-landing" className="min-h-screen bg-[#060b12] text-white antialiased" style={{ fontFamily: "'Inter', sans-serif" }}>
+    <div id="cosger-landing" className="min-h-screen text-white antialiased" style={{ fontFamily: "'Inter', sans-serif", backgroundColor: 'var(--t-landing-bg, #060b12)' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Sora:wght@700;800;900&display=swap');
         @keyframes grad-x { 0%,100%{background-position:0% 50%}50%{background-position:100% 50%} }
         @keyframes float { 0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)} }
-        @keyframes pulse-ring { 0%{box-shadow:0 0 0 0 rgba(52,211,153,.4)} 70%{box-shadow:0 0 0 12px rgba(52,211,153,0)} 100%{box-shadow:0 0 0 0 rgba(52,211,153,0)} }
+        @keyframes pulse-ring { 0%{box-shadow:0 0 0 0 rgba(var(--t-primary-rgb, 52,211,153),.4)} 70%{box-shadow:0 0 0 12px rgba(var(--t-primary-rgb, 52,211,153),0)} 100%{box-shadow:0 0 0 0 rgba(var(--t-primary-rgb, 52,211,153),0)} }
         @keyframes slide-up { from{opacity:0;transform:translateY(28px)} to{opacity:1;transform:translateY(0)} }
         @keyframes shimmer { 0%{background-position:-200% 0}100%{background-position:200% 0} }
         @keyframes glow-pulse { 0%,100%{opacity:.6} 50%{opacity:1} }
@@ -1567,7 +1706,7 @@ export default function LandingPage() {
                     <div className="flex justify-between mb-2">
                       <span className="text-xs text-slate-400 font-medium">{item.label}</span>
                       <span className="text-xs font-bold text-emerald-400">
-                        {(item as any).isRate ? `${item.value}%` : formatCurrency(item.value)}
+                        {(item as any).isRate ? `${item.value}%` : fc(item.value)}
                       </span>
                     </div>
                     <input
@@ -1590,7 +1729,7 @@ export default function LandingPage() {
                   <p className="text-xs text-slate-600">{safeStd} {s.calc_months}</p>
                 </div>
                 <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl">
-                  <p className="text-[10px] text-emerald-500 uppercase tracking-wider font-bold mb-1">{s.calc_optimized}</p>
+                  <p className="text-[10px] text-emerald-500 uppercase tracking-wider font-bold mb-1">{nb(s.calc_optimized)}</p>
                   <p className="text-xl font-black text-emerald-400">
                     {(optimizedMonths / 12).toFixed(1)}<span className="text-xs font-medium text-emerald-600 ml-1">{s.calc_years}</span>
                   </p>
@@ -1601,7 +1740,7 @@ export default function LandingPage() {
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
                   <p className="text-[10px] text-amber-500 font-bold uppercase mb-0.5">{s.calc_save_interest}</p>
-                  <p className="text-sm font-black text-amber-400">{formatCurrency(savedInterest)}</p>
+                  <p className="text-sm font-black text-amber-400">{fc(savedInterest)}</p>
                 </div>
                 <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-center">
                   <p className="text-[10px] text-indigo-400 font-bold uppercase mb-0.5">{s.calc_save_time}</p>
@@ -1724,7 +1863,7 @@ export default function LandingPage() {
           <div className="text-center mb-14 max-w-2xl mx-auto">
             <span className="text-emerald-400 text-xs font-bold uppercase tracking-[0.15em] mb-3 block">AI Strategy</span>
             <h2 className="text-3xl lg:text-4xl font-black text-white mb-4" style={{ fontFamily: "'Sora', sans-serif" }}>{s.strat_title}</h2>
-            <p className="text-slate-400 leading-relaxed">{s.strat_sub}</p>
+            <p className="text-slate-400 leading-relaxed">{nb(s.strat_sub)}</p>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-5">
@@ -1809,7 +1948,7 @@ export default function LandingPage() {
             <p className="text-slate-400">{s.test_sub}</p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {s.testimonials.map((t, i) => <TestimonialCard key={i} t={t} delay={i*70} />)}
+            {s.testimonials.map((t, i) => <TestimonialCard key={i} t={{...t, text: nb(t.text)}} delay={i*70} />)}
           </div>
         </div>
       </section>
@@ -1895,7 +2034,7 @@ export default function LandingPage() {
                         <span className="text-4xl font-black text-emerald-400">Free</span>
                       ) : (
                         <>
-                          <span className="text-4xl font-black text-white">{formatCurrency(pkg.price)}</span>
+                          <span className="text-4xl font-black text-white">{fc(pkg.price)}</span>
                           <span className="text-slate-500 pb-1 text-sm">{s.price_per_month}</span>
                         </>
                       )}
@@ -1933,11 +2072,11 @@ export default function LandingPage() {
           <div className="text-center mb-12">
             <span className="text-emerald-400 text-xs font-bold uppercase tracking-[0.15em] mb-3 block">FAQ</span>
             <h2 className="text-3xl lg:text-4xl font-black text-white mb-4" style={{ fontFamily: "'Sora', sans-serif" }}>{s.faq_title}</h2>
-            <p className="text-slate-400">{s.faq_sub}</p>
+            <p className="text-slate-400">{nb(s.faq_sub)}</p>
           </div>
           <div className="glass rounded-3xl p-6 md:p-8">
             {s.faqs.map((faq, i) => (
-              <FAQItem key={i} q={faq.q} a={faq.a} open={openFAQ === i} onClick={() => setOpenFAQ(openFAQ === i ? null : i)} />
+              <FAQItem key={i} q={nb(faq.q)} a={nb(faq.a)} open={openFAQ === i} onClick={() => setOpenFAQ(openFAQ === i ? null : i)} />
             ))}
           </div>
         </div>
@@ -1987,7 +2126,7 @@ export default function LandingPage() {
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white mb-5 leading-[1.1]" style={{ fontFamily: "'Sora', sans-serif" }}>
             {s.final_title}
           </h2>
-          <p className="text-slate-400 text-base mb-9 max-w-xl mx-auto leading-relaxed">{s.final_sub}</p>
+          <p className="text-slate-400 text-base mb-9 max-w-xl mx-auto leading-relaxed">{nb(s.final_sub)}</p>
           <Link to="/register" className="inline-flex items-center gap-3 px-9 py-4 bg-gradient-to-r from-emerald-400 to-teal-600 hover:from-emerald-300 hover:to-teal-500 text-[#060b12] font-black text-base rounded-2xl transition-all shadow-2xl shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.03] active:scale-[0.98]">
             <Zap size={20} />
             {s.final_cta}
@@ -2015,7 +2154,7 @@ export default function LandingPage() {
             </div>
           </div>
           <p className="text-xs text-slate-600">{s.footer_links}</p>
-          <p className="text-xs text-slate-700">{s.footer_rights}</p>
+          <p className="text-xs text-slate-700">{nb(s.footer_rights)}</p>
         </div>
       </footer>
     </div>

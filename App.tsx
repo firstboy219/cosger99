@@ -87,6 +87,8 @@ export default function App() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncProgressMsg, setSyncProgressMsg] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // Re-render entire dashboard when user changes currency (forces formatCurrency to re-read localStorage)
+  const [currencyVersion, setCurrencyVersion] = useState(0);
 
   const [aiResult, setAiResult] = useState<{ show: boolean; type: 'success' | 'error'; title: string; message: string; }>({ show: false, type: 'success', title: '', message: '' });
 
@@ -190,6 +192,8 @@ export default function App() {
     window.addEventListener('PAYDONE_NOTIFICATION', handleNotification);
     window.addEventListener('APP_TOAST_SHOW', handleAppToastShow);
     window.addEventListener('PAYDONE_UPGRADE_REQUIRED', handleUpgradeRequired);
+    const handleCurrencyUpdate = () => setCurrencyVersion(v => v + 1);
+    window.addEventListener('PAYDONE_CURRENCY_UPDATE', handleCurrencyUpdate);
 
     return () => {
       window.removeEventListener('PAYDONE_AUTH_EXPIRED', handleAuthExpired);
@@ -197,6 +201,7 @@ export default function App() {
       window.removeEventListener('PAYDONE_NOTIFICATION', handleNotification);
       window.removeEventListener('APP_TOAST_SHOW', handleAppToastShow);
       window.removeEventListener('PAYDONE_UPGRADE_REQUIRED', handleUpgradeRequired);
+      window.removeEventListener('PAYDONE_CURRENCY_UPDATE', handleCurrencyUpdate);
     };
   }, [addToast]);
 
@@ -585,6 +590,7 @@ export default function App() {
             element={isAuthenticated && userRole === 'user' ? (
               // Always show dashboard, sync happens in background status bar
               <DashboardLayout 
+                  key={`dashboard-${currencyVersion}`}
                   onLogout={handleLogout} 
                   userId={currentUserId || ''} 
                   syncStatus={syncStatus} 

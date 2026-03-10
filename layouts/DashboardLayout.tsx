@@ -77,6 +77,8 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const langMenuRef = useRef<HTMLDivElement>(null);
   
   const unreadCount = useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
+  // Bell badge = unread notifs + urgent tasks count
+  const totalBadgeCount = useMemo(() => unreadCount + urgentTasks.length, [unreadCount, urgentTasks]);
 
   const [isPulling, setIsPulling] = useState(false);
   const [pullResult, setPullResult] = useState<{ status: 'success' | 'error', data: any } | null>(null);
@@ -203,6 +205,51 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       try { await api.put(`/notifications/${id}/read`, {}); } catch { /* ignore */ }
     }
   }, [notifications]);
+
+  // ── URGENT TASKS from Planning ─────────────────────────────────────────────
+  // Reads tasks + debt installments from DB, surfaces those overdue or due ≤3 days
+  const urgentTasks = useMemo(() => {
+    if (!userId) return [];
+    const userData = getUserData(userId);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const threeDaysLater = new Date(today); threeDaysLater.setDate(today.getDate() + 3);
+
+    // 1. Manual/AI tasks stored in DB
+    const dbTasks: TaskItem[] = (userData.tasks || []).filter(task => {
+      if (task.userId !== userId) return false;
+      if (task.status === 'completed') return false;
+      if (!task.dueDate) return false;
+      const d = new Date(task.dueDate); d.setHours(0,0,0,0);
+      return d <= threeDaysLater; // overdue OR due today/tomorrow/2d/3d
+    });
+
+    // 2. Debt installments that are overdue or due ≤3 days
+    const installments: TaskItem[] = (userData.debtInstallments || [])
+      .filter((inst: any) => {
+        if (inst.status === 'paid') return false;
+        if (!inst.dueDate) return false;
+        const d = new Date(inst.dueDate); d.setHours(0,0,0,0);
+        return d <= threeDaysLater;
+      })
+      .map((inst: any) => ({
+        id: inst.id,
+        userId,
+        title: `Cicilan: ${inst.debtName || inst.debtId} — ${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(inst.amount || 0)}`,
+        category: 'Payment' as const,
+        status: 'pending' as const,
+        dueDate: inst.dueDate,
+        context: 'Routine Bill' as const,
+      }));
+
+    const all = [...dbTasks, ...installments];
+    // Sort: overdue first, then soonest
+    all.sort((a, b) => {
+      const da = new Date(a.dueDate!).getTime();
+      const db2 = new Date(b.dueDate!).getTime();
+      return da - db2;
+    });
+    return all.slice(0, 8); // cap at 8 items
+  }, [userId, notifications]); // re-compute when DB updates (notifications state changes on PAYDONE_DB_UPDATE)
 
   const handleManualPull = async () => {
       setIsPulling(true);
@@ -405,9 +452,9 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
             <div className="relative" ref={notifRef}>
               <button onClick={() => setNotifMenuOpen(!notifMenuOpen)} className={`p-2 rounded-full transition-colors relative ${notifMenuOpen ? 'bg-brand-50 text-brand-600' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}>
                 <Bell size={18} />
-                {unreadCount > 0 && (
+                {totalBadgeCount > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 w-4.5 h-4.5 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center min-w-[18px] h-[18px] border-2 border-white shadow-sm">
-                    {unreadCount > 9 ? '9+' : unreadCount}
+                    {totalBadgeCount > 9 ? '9+' : totalBadgeCount}
                   </span>
                 )}
               </button>
@@ -421,50 +468,132 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
                       <button onClick={markAllAsRead} className="text-[10px] font-bold text-brand-600 hover:text-brand-700 transition">Tandai semua dibaca</button>
                     )}
                   </div>
-                  <div className="max-h-[360px] overflow-y-auto custom-scrollbar">
-                    {notifications.length === 0 ? (
+                  <div className="max-h-[420px] overflow-y-auto custom-scrollbar">
+
+                    {/* ── URGENT TASKS SECTION ─────────────────────────── */}
+                    {urgentTasks.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 px-5 py-2 bg-red-50 border-b border-red-100">
+                          <AlarmClock size={13} className="text-red-500 flex-shrink-0" />
+                          <span className="text-[11px] font-black text-red-600 uppercase tracking-wider">Butuh Aksi Segera</span>
+                          <span className="ml-auto text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">{urgentTasks.length}</span>
+                        </div>
+                        {urgentTasks.map(task => {
+                          const taskDate = task.dueDate ? new Date(task.dueDate) : null;
+                          const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
+                          const isOverdue = taskDate ? taskDate < todayMidnight : false;
+                          const isToday = taskDate ? taskDate.toDateString() === todayMidnight.toDateString() : false;
+                          const dayDiff = taskDate ? Math.round((taskDate.getTime() - todayMidnight.getTime()) / 86400000) : null;
+
+                          const urgencyLabel = isOverdue
+                            ? `Terlambat ${Math.abs(dayDiff!)} hari`
+                            : isToday ? 'Hari ini!'
+                            : dayDiff === 1 ? 'Besok'
+                            : `${dayDiff} hari lagi`;
+
+                          const urgencyColor = isOverdue
+                            ? 'text-red-600 bg-red-100'
+                            : isToday ? 'text-orange-600 bg-orange-100'
+                            : 'text-amber-600 bg-amber-100';
+
+                          const ctxColors: Record<string, string> = {
+                            'Debt Acceleration': 'bg-blue-100 text-blue-700',
+                            'Routine Bill': 'bg-purple-100 text-purple-700',
+                            'Financial Freedom': 'bg-emerald-100 text-emerald-700',
+                            'Allocation': 'bg-cyan-100 text-cyan-700',
+                            'Manual': 'bg-slate-100 text-slate-600',
+                            'System': 'bg-slate-100 text-slate-600',
+                          };
+                          const ctxBadge = task.context ? (ctxColors[task.context] || 'bg-slate-100 text-slate-600') : 'bg-slate-100 text-slate-600';
+
+                          return (
+                            <div
+                              key={task.id}
+                              onClick={() => { setNotifMenuOpen(false); navigate('/app/planning'); }}
+                              className="flex gap-3 px-5 py-3 border-b border-red-50 cursor-pointer hover:bg-red-50/60 transition-colors bg-red-50/20"
+                            >
+                              <div className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-500'}`}>
+                                <AlarmClock size={15} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wide ${urgencyColor}`}>{urgencyLabel}</span>
+                                  {task.context && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${ctxBadge}`}>{task.context}</span>}
+                                </div>
+                                <p className="text-xs font-bold text-slate-800 leading-snug line-clamp-2">{task.title}</p>
+                                {taskDate && (
+                                  <p className="text-[10px] text-slate-400 mt-0.5">
+                                    {taskDate.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </p>
+                                )}
+                              </div>
+                              <ChevronRight size={14} className="text-slate-300 flex-shrink-0 self-center" />
+                            </div>
+                          );
+                        })}
+                        <div
+                          onClick={() => { setNotifMenuOpen(false); navigate('/app/planning'); }}
+                          className="px-5 py-2 text-center bg-red-50/40 border-b border-red-100 cursor-pointer hover:bg-red-100/40 transition"
+                        >
+                          <span className="text-[11px] font-bold text-red-500 flex items-center gap-1 justify-center">
+                            Lihat semua di Planning <ChevronRight size={11} />
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── REGULAR NOTIFICATIONS ────────────────────────── */}
+                    {notifications.length === 0 && urgentTasks.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center px-6">
                         <Bell size={32} className="text-slate-200 mb-3" />
                         <p className="text-sm font-bold text-slate-400">Belum ada notifikasi</p>
                         <p className="text-[11px] text-slate-300 mt-1">Notifikasi dari sistem dan promo akan muncul di sini.</p>
                       </div>
                     ) : (
-                      notifications.slice(0, 20).map(notif => {
-                        const NotifIcon = notif.type === 'promo' ? Gift : notif.type === 'warning' ? ShieldAlert : notif.type === 'system' ? AlertCircle : Info;
-                        const iconColor = notif.type === 'promo' ? 'text-amber-600 bg-amber-50' : notif.type === 'warning' ? 'text-red-600 bg-red-50' : notif.type === 'system' ? 'text-slate-600 bg-slate-100' : 'text-blue-600 bg-blue-50';
-                        const timeAgo = (() => {
-                          const diff = Date.now() - new Date(notif.created_at).getTime();
-                          const mins = Math.floor(diff / 60000);
-                          if (mins < 60) return `${mins}m lalu`;
-                          const hours = Math.floor(mins / 60);
-                          if (hours < 24) return `${hours}j lalu`;
-                          return `${Math.floor(hours / 24)}h lalu`;
-                        })();
-
-                        return (
-                          <div
-                            key={notif.id}
-                            onClick={() => { markAsRead(notif.id); if (notif.action_url) navigate(notif.action_url); }}
-                            className={`flex gap-3 px-5 py-3.5 border-b border-slate-50 cursor-pointer transition-colors hover:bg-slate-50 ${!notif.is_read ? 'bg-brand-50/30' : ''}`}
-                          >
-                            <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center ${iconColor}`}>
-                              {notif.image_url ? (
-                                <img src={notif.image_url} alt="" className="w-9 h-9 rounded-xl object-cover" />
-                              ) : (
-                                <NotifIcon size={16} />
-                              )}
+                      notifications.length > 0 && (
+                        <>
+                          {urgentTasks.length > 0 && (
+                            <div className="px-5 py-2 bg-slate-50/80 border-b border-slate-100">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Notifikasi Sistem</span>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className={`text-xs leading-snug ${!notif.is_read ? 'font-bold text-slate-900' : 'font-medium text-slate-600'}`}>{notif.title}</p>
-                                {!notif.is_read && <div className="w-2 h-2 bg-brand-500 rounded-full flex-shrink-0 mt-1" />}
+                          )}
+                          {notifications.slice(0, 20).map(notif => {
+                            const NotifIcon = notif.type === 'promo' ? Gift : notif.type === 'warning' ? ShieldAlert : notif.type === 'system' ? AlertCircle : Info;
+                            const iconColor = notif.type === 'promo' ? 'text-amber-600 bg-amber-50' : notif.type === 'warning' ? 'text-red-600 bg-red-50' : notif.type === 'system' ? 'text-slate-600 bg-slate-100' : 'text-blue-600 bg-blue-50';
+                            const timeAgo = (() => {
+                              const diff = Date.now() - new Date(notif.created_at).getTime();
+                              const mins = Math.floor(diff / 60000);
+                              if (mins < 60) return `${mins}m lalu`;
+                              const hours = Math.floor(mins / 60);
+                              if (hours < 24) return `${hours}j lalu`;
+                              return `${Math.floor(hours / 24)}h lalu`;
+                            })();
+                            return (
+                              <div
+                                key={notif.id}
+                                onClick={() => { markAsRead(notif.id); if (notif.action_url) navigate(notif.action_url); }}
+                                className={`flex gap-3 px-5 py-3.5 border-b border-slate-50 cursor-pointer transition-colors hover:bg-slate-50 ${!notif.is_read ? 'bg-brand-50/30' : ''}`}
+                              >
+                                <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center ${iconColor}`}>
+                                  {notif.image_url ? (
+                                    <img src={notif.image_url} alt="" className="w-9 h-9 rounded-xl object-cover" />
+                                  ) : (
+                                    <NotifIcon size={16} />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className={`text-xs leading-snug ${!notif.is_read ? 'font-bold text-slate-900' : 'font-medium text-slate-600'}`}>{notif.title}</p>
+                                    {!notif.is_read && <div className="w-2 h-2 bg-brand-500 rounded-full flex-shrink-0 mt-1" />}
+                                  </div>
+                                  <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">{notif.message}</p>
+                                  <p className="text-[10px] text-slate-300 mt-1">{timeAgo}</p>
+                                </div>
                               </div>
-                              <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">{notif.message}</p>
-                              <p className="text-[10px] text-slate-300 mt-1">{timeAgo}</p>
-                            </div>
-                          </div>
-                        );
-                      })
+                            );
+                          })}
+                        </>
+                      )
                     )}
                   </div>
                   {notifications.length > 0 && (

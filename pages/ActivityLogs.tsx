@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { getLogs } from '../services/activityLogger';
 import { getConfig, getDB } from '../services/mockDb';
 import { api } from '../services/api';
@@ -17,93 +17,106 @@ export default function ActivityLogs({ userType }: { userType: 'user' | 'admin' 
   const config = getConfig();
   const showDetails = userType === 'admin' || config.showDetailedLogsToUsers === true;
 
-  const loadData = React.useCallback(async () => {
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  const normalizeRow = (r: any, fallbackUserId: string, fallbackUserType: 'user' | 'admin'): LogItem => ({
+    id: r.id || `log-${Math.random().toString(36).substr(2, 9)}`,
+    timestamp: r.timestamp || r.createdAt || r.created_at || new Date().toISOString(),
+    userType: (r.userType || r.user_type || fallbackUserType) as 'user' | 'admin',
+    username: r.username || r.userId || r.user_id || fallbackUserId,
+    userId: r.userId || r.user_id || fallbackUserId,
+    action: r.action || r.eventName || r.event_name || 'Unknown Action',
+    details: r.details || r.description || r.message || '',
+    category: (r.category as 'System' | 'Finance' | 'AI' | 'Security') || 'System',
+    payload: r.payload ?? undefined,
+    response: r.response ?? undefined,
+    status: r.status || 'info',
+  });
+
+  /** Merge two log arrays, deduplicate by id, sort newest first */
+  const mergeLogs = (a: LogItem[], b: LogItem[]): LogItem[] => {
+    const map = new Map<string, LogItem>();
+    [...a, ...b].forEach(l => map.set(l.id, l));
+    return Array.from(map.values()).sort(
+      (x, y) => new Date(y.timestamp).getTime() - new Date(x.timestamp).getTime()
+    );
+  };
+
+  // ── 1. READ FROM LOCAL DB (safe — never hits network) ────────────────────
+  const readLocalLogs = useCallback((): LogItem[] => {
+    const userId = localStorage.getItem('paydone_active_user') || '';
+    if (userType === 'admin') {
+      return getLogs();
+    }
+    if (!userId) return [];
+    const db = getDB();
+    const all: LogItem[] = Array.isArray(db.logs) ? db.logs : [];
+    const filtered = all.filter(l => l.userId === userId || l.username === userId);
+    return filtered.length > 0
+      ? filtered
+      : getLogs('user').filter(l => l.userId === userId || l.username === userId);
+  }, [userType]);
+
+  // Exposed for the PAYDONE_DB_UPDATE listener — only reads local, never fetches API
+  const reloadFromLocal = useCallback(() => {
+    const local = readLocalLogs();
+    if (local.length > 0) {
+      setLogs(prev => mergeLogs(prev, local));
+    }
+  }, [readLocalLogs]);
+
+  // ── 2. FETCH FROM BACKEND (once per session, debounced 30s) ─────────────
+  const lastFetchRef = useRef<number>(0);
+  const fetchFromBackend = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastFetchRef.current < 30_000) return;
+    lastFetchRef.current = now;
+
     setLoading(true);
     try {
       if (userType === 'admin') {
-        // Admin: Fetch from backend raw-sample endpoint
-        try {
-          const data = await api.get('/admin/raw-sample/activity_logs'); // Admin secret added automatically by api.ts
-          const rows: any[] = Array.isArray(data) ? data : (data.rows || data.data || []);
-          // Normalize backend rows (camelCase) to LogItem shape
-          const normalized: LogItem[] = rows.map((r: any) => ({
-            id: r.id || `log-${Math.random().toString(36).substr(2, 9)}`,
-            timestamp: r.timestamp || r.createdAt || r.created_at || new Date().toISOString(),
-            userType: 'admin',
-            username: r.username || r.userId || r.user_id || 'system',
-            userId: r.userId || r.user_id || '',
-            action: r.action || r.eventName || r.event_name || 'Unknown Action',
-            details: r.details || r.description || r.message || '',
-            category: r.category || 'System',
-            payload: r.payload ?? undefined,
-            response: r.response ?? undefined,
-            status: r.status || 'info',
-          }));
-          setLogs(normalized);
-        } catch (e) {
-          console.warn('[ActivityLogs] Admin fetch failed, falling back to local', e);
-          setLogs(getLogs());
-        }
+        const data = await api.get('/admin/raw-sample/activity_logs');
+        const rows: any[] = Array.isArray(data) ? data : (data.rows || data.data || []);
+        const normalized = rows.map(r => normalizeRow(r, '', 'admin'));
+        const merged = mergeLogs(normalized, readLocalLogs());
+        setLogs(merged);
       } else {
-        // User: ALWAYS fetch from backend first (server filters WHERE user_id = session user)
-        // This guarantees user only sees their OWN logs
         const userId = localStorage.getItem('paydone_active_user') || '';
-        try {
-          const data = await api.get('/activity-logs');
-          const rows: any[] = Array.isArray(data) ? data : (data.rows || data.data || data.logs || []);
-          const normalized: LogItem[] = rows.map((r: any) => ({
-            id: r.id || `log-${Math.random().toString(36).substr(2, 9)}`,
-            timestamp: r.timestamp || r.createdAt || r.created_at || new Date().toISOString(),
-            userType: 'user' as const,
-            username: r.username || r.userId || r.user_id || userId,
-            userId: r.userId || r.user_id || userId,
-            action: r.action || r.eventName || r.event_name || 'Unknown Action',
-            details: r.details || r.description || r.message || '',
-            category: (r.category as 'System' | 'Finance' | 'AI' | 'Security') || 'System',
-            payload: r.payload ?? undefined,
-            response: r.response ?? undefined,
-            status: r.status || 'info',
-          }));
-          setLogs(normalized);
-        } catch (e) {
-          // Fallback: local DB — strictly filtered by userId only
-          console.warn('[ActivityLogs] Backend fetch failed, using local DB', e);
-          const db = getDB();
-          let localLogs: LogItem[] = Array.isArray(db.logs) ? db.logs : [];
-          if (userId) {
-            // STRICT filter: userId must match, do NOT pass all userType='user' logs
-            localLogs = localLogs.filter(
-              (l: LogItem) => l.userId === userId || l.username === userId
-            );
-          } else {
-            localLogs = []; // no userId = show nothing
-          }
-          // Last resort: in-memory logs filtered by userId
-          if (localLogs.length === 0 && userId) {
-            localLogs = getLogs('user').filter(
-              (l: LogItem) => l.userId === userId || l.username === userId
-            );
-          }
-          setLogs(localLogs);
-        }
+        const data = await api.get('/activity-logs');
+        const rows: any[] = Array.isArray(data) ? data : (data.rows || data.data || data.logs || []);
+        const normalized = rows.map(r => normalizeRow(r, userId, 'user'));
+        // Always merge with local so 304/empty cache never silently hides data
+        const merged = mergeLogs(normalized, readLocalLogs());
+        setLogs(merged);
       }
     } catch (e) {
-      console.warn('[ActivityLogs] Load error', e);
-      setLogs(getLogs(userType === 'user' ? 'user' : undefined));
+      console.warn('[ActivityLogs] Backend fetch failed, using local only', e);
+      setLogs(readLocalLogs());
     } finally {
       setLoading(false);
     }
-  }, [userType]);
+  }, [userType, readLocalLogs]);
 
+  // ── Effects ──────────────────────────────────────────────────────────────
+
+  // On mount: show local immediately, then hydrate from backend
   useEffect(() => {
-    loadData();
+    const local = readLocalLogs();
+    if (local.length > 0) {
+      setLogs(local);
+      setLoading(false);
+    }
+    fetchFromBackend(true);
+  }, [userType]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const handleDbUpdate = () => {
-      loadData();
-    };
-    window.addEventListener('PAYDONE_DB_UPDATE', handleDbUpdate);
-    return () => window.removeEventListener('PAYDONE_DB_UPDATE', handleDbUpdate);
-  }, [loadData]);
+  // On DB update: only refresh from local DB — NEVER hit the API (avoids loop)
+  useEffect(() => {
+    window.addEventListener('PAYDONE_DB_UPDATE', reloadFromLocal);
+    return () => window.removeEventListener('PAYDONE_DB_UPDATE', reloadFromLocal);
+  }, [reloadFromLocal]);
+
+  // Manual refresh button
+  const loadData = () => fetchFromBackend(true);
 
   const getIcon = (category: string) => {
     switch(category) {

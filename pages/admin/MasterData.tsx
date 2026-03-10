@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { getAllUsers, getConfig } from '../../services/mockDb';
+import { getAllUsers, getConfig , getApiBaseUrl } from '../../services/mockDb';
 import { getAdminHeaders } from '../../services/cloudSync';
 import { User, BankData } from '../../types';
 import { formatCurrency } from '../../services/financeUtils';
@@ -48,7 +48,7 @@ export default function MasterData() {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const getBaseUrl = () => getConfig().backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+  const getBaseUrl = () => getApiBaseUrl();
   const myAdminId = () => localStorage.getItem('paydone_active_user') || 'admin';
 
   // ─── Fetch Users ──────────────────────────────────────────────────────────

@@ -535,7 +535,11 @@ export default function Dashboard({
       {/* ============================================ */}
       <Reveal delay={80}>
         {(() => {
-          const inc = Number(income) || 1;
+          // V50.78 FIX: Use actual income (can be 0) so the 'no data' narrative
+          // (inc <= 0 && no debts) correctly shows "Belum ada data keuangan" for new users.
+          // The || 1 guard was preventing this check from ever triggering.
+          // The narrativeService generator already guards all divisions by inc internally.
+          const inc = Number(income) || 0;
           const now = new Date();
           const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
           const totalOriginalN = metrics.activeDebts.reduce((s,d) => s + Number(d.originalPrincipal||d.remainingPrincipal),0);

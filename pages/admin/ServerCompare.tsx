@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GOLDEN_SERVER_JS } from '../../services/serverTemplate';
-import { getConfig } from '../../services/mockDb';
+import { getConfig , getApiBaseUrl } from '../../services/mockDb';
 import { getHeaders, getAdminHeaders } from '../../services/cloudSync';
 import { runDevDebate } from '../../services/geminiService';
 import { 
@@ -44,7 +44,7 @@ export default function ServerCompare() {
     const adminId = localStorage.getItem('paydone_active_user') || 'admin';
     
     // Prioritize Source Code URL
-    let url = config.sourceCodeUrl || `https://api.cosger.com/api/view-source?kunci=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`;
+    let url = config.sourceCodeUrl || `${getApiBaseUrl()}/api/view-source?kunci=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`;
 
     try {
       const fetchOptions: RequestInit = {};

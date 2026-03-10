@@ -58,7 +58,7 @@ import { pullUserDataFromCloud, pushPartialUpdate, saveItemToCloud, loadGlobalCo
 import { connectWebSocket, disconnectWebSocket } from './services/socket'; 
 import { Cloud, RefreshCw, AlertCircle, CloudDownload, ArrowRight } from 'lucide-react';
 import { applyTheme } from './services/themeService';
-import { I18nProvider } from './services/translationService';
+import { I18nProvider, saveLocalePreference, detectBrowserLocale, SupportedLang } from './services/translationService';
 
 import { DebtItem, TaskItem, PaymentRecord, IncomeItem, ExpenseItem, DailyExpense, DebtInstallment, SinkingFund, BankAccount } from './types';
 
@@ -362,8 +362,23 @@ export default function App() {
     
     if (role === 'user') {
         loadLocalDataIntoState(userId);
-        // performBackgroundSync is redundant here if Login flow already did hydration, 
-        // but safe to keep for double check.
+        // Apply user's saved locale preference on login
+        try {
+          const allUsers = getAllUsers();
+          const loggedUser = allUsers.find((u: any) => u.id === userId);
+          if (loggedUser?.preferredLanguage) {
+            saveLocalePreference({
+              language: loggedUser.preferredLanguage as SupportedLang,
+              currency: loggedUser.preferredCurrency  || 'IDR',
+              timezone: loggedUser.preferredTimezone  || 'Asia/Jakarta',
+              country:  loggedUser.preferredCountry   || 'ID',
+              isAuto:   loggedUser.localeIsAuto       ?? false,
+            });
+          } else {
+            // New user: apply auto-detect
+            saveLocalePreference({ ...detectBrowserLocale(), isAuto: true });
+          }
+        } catch {}
     }
   }, [loadLocalDataIntoState]);
 
@@ -500,9 +515,33 @@ export default function App() {
       await saveItemToCloud('allocations', updatedItem, false);
   }, [monthlyExpenses, currentMonthKey]);
 
-  const totalMonthlyIncome = incomes
-    .filter(i => i.dateReceived?.startsWith(currentMonthKey) && !i._deleted)
-    .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+  // V50.78 FIX: Include both one-time incomes received this month AND recurring monthly incomes
+  // Previously only one-time incomes with dateReceived in current month were counted,
+  // which caused recurring salary/income to be excluded → wrong DSR, healthScore, narrative.
+  const totalMonthlyIncome = useMemo(() => {
+    const [curYear, curMonth] = currentMonthKey.split('-').map(Number);
+    return incomes
+      .filter(i => !i._deleted)
+      .filter(i => {
+        // Always include active recurring monthly incomes (not yet ended)
+        if (i.frequency === 'monthly') {
+          if (i.dateReceived) {
+            const startYear  = parseInt(i.dateReceived.substring(0, 4));
+            const startMonth = parseInt(i.dateReceived.substring(5, 7));
+            if (curYear < startYear || (curYear === startYear && curMonth < startMonth)) return false;
+          }
+          if (i.endDate) {
+            const endYear  = parseInt(i.endDate.substring(0, 4));
+            const endMonth = parseInt(i.endDate.substring(5, 7));
+            if (curYear > endYear || (curYear === endYear && curMonth > endMonth)) return false;
+          }
+          return true;
+        }
+        // One-time incomes: only count if received in current month
+        return !!i.dateReceived && i.dateReceived.startsWith(currentMonthKey);
+      })
+      .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+  }, [incomes, currentMonthKey]);
 
   return (
     <ErrorBoundary>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { getAllUsers, addUser, deleteUser } from '../services/mockDb';
+import { getAllUsers, addUser, deleteUser , getAppUrl } from '../services/mockDb';
 import { User } from '../types';
 import { Users, Plus, Trash2, Mail, UserPlus, Shield, Crown, Heart, Copy, Check } from 'lucide-react';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
@@ -64,7 +64,7 @@ export default function FamilyManager() {
   };
 
   const generateInvite = () => {
-      setInviteLink(`https://paydone.id/join-family/${Math.random().toString(36).substr(2, 8)}`);
+      setInviteLink(`${getAppUrl()}/join-family/${Math.random().toString(36).substr(2, 8)}`);
   };
 
   const handleCopy = () => {

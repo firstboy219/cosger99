@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../services/api';
-import { getConfig } from '../../services/mockDb';
+import { getConfig , getApiBaseUrl } from '../../services/mockDb';
 import { Subscription } from '../../types';
 import { formatCurrency } from '../../services/financeUtils';
 import {
@@ -8,11 +8,11 @@ import {
   CheckCircle, XCircle, AlertCircle, Search, Image as ImageIcon
 } from 'lucide-react';
 
-// Resolve proof_of_payment URLs: backend stores them as '/uploads/...' (relative to api.cosger.com)
+// Resolve proof_of_payment URLs: backend stores them as '/uploads/...' (relative to API base URL)
 const resolveProofUrl = (url: string) => {
   if (!url) return '';
   if (url.startsWith('data:') || url.startsWith('http')) return url; // already absolute or base64
-  const base = (getConfig().backendUrl || 'https://api.cosger.com').replace(/\/$/, '');
+  const base = getApiBaseUrl();
   return `${base}${url}`;
 };
 

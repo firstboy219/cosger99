@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { getAdminHeaders } from '../../services/cloudSync';
-import { getDB, DBSchema, getConfig, saveConfig } from '../../services/mockDb';
+import { getDB, DBSchema, getConfig, saveConfig , getApiBaseUrl } from '../../services/mockDb';
 import { saveGlobalConfigToCloud } from '../../services/cloudSync';
 import { api } from '../../services/api';
 import { Database, RefreshCw, CloudLightning, AlertTriangle, ScanLine, CheckCircle2, HardDrive, Wifi, WifiOff, Terminal, Microscope, Table as TableIcon, ShieldCheck, XCircle, Settings, Wrench, Code, Columns, FileCode, Server, PlusCircle, Zap, Loader2, Play } from 'lucide-react';
@@ -137,7 +137,7 @@ const FALLBACK_SCHEMA: Record<string, string[]> = {
 export default function DatabaseManager() {
   const [dbData, setDbData] = useState<DBSchema | null>(null);
   const [sqlConfig, setSqlConfig] = useState({
-    backendUrl: 'https://api.cosger.com',
+    backendUrl: getApiBaseUrl(),
     gcpSqlInstance: '',
     dbUser: '',
     dbPass: '',
@@ -172,7 +172,7 @@ export default function DatabaseManager() {
     const data = getDB();
     setDbData(data);
     const finalConfig = data.config;
-    const url = finalConfig.backendUrl || 'https://api.cosger.com';
+    const url = finalConfig.backendUrl || getApiBaseUrl();
     
     setSqlConfig({
       backendUrl: url,

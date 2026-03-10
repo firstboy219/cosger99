@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { DebtItem, LoanType, PaymentRecord, DebtInstallment, StepUpRange } from '../types';
 import { formatCurrency, getCurrentInstallment, generateInstallmentsForDebt } from '../services/financeUtils';
+import { useTranslation } from '../services/translationService';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import { getConfig, getUserData, saveUserData } from '../services/mockDb';
 import { Plus, Trash2, Edit2, X, Loader2, TrendingUp, Save, CreditCard, Calendar, Calculator, AlertCircle, ArrowRight, Layers, PieChart, Landmark, Percent, ChevronDown, ChevronUp, Search, Filter, Eye, Clock, Banknote, Building2, BadgePercent, BarChart3, FileText, ArrowUpRight, CheckCircle2, XCircle, Info } from 'lucide-react';
@@ -48,17 +49,24 @@ function ProgressRing({ value, size = 56 }: { value: number, size?: number }) {
 }
 
 function DebtBadge({ type }: { type: string }) {
+  const { t, tDebtType } = useTranslation();
   const config: Record<string, { bg: string, text: string, icon: any }> = {
-    KPR: { bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700', icon: Building2 },
-    KKB: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', icon: CreditCard },
-    KTA: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', icon: Banknote },
-    'Kartu Kredit': { bg: 'bg-rose-50 border-rose-200', text: 'text-rose-700', icon: CreditCard }
+    KPR:      { bg: 'bg-blue-50 border-blue-200',    text: 'text-blue-700',   icon: Building2  },
+    KKB:      { bg: 'bg-amber-50 border-amber-200',  text: 'text-amber-700',  icon: CreditCard },
+    KTA:      { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', icon: Banknote },
+    CC:       { bg: 'bg-rose-50 border-rose-200',    text: 'text-rose-700',   icon: CreditCard },
+    STUDENT:  { bg: 'bg-purple-50 border-purple-200', text: 'text-purple-700', icon: Banknote  },
+    BUSINESS: { bg: 'bg-cyan-50 border-cyan-200',    text: 'text-cyan-700',   icon: Building2  },
+    PERSONAL: { bg: 'bg-slate-50 border-slate-200',  text: 'text-slate-700',  icon: Banknote   },
+    OTHER:    { bg: 'bg-gray-50 border-gray-200',    text: 'text-gray-700',   icon: Banknote   },
   };
-  const c = config[type] || config.KTA;
+  const c = config[type?.toUpperCase()] || config.KTA;
   const BadgeIcon = c.icon;
+  // Translate the type label, fallback to type code
+  const label = t(`debttype.${type?.toUpperCase()}`, type);
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${c.bg} ${c.text} uppercase tracking-wider`}>
-      <BadgeIcon size={10} /> {type}
+    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${c.bg} ${c.text} tracking-wider`}>
+      <BadgeIcon size={10} /> {label}
     </span>
   );
 }
@@ -613,7 +621,7 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
               className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 outline-none transition" />
           </div>
           <div className="flex gap-2">
-            {['all', 'KPR', 'KKB', 'KTA', 'Kartu Kredit'].map(t => (
+            {['all', 'KPR', 'KKB', 'KTA', 'CC'].map(t => (
               <button key={t} onClick={() => setFilterType(t)}
                 className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition ${filterType === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}>
                 {t === 'all' ? 'Semua' : t}
@@ -791,10 +799,9 @@ export default function MyDebts({ debts = [], setDebts, userId, debtInstallments
                               <div>
                                   <label className={labelClass}>Jenis Kredit</label>
                                   <select className={inputClass} value={formData.type} onChange={e=>setFormData({...formData, type: e.target.value as LoanType})}>
-                                      <option value={LoanType.KPR}>KPR (Rumah)</option>
-                                      <option value={LoanType.KKB}>KKB (Kendaraan)</option>
-                                      <option value={LoanType.KTA}>KTA (Cash)</option>
-                                      <option value={LoanType.CC}>Kartu Kredit</option>
+                                      {Object.values(LoanType).map(lt => (
+                                        <option key={lt} value={lt}>{tDebtType(lt)}</option>
+                                      ))}
                                   </select>
                               </div>
                           </div>

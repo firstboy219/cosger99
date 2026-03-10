@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { IncomeItem } from '../types';
 import { formatCurrency, toLocalISOString } from '../services/financeUtils';
+import { useTranslation } from '../services/translationService';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import { getConfig } from '../services/mockDb';
 import { Plus, Briefcase, Trash2, Edit2, X, TrendingUp, Loader2, Save, Sparkles, Repeat, Calendar as CalendarIcon, PieChart, ChevronLeft, ChevronRight, Wallet, Target, ArrowUpRight, Filter, Clock } from 'lucide-react';
@@ -15,6 +16,7 @@ interface IncomeManagerProps {
 }
 
 export default function IncomeManager({ incomes = [], setIncomes, userId }: IncomeManagerProps) {
+  const { t, tIncomeType, formatAmount } = useTranslation();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -111,8 +113,8 @@ export default function IncomeManager({ incomes = [], setIncomes, userId }: Inco
 
   // Chart Data
   const chartData = [
-      { name: 'Active (Kerja)', value: metrics.active, color: '#3b82f6' },
-      { name: 'Passive/Bonus', value: metrics.passive, color: '#10b981' }
+      { name: t('incometype.ACTIVE', 'Active'), value: metrics.active, color: '#3b82f6' },
+      { name: t('incometype.PASSIVE', 'Passive'), value: metrics.passive, color: '#10b981' }
   ].filter(d => d.value > 0);
 
   // Helper to get total for specific month (for calendar badges)
@@ -546,7 +548,7 @@ export default function IncomeManager({ incomes = [], setIncomes, userId }: Inco
                                           <Sparkles size={10}/> Sekali
                                       </span>
                                   )}
-                                  <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200 uppercase">{item.type}</span>
+                                  <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200 uppercase">{tIncomeType(item.type)}</span>
                               </div>
                               
                               <div className="flex justify-between items-end border-t border-slate-50 pt-3">
@@ -606,9 +608,9 @@ export default function IncomeManager({ incomes = [], setIncomes, userId }: Inco
                       <div>
                           <label className="block text-[10px] font-black text-slate-500 uppercase mb-1.5 ml-1">Tipe</label>
                           <select className="w-full border-2 border-slate-100 p-3 rounded-2xl focus:border-brand-500 outline-none font-bold bg-white text-sm" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as any})}>
-                              <option value="active">Active (Kerja)</option>
-                              <option value="passive">Passive (Aset)</option>
-                              <option value="windfall">Bonus/THR</option>
+                              <option value="active">{tIncomeType('active')}</option>
+                              <option value="passive">{tIncomeType('passive')}</option>
+                              <option value="windfall">{tIncomeType('windfall')}</option>
                           </select>
                       </div>
                   </div>

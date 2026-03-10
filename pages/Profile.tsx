@@ -3,12 +3,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { User, BankAccount } from '../types';
 import { getAllUsers, updateUser, availableBadges, addUser } from '../services/mockDb';
 import { compressImage } from '../services/imageUtils';
-import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, Shield, Award, Target, Flag, Loader2, Copy, Plus, Trash2, Landmark, CreditCard, X, Image as ImageIcon, Briefcase, Clock, Zap, Calendar, ArrowUpDown, Upload } from 'lucide-react';
+import { User as UserIcon, Mail, Lock, Save, Camera, CheckCircle, AlertCircle, Shield, Award, Target, Flag, Loader2, Copy, Plus, Trash2, Landmark, CreditCard, X, Image as ImageIcon, Briefcase, Clock, Zap, Calendar, ArrowUpDown, Upload, Globe, Languages, DollarSign, Timer, CheckCircle2, RefreshCw } from 'lucide-react';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import FeatureGate from '../components/FeatureGate';
 import { useFreemium } from '../services/freemiumStore';
 import { Link } from 'react-router-dom';
+import { useTranslation, SUPPORTED_LANGUAGES, CURRENCY_LIST, TIMEZONE_LIST, SupportedLang, LocalePreference, detectBrowserLocale, loadLocalePreference, getCurrentTimeInTZ } from '../services/translationService';
 
 interface ProfileProps {
   currentUserId: string | null;
@@ -46,6 +47,26 @@ const CoverPattern = ({ gradient }: { gradient: string }) => (
 export default function Profile({ currentUserId, bankAccounts = [], setBankAccounts }: ProfileProps) {
   const [user, setUser] = useState<User | null>(null);
   const { subscriptionStatus, isFreeTier } = useFreemium();
+  const { t, setLocale } = useTranslation();
+
+  // ── LOCALE SETTINGS STATE ──────────────────────────────────────────────────
+  const [localeForm, setLocaleForm] = useState<LocalePreference>(loadLocalePreference);
+  const [localeSaving, setLocaleSaving] = useState(false);
+  const [localeMsg, setLocaleMsg] = useState<string | null>(null);
+  const [localTime, setLocalTime] = useState('');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'account' | 'locale'>('account');
+
+  // NOTE: localeForm is independent from global locale context.
+  // It only syncs FROM user profile on load, not from global locale changes.
+  // This prevents the form reset race condition.
+
+  // Live clock for selected timezone preview
+  useEffect(() => {
+    const tick = () => setLocalTime(getCurrentTimeInTZ(localeForm.timezone));
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [localeForm.timezone]);
   
   const [formData, setFormData] = useState({ 
     username: '', 
@@ -98,6 +119,16 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
         financialFreedomTarget: found!.financialFreedomTarget || 3000000000,
         photoUrl: found!.photoUrl || '',
       }));
+      // Sync locale panel from user's persisted server preferences
+      if (found!.preferredLanguage) {
+        setLocaleForm({
+          language: (found!.preferredLanguage as SupportedLang) || 'id',
+          currency: found!.preferredCurrency  || 'IDR',
+          timezone: found!.preferredTimezone  || 'Asia/Jakarta',
+          country:  found!.preferredCountry   || 'ID',
+          isAuto:   found!.localeIsAuto       ?? true,
+        });
+      }
     };
     loadUser();
     window.addEventListener('PAYDONE_DB_UPDATE', loadUser);
@@ -215,6 +246,35 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
 
   const handleCopyId = () => {
     if (user) { navigator.clipboard.writeText(user.id); alert('User ID copied!'); }
+  };
+
+  // ── SAVE LOCALE ──────────────────────────────────────────────────────────────
+  const handleSaveLocale = async () => {
+    setLocaleSaving(true);
+    setLocaleMsg(null);
+    setLocale(localeForm); // Apply to app immediately
+    if (user) {
+      const updatedUser: User = {
+        ...user,
+        preferredLanguage: localeForm.language,
+        preferredCurrency: localeForm.currency,
+        preferredTimezone: localeForm.timezone,
+        preferredCountry:  localeForm.country,
+        localeIsAuto:      localeForm.isAuto,
+        updatedAt: new Date().toISOString(),
+      };
+      updateUser(updatedUser);
+      setUser(updatedUser);
+      try { await saveItemToCloud('users', updatedUser, false); } catch {}
+    }
+    setLocaleMsg(t('profile.lang_saved'));
+    setLocaleSaving(false);
+    setTimeout(() => setLocaleMsg(null), 3000);
+  };
+
+  const handleAutoDetect = () => {
+    const detected = detectBrowserLocale();
+    setLocaleForm({ ...detected, isAuto: true });
   };
 
   if (!currentUserId) return <div className="p-10 text-center text-slate-500">Session Invalid. Please Login.</div>;
@@ -470,6 +530,171 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
 
           {/* ── RIGHT COL: SETTINGS ─────────────────────────────────────────────── */}
           <div className="lg:col-span-2 space-y-8">
+
+            {/* ── SETTINGS TAB NAVIGATION ──────────────────────────────────────── */}
+            <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex">
+                <button
+                  type="button"
+                  onClick={() => setActiveSettingsTab('account')}
+                  className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 text-sm font-bold transition-all border-b-2 ${activeSettingsTab === 'account' ? 'border-brand-600 text-brand-600 bg-brand-50/40' : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <UserIcon size={15}/> {t('profile.account_tab', 'Akun')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSettingsTab('locale')}
+                  className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 text-sm font-bold transition-all border-b-2 ${activeSettingsTab === 'locale' ? 'border-brand-600 text-brand-600 bg-brand-50/40' : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <Globe size={15}/> {t('profile.locale_tab', 'Bahasa & Lokasi')}
+                </button>
+              </div>
+            </div>
+
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {/* LOCALE TAB                                                        */}
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {activeSettingsTab === 'locale' && (
+              <div className="space-y-6">
+                {/* Hero */}
+                <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-[2rem] p-7 text-white relative overflow-hidden">
+                  <div className="absolute top-0 right-0 text-[160px] opacity-5 leading-none select-none pointer-events-none">🌐</div>
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2.5 bg-white/10 rounded-xl"><Languages size={20}/></div>
+                      <div>
+                        <h3 className="font-black text-base">{t('profile.locale_tab', 'Bahasa & Lokasi')}</h3>
+                        <p className="text-slate-300 text-[11px]">{t('profile.locale_desc', 'Atur bahasa, mata uang, dan zona waktu')}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm px-4 py-2.5 rounded-xl w-fit">
+                      <Timer size={13} className="text-slate-300 flex-shrink-0"/>
+                      <span className="text-[11px] text-slate-300">{t('profile.current_time', 'Waktu lokal')}:</span>
+                      <span className="font-black text-sm font-mono tabular-nums">{localTime}</span>
+                      <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-slate-300">{localeForm.timezone.split('/').pop()?.replace(/_/g,' ')}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* AUTO / MANUAL */}
+                <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Detection Mode</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { id: true,  icon: <RefreshCw size={15}/>, label: 'AUTO',   hint: t('profile.lang_auto_hint','Deteksi otomatis dari browser') },
+                      { id: false, icon: <UserIcon size={15}/>,  label: 'MANUAL', hint: t('profile.lang_manual_hint','Pilih sendiri bahasa & currency') },
+                    ].map(opt => (
+                      <button
+                        key={String(opt.id)} type="button"
+                        onClick={() => opt.id ? handleAutoDetect() : setLocaleForm(f => ({ ...f, isAuto: false }))}
+                        className={`p-4 rounded-2xl border-2 text-left transition-all ${localeForm.isAuto === opt.id ? 'border-brand-500 bg-brand-50' : 'border-slate-100 bg-slate-50 hover:border-slate-200'}`}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={localeForm.isAuto === opt.id ? 'text-brand-500' : 'text-slate-400'}>{opt.icon}</span>
+                          <span className={`font-black text-sm ${localeForm.isAuto === opt.id ? 'text-brand-700' : 'text-slate-600'}`}>{opt.label}</span>
+                          {localeForm.isAuto === opt.id && <CheckCircle2 size={13} className="text-brand-500 ml-auto"/>}
+                        </div>
+                        <p className="text-[10px] leading-relaxed text-slate-500">{opt.hint}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Language grid */}
+                <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Languages size={13}/> {t('profile.lang','Bahasa')}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {SUPPORTED_LANGUAGES.map(lang => (
+                      <button
+                        key={lang.code} type="button"
+                        onClick={() => {
+                          const meta = SUPPORTED_LANGUAGES.find(l => l.code === lang.code)!;
+                          setLocaleForm(prev => ({
+                            language: lang.code as SupportedLang,
+                            // Switch currency/timezone/country to new lang defaults, keep if same lang
+                            currency: prev.language === lang.code ? prev.currency : meta.defaultCurrency,
+                            timezone: prev.language === lang.code ? prev.timezone : meta.defaultTimezone,
+                            country:  prev.language === lang.code ? prev.country  : meta.defaultCountry,
+                            isAuto: false,
+                          }));
+                        }}
+                        className={`p-3 rounded-2xl border-2 text-center transition-all hover:scale-[1.02] active:scale-95 ${localeForm.language === lang.code ? 'border-brand-500 bg-brand-50' : 'border-slate-100 hover:border-slate-200'}`}
+                      >
+                        <div className="text-2xl mb-1">{lang.flag}</div>
+                        <div className={`text-[10px] font-black truncate leading-tight ${localeForm.language === lang.code ? 'text-brand-700' : 'text-slate-700'}`}>{lang.name}</div>
+                        <div className="text-[9px] text-slate-400 uppercase">{lang.code}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Currency, Timezone, Country */}
+                <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6 space-y-5">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><DollarSign size={13}/> {t('profile.currency','Currency')} & {t('profile.timezone','Timezone')}</p>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">{t('profile.currency','Mata Uang')}</label>
+                    <select value={localeForm.currency} onChange={e => setLocaleForm(f => ({...f, currency: e.target.value, isAuto: false}))}
+                      className="w-full border-2 border-slate-100 rounded-2xl py-3 px-4 text-sm font-bold text-slate-800 focus:border-brand-500 outline-none bg-white appearance-none transition">
+                      {CURRENCY_LIST.map(cur => (
+                        <option key={cur.code} value={cur.code}>{cur.flag} {cur.code} — {cur.name} ({cur.symbol})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">{t('profile.timezone','Zona Waktu')}</label>
+                    <select value={localeForm.timezone} onChange={e => setLocaleForm(f => ({...f, timezone: e.target.value, isAuto: false}))}
+                      className="w-full border-2 border-slate-100 rounded-2xl py-3 px-4 text-sm font-bold text-slate-800 focus:border-brand-500 outline-none bg-white appearance-none transition">
+                      {TIMEZONE_LIST.map(tz => (
+                        <option key={tz.tz} value={tz.tz}>{tz.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">{t('profile.country','Negara')} <span className="normal-case font-normal">(ISO 3166-1)</span></label>
+                    <input type="text" value={localeForm.country} maxLength={2} placeholder="ID"
+                      onChange={e => setLocaleForm(f => ({...f, country: e.target.value.toUpperCase().slice(0,2), isAuto: false}))}
+                      className="w-full border-2 border-slate-100 rounded-2xl py-3 px-4 text-sm font-black font-mono text-slate-800 focus:border-brand-500 outline-none uppercase tracking-widest transition"/>
+                  </div>
+                </div>
+
+                {/* Preview */}
+                <div className="bg-gradient-to-r from-brand-50 to-indigo-50 rounded-[2rem] border border-brand-100 p-5">
+                  <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest mb-3">Preview</p>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    {[
+                      { label:'Language', value: `${SUPPORTED_LANGUAGES.find(l=>l.code===localeForm.language)?.flag} ${SUPPORTED_LANGUAGES.find(l=>l.code===localeForm.language)?.name || localeForm.language}` },
+                      { label:'Currency', value: `${CURRENCY_LIST.find(c=>c.code===localeForm.currency)?.symbol || ''} ${localeForm.currency}` },
+                      { label:'Timezone', value: localeForm.timezone.split('/').pop()?.replace(/_/g,' ') || localeForm.timezone },
+                      { label:'Sample',   value: (() => { try { const m = CURRENCY_LIST.find(x=>x.code===localeForm.currency); if(!m) return '?'; if(localeForm.currency==='IDR') return 'Rp 1.500.000'; return new Intl.NumberFormat(m.locale, {style:'currency', currency:localeForm.currency, minimumFractionDigits:0, maximumFractionDigits:0}).format(1500000); } catch { return '1,500,000'; } })() },
+                    ].map(item => (
+                      <div key={item.label} className="bg-white rounded-2xl p-3">
+                        <p className="text-[9px] font-black text-slate-400 uppercase">{item.label}</p>
+                        <p className="font-black text-slate-800 mt-0.5 text-sm leading-tight">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {localeMsg && (
+                  <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold">
+                    <CheckCircle size={16}/> {localeMsg}
+                  </div>
+                )}
+                <button type="button" onClick={handleSaveLocale} disabled={localeSaving}
+                  className="w-full py-4 bg-slate-900 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-brand-600 transition shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]">
+                  {localeSaving ? <Loader2 size={16} className="animate-spin"/> : <Globe size={16}/>}
+                  {localeSaving ? t('profile.saving','Menyimpan...') : t('profile.save_locale','Simpan Preferensi')}
+                </button>
+              </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {/* ACCOUNT TAB                                                       */}
+            {/* ══════════════════════════════════════════════════════════════════ */}
+            {activeSettingsTab === 'account' && <div className="space-y-8">
             
             {/* TUJUAN FINANSIAL */}
             <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-8 relative overflow-hidden group">
@@ -611,6 +836,7 @@ export default function Profile({ currentUserId, bankAccounts = [], setBankAccou
                 </div>
               </div>
             </div>
+            </div>}{/* end account tab */}
           </div>
         </div>
       </form>

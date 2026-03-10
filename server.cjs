@@ -277,6 +277,28 @@ const toISODate = (d) => {
     } catch (e) { return null; }
 };
 
+/**
+ * getAppUrlFromDB()
+ * Returns the frontend app URL dynamically from DB config:
+ *   1. config.appDomain → "https://{domain}"  (e.g. "cosbill.com" → "https://cosbill.com")
+ *   2. process.env.APP_URL  → env override
+ *   3. Falls back to 'https://cosger.com'
+ *
+ * Used for email links (verify-email, reset-password) so they follow the
+ * white-label domain set in Admin → Global Settings → Brand Identity.
+ */
+const getAppUrlFromDB = async () => {
+    try {
+        const r = await pool.query("SELECT data FROM config WHERE id = 'app_config' LIMIT 1");
+        const appDomain = r.rows[0]?.data?.appDomain;
+        if (appDomain) {
+            const cleaned = appDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+            return `https://${cleaned}`;
+        }
+    } catch (e) { /* fall through */ }
+    return process.env.APP_URL || 'https://cosger.com';
+};
+
 const hashPassword = (pwd, storedHash = null) => {
     if (!pwd) return '';
     if (storedHash && storedHash.includes(':')) {
@@ -558,7 +580,7 @@ const initDB = async () => {
             parent_user_id VARCHAR(255), session_token TEXT, session_tokens JSONB DEFAULT '[]'::jsonb,
             verification_token VARCHAR(255), reset_token VARCHAR(255), badges JSONB,
             risk_profile VARCHAR(255), big_why_url TEXT, financial_freedom_target NUMERIC,
-            preferred_language VARCHAR(10) DEFAULT 'id', ai_hits_used INT DEFAULT 0,
+            preferred_language VARCHAR(10) DEFAULT 'id', preferred_currency VARCHAR(10) DEFAULT 'IDR', preferred_timezone VARCHAR(100) DEFAULT 'Asia/Jakarta', preferred_country VARCHAR(10) DEFAULT 'ID', locale_is_auto BOOLEAN DEFAULT TRUE, ai_hits_used INT DEFAULT 0,
             ai_last_reset_date TIMESTAMP, subscription_id VARCHAR(255),
             metadata JSONB DEFAULT '{}'::jsonb
         )`);
@@ -785,6 +807,10 @@ const initDB = async () => {
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS big_why_url TEXT",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS financial_freedom_target NUMERIC",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10) DEFAULT 'id'",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_currency VARCHAR(10) DEFAULT 'IDR'",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_timezone VARCHAR(100) DEFAULT 'Asia/Jakarta'",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_country VARCHAR(10) DEFAULT 'ID'",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS locale_is_auto BOOLEAN DEFAULT TRUE",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_tokens JSONB DEFAULT '[]'::jsonb",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(255)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255)",
@@ -957,7 +983,9 @@ const checkFeatureAccess = (featureKey) => {
         if (!(await verifySession(userId, token, res))) return res.status(401).json({ error: "Unauthorized" });
         try {
             const activeData = await getUserActivePackage(userId);
-            if (activeData.features[featureKey] === false || activeData.features[featureKey] === undefined) return res.status(403).json({ error: `Fitur ${featureKey} terkunci.`, action: "upgrade_required", locked_feature: featureKey });
+            // V50.78 FIX: align with frontend freemiumStore backward-compat logic.
+            // Only block if feature is explicitly false. Missing key = unlocked by default.
+            if (activeData.features[featureKey] === false) return res.status(403).json({ error: `Fitur ${featureKey} terkunci.`, action: "upgrade_required", locked_feature: featureKey });
             next();
         } catch (e) { res.status(500).json({ error: e.message }); }
     };
@@ -981,7 +1009,7 @@ const checkAiQuota = async (req, res, next) => {
 // =============================================================================
 // --- UTILITY ROUTES ---
 // =============================================================================
-app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.78-narrative-edition", db: "connected" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.78-narrative-fixed5", db: "connected" }));
 app.get("/api/features/list", (req, res) => res.json(SYSTEM_FEATURES));
 
 // =============================================================================
@@ -2070,7 +2098,17 @@ app.post("/api/tickets/report", async (req, res) => {
 });
 
 app.put("/api/notifications/:id/read", async (req, res) => {
-    try { await pool.query("UPDATE notifications SET is_read = TRUE WHERE id = $1", [req.params.id]); res.json({ success: true }); } catch (e) { res.status(500).json({ error: e.message }); }
+    // [FIX] Verify session + ownership: only owner can mark their notification as read
+    const userId = req.headers["x-user-id"];
+    const token  = req.headers["x-session-token"];
+    if (!(await verifySession(userId, token, res))) return res.status(401).json({ error: "Unauthorized" });
+    try {
+        await pool.query(
+            "UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2",
+            [req.params.id, userId]
+        );
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // =============================================================================
@@ -2262,14 +2300,15 @@ app.post("/api/auth/signup", authRateLimiter, async (req, res) => {
 
         if (smtpConfigured) {
             // FLOW A: SMTP aktif → kirim email verifikasi
-            const verifyToken = crypto.randomBytes(32).toString('hex');
+            const emailVerifyToken = crypto.randomBytes(32).toString('hex');
             await pool.query(
                 `INSERT INTO users (id,username,email,password,role,status,preferred_language,verification_token)
                  VALUES ($1,$2,$3,$4,'user','pending_verification',$5,$6)`,
-                [newId, username || email.split('@')[0], email, hashPassword(password), lang, verifyToken]
+                [newId, username || email.split('@')[0], email, hashPassword(password), lang, emailVerifyToken]
             );
             await assignDefaultFreePackage(newId, packageId);
-            const verifyLink = `${process.env.APP_URL || 'https://cosger.com'}/verify-email?token=${verifyToken}`;
+            const appUrl = await getAppUrlFromDB();
+            const verifyLink = `${appUrl}/verify-email?token=${emailVerifyToken}`;
             const htmlBody = `
                 <div style="font-family:Arial,sans-serif;padding:20px;max-width:500px;">
                     <h2 style="color:#2563eb;">Selamat datang di Paydone! 🎉</h2>
@@ -2333,7 +2372,8 @@ app.post("/api/auth/forgot-password", authRateLimiter, async (req, res) => {
         if (r.rowCount > 0) {
             const resetToken = crypto.randomBytes(32).toString('hex');
             await pool.query("UPDATE users SET reset_token = $1 WHERE email = $2", [resetToken, email]);
-            const link = `${process.env.APP_URL || 'https://cosger.com'}/reset-password?token=${resetToken}`;
+            const appUrl = await getAppUrlFromDB();
+            const link = `${appUrl}/reset-password?token=${resetToken}`;
             const htmlBody = `<div style="padding:20px;font-family:Arial,sans-serif;"><h2>Permintaan Reset Password</h2><p>Klik link di bawah ini untuk mengubah password Anda. Link ini hanya berlaku 1 jam.</p><a href="${link}" style="background-color:#f44336;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;display:inline-block;">Reset Password</a></div>`;
             await sendEmailEngine(email, "Reset Password Paydone", htmlBody);
         }
@@ -2364,6 +2404,10 @@ app.put("/api/users/:id", async (req, res) => {
     const password             = b.password;
     const email                = b.email;
     const preferredLanguage    = b.preferredLanguage ?? b.preferred_language;
+    const preferredCurrency    = b.preferredCurrency  ?? b.preferred_currency;
+    const preferredTimezone    = b.preferredTimezone  ?? b.preferred_timezone;
+    const preferredCountry     = b.preferredCountry   ?? b.preferred_country;
+    const localeIsAuto         = b.localeIsAuto       !== undefined ? b.localeIsAuto : b.locale_is_auto;
     const bigWhyUrl            = b.bigWhyUrl            ?? b.big_why_url;
     const financialFreedomTarget = b.financialFreedomTarget ?? b.financial_freedom_target;
     const riskProfile          = b.riskProfile          ?? b.risk_profile;
@@ -2373,6 +2417,10 @@ app.put("/api/users/:id", async (req, res) => {
         if (username !== undefined)               { updateQuery += `, username = $${pIdx++}`;                  values.push(username); }
         if (email !== undefined && email !== '')  { updateQuery += `, email = $${pIdx++}`;                     values.push(email); }
         if (preferredLanguage !== undefined)      { updateQuery += `, preferred_language = $${pIdx++}`;        values.push(preferredLanguage); }
+        if (preferredCurrency !== undefined)       { updateQuery += `, preferred_currency = $${pIdx++}`;        values.push(preferredCurrency); }
+        if (preferredTimezone !== undefined)       { updateQuery += `, preferred_timezone = $${pIdx++}`;        values.push(preferredTimezone); }
+        if (preferredCountry !== undefined)        { updateQuery += `, preferred_country = $${pIdx++}`;         values.push(preferredCountry); }
+        if (localeIsAuto !== undefined)            { updateQuery += `, locale_is_auto = $${pIdx++}`;            values.push(localeIsAuto); }
         if (bigWhyUrl !== undefined)              { updateQuery += `, big_why_url = $${pIdx++}`;               values.push(bigWhyUrl); }
         if (financialFreedomTarget !== undefined) { updateQuery += `, financial_freedom_target = $${pIdx++}`;  values.push(financialFreedomTarget); }
         if (riskProfile !== undefined)            { updateQuery += `, risk_profile = $${pIdx++}`;              values.push(riskProfile); }
@@ -2496,7 +2544,10 @@ app.post('/api/sync', async (req, res) => {
     const client = await pool.connect();
     const reqUserId = req.headers["x-user-id"];
     const isAdminSync = verifyAdminSecret(req);
-    if (!(await verifySession(reqUserId, req.headers["x-session-token"], res))) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await verifySession(reqUserId, req.headers["x-session-token"], res))) {
+        client.release();
+        return res.status(401).json({ error: "Unauthorized" });
+    }
 
     try {
         await client.query('BEGIN');
@@ -2648,10 +2699,20 @@ app.post("/api/ai/analyze", checkFeatureAccess('ai_command_center'), checkAiQuot
         const conf = await getSystemConfig();
         if (!conf.apiKey) return res.status(500).json({ error: "API Key Missing" });
         const safePrompt = String(req.body.prompt).substring(0, 2000);
-        const i18nPrompt = `[System Command: User preferred language is '${req.userLang || 'id'}'. Reply entirely in this language without mentioning this instruction.]\n\nUser Query: ${safePrompt}`;
+        // V50.78 FIX: Pass systemInstruction and responseJson from frontend.
+        // Previously these were ignored — all agent AI calls (debt strategist,
+        // transaction parser, onboarding wizard, etc.) lost their specialized context.
+        const sysInst = req.body.systemInstruction ? String(req.body.systemInstruction).substring(0, 1000) : '';
+        const jsonMode = req.body.responseJson === true;
+        // Build the full prompt: i18n header + optional system instruction + user query + optional JSON instruction
+        const i18nHeader = `[System Command: User preferred language is '${req.userLang || 'id'}'. Reply entirely in this language without mentioning this instruction.]`;
+        const jsonInstruction = jsonMode ? '\n\n[IMPORTANT: Reply ONLY with valid JSON. No markdown, no explanation, no backticks. Output raw JSON only.]' : '';
+        const fullPrompt = sysInst
+            ? `${i18nHeader}\n\nSystem Role: ${sysInst}\n\nUser Query: ${safePrompt}${jsonInstruction}`
+            : `${i18nHeader}\n\nUser Query: ${safePrompt}${jsonInstruction}`;
         const genAI = new GoogleGenerativeAI(conf.apiKey);
         const model = genAI.getGenerativeModel({ model: req.body.model || conf.modelName });
-        const result = await model.generateContent(i18nPrompt);
+        const result = await model.generateContent(fullPrompt);
         res.json({ text: result.response.text() });
     } catch (e) { res.status(500).json({ error: "AI Processing Failed" }); }
 });
@@ -3191,6 +3252,24 @@ app.put("/api/sales/promos/:id", requireRole(['sales']), async (req, res) => {
         );
         if (r.rowCount === 0) return res.status(404).json({ error: "Promo not found" });
         res.json({ success: true, data: r.rows[0] });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// [FIX] DELETE /api/sales/promos/:id — was missing, frontend may need it for promo deletion
+app.delete("/api/sales/promos/:id", requireRole(['sales']), async (req, res) => {
+    try {
+        const r = await pool.query("DELETE FROM promos WHERE id = $1 RETURNING id", [req.params.id]);
+        if (r.rowCount === 0) return res.status(404).json({ error: "Promo not found" });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// [FIX] DELETE /api/sales/packages/:id — was missing
+app.delete("/api/sales/packages/:id", requireRole(['sales']), async (req, res) => {
+    try {
+        const r = await pool.query("DELETE FROM packages WHERE id = $1 RETURNING id", [req.params.id]);
+        if (r.rowCount === 0) return res.status(404).json({ error: "Package not found" });
+        res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

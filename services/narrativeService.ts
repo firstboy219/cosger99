@@ -11,7 +11,7 @@
  * ────────────────────────────────────────────────────────────────────────────
  */
 
-import { getConfig } from './mockDb';
+import { getConfig, getApiBaseUrl } from './mockDb';
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -500,7 +500,7 @@ export function generateNarrativeFromTemplates(
 export async function fetchNarrativeTemplates(): Promise<NarrativeTemplate[]> {
   try {
     const config = getConfig();
-    const base = (config.backendUrl ?? 'https://api.cosger.com').replace(/\/$/, '');
+    const base = getApiBaseUrl();
     const userId = localStorage.getItem('paydone_active_user') ?? '';
     const token  = localStorage.getItem('paydone_session_token') ?? '';
     const res = await fetch(`${base}/api/narrative-templates`, {
@@ -527,7 +527,7 @@ export async function saveNarrativeTemplates(
 ): Promise<boolean> {
   try {
     const config = getConfig();
-    const base = (config.backendUrl ?? 'https://api.cosger.com').replace(/\/$/, '');
+    const base = getApiBaseUrl();
     const res = await fetch(`${base}/api/admin/narrative-templates`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...adminHeaders },

@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { DailyExpense, ExpenseItem, DebtInstallment, SinkingFund, BankAccount } from '../types';
 import { formatCurrency, safeDateISO, toLocalISOString } from '../services/financeUtils';
+import { useTranslation } from '../services/translationService';
 import { parseTransactionAI } from '../services/geminiService';
 import { saveItemToCloud, deleteFromCloud } from '../services/cloudSync';
 import { getConfig } from '../services/mockDb';
@@ -23,15 +24,18 @@ interface DailyExpensesProps {
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-    Food: '#f59e0b',       // Amber
-    Transport: '#3b82f6',  // Blue
-    Shopping: '#ec4899',   // Pink
-    Utilities: '#eab308',  // Yellow
-    Entertainment: '#8b5cf6', // Purple
-    Others: '#94a3b8'      // Slate
+    Food:          '#f59e0b',  // Amber
+    Transport:     '#3b82f6',  // Blue
+    Shopping:      '#ec4899',  // Pink
+    Utilities:     '#eab308',  // Yellow
+    Entertainment: '#8b5cf6',  // Purple
+    Health:        '#10b981',  // Emerald
+    Education:     '#6366f1',  // Indigo
+    Others:        '#94a3b8',  // Slate
 };
 
 export default function DailyExpenses({ expenses = [], setExpenses, allocations = [], monthlyExpenses, userId, debtInstallments = [], setDebtInstallments, sinkingFunds = [], setSinkingFunds, bankAccounts = [] }: DailyExpensesProps) {
+  const { t, tCategory, formatAmount } = useTranslation();
   const [filterDate, setFilterDate] = useState(toLocalISOString(new Date()));
   const [startDate, setStartDate] = useState(new Date());
   const [quickText, setQuickText] = useState('');
@@ -116,6 +120,8 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
           case 'Shopping': return <ShoppingBag size={18}/>;
           case 'Utilities': return <Zap size={18}/>;
           case 'Entertainment': return <Activity size={18}/>;
+          case 'Health': return <TrendingUp size={18}/>;
+          case 'Education': return <Tag size={18}/>;
           default: return <Tag size={18}/>;
       }
   };
@@ -413,7 +419,7 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
                                           <span className="font-black text-slate-900 whitespace-nowrap text-lg">{formatCurrency(item.amount)}</span>
                                       </div>
                                       <div className="flex items-center gap-2 mt-1">
-                                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-100 px-2 py-0.5 rounded">{item.category}</span>
+                                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-100 px-2 py-0.5 rounded">{tCategory(item.category)}</span>
                                           {item.allocationId && (() => {
                                               const allocName = [...(Object.values(monthlyExpenses || {}).flat()), ...allocations].find(a => a.id === item.allocationId)?.name;
                                               return <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold flex items-center gap-1 border border-green-200"><CheckCircle2 size={10}/> {allocName || 'Budget'}</span>;
@@ -635,10 +641,10 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
                               <input type="number" className="w-full border-2 border-slate-100 p-4 rounded-2xl focus:border-brand-500 outline-none font-black text-slate-900" value={formData.amount} onChange={e=>setFormData({...formData, amount: Number(e.target.value)})} />
                           </div>
                           <div>
-                              <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">Kategori</label>
+                              <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">{t('expense.category','Kategori')}</label>
                               <select className="w-full border-2 border-slate-100 p-4 rounded-2xl focus:border-brand-500 outline-none font-bold bg-white text-sm" value={formData.category} onChange={e=>setFormData({...formData, category: e.target.value as any})}>
                                   {Object.keys(CATEGORY_COLORS).map(cat => (
-                                      <option key={cat} value={cat}>{cat}</option>
+                                      <option key={cat} value={cat}>{tCategory(cat)}</option>
                                   ))}
                               </select>
                           </div>

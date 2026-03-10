@@ -9,7 +9,7 @@ import { compressImage } from '../services/imageUtils';
 import {
   Receipt, Loader2, AlertCircle, Clock, CheckCircle, XCircle,
   Eye, ArrowLeft, ChevronRight, Search, Filter, Package,
-  CreditCard, Sparkles, FileText, Ban,
+  CreditCard, Sparkles, FileText, Ban, Shield,
   RefreshCw, ArrowRight, RefreshCcw, Upload, Image as ImageIcon,
   Copy, CheckCircle2
 } from 'lucide-react';

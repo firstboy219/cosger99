@@ -176,6 +176,30 @@ export const saveConfig = (newConfig: Partial<AppConfig>) => {
 
 export const getBackendUrl = () => getConfig().backendUrl || '';
 
+/**
+ * getApiBaseUrl() — Returns backend API base URL dynamically:
+ * 1. config.backendUrl  → explicit override
+ * 2. config.appDomain   → derives "https://api.{domain}"
+ * 3. Fallback           → 'https://api.cosger.com'
+ */
+export const getApiBaseUrl = (): string => {
+  const cfg = getConfig();
+  if (cfg.backendUrl) return cfg.backendUrl.replace(/\/$/, '');
+  if (cfg.appDomain)  return `https://api.${cfg.appDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`;
+  return 'https://api.cosger.com';
+};
+
+/**
+ * getAppUrl() — Returns frontend app URL dynamically:
+ * 1. config.appDomain → "https://{domain}"
+ * 2. Fallback          → 'https://cosger.com'
+ */
+export const getAppUrl = (): string => {
+  const cfg = getConfig();
+  if (cfg.appDomain) return `https://${cfg.appDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`;
+  return 'https://cosger.com';
+};
+
 // --- USER MANAGEMENT ---
 export const getAllUsers = (): User[] => {
   return getDB().users || [];

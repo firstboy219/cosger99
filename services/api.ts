@@ -1,8 +1,8 @@
 
-import { getConfig } from './mockDb';
+import { getConfig, getApiBaseUrl } from './mockDb';
 import { sanitizeDatePayload } from './dateUtils';
 
-const getBaseUrl = () => getConfig().backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+const getBaseUrl = () => getApiBaseUrl();
 
 /**
  * V50.18 Protocol 1: Header & Authentication
@@ -176,6 +176,21 @@ export const api = {
                 method: 'DELETE',
                 ...options,
                 headers: { ...getAuthHeaders(endpoint), ...options.headers }
+            });
+            return await handleResponse(res);
+        } catch (e) {
+            throw e;
+        }
+    },
+
+    patch: async (endpoint: string, body: any, options: RequestInit = {}) => {
+        const url = `${getBaseUrl()}/api${endpoint}`;
+        try {
+            const res = await fetch(url, {
+                method: 'PATCH',
+                ...options,
+                headers: { ...getAuthHeaders(endpoint), ...options.headers },
+                body: JSON.stringify(body)
             });
             return await handleResponse(res);
         } catch (e) {

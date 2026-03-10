@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { getConfig } from '../../services/mockDb';
+import { getConfig , getApiBaseUrl } from '../../services/mockDb';
 import { getHeaders } from '../../services/cloudSync';
 import { Copy, Check, Server, Database, FileCode, Terminal, Cloud, Container, Settings, Lock, RefreshCw, AlertTriangle, CheckCircle2, ArrowRight, ShieldCheck, Cpu, Activity, Globe, DownloadCloud, UploadCloud, Save, History, RotateCcw, Play } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -71,7 +71,7 @@ export default function DeveloperTools() {
 
   // Load config to display correct DB details
   const config = getConfig();
-  const currentBackendUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+  const currentBackendUrl = getApiBaseUrl();
   const adminId = localStorage.getItem('paydone_active_user') || 'admin';
 
   // DB Connection String Construction
@@ -212,7 +212,7 @@ export default function DeveloperTools() {
       const adminId = localStorage.getItem('paydone_active_user') || 'admin';
       
       // USE NEW ENDPOINT
-      const url = config.sourceCodeUrl || `https://api.cosger.com/api/view-source?kunci=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`;
+      const url = config.sourceCodeUrl || `${getApiBaseUrl()}/api/view-source?kunci=${localStorage.getItem('paydone_admin_secret') || 'PAYDONE_EMERGENCY_SECURE_KEY_99X_2026'}`;
       
       try {
           console.log(`[DevTools] Fetching live source from: ${url}`);

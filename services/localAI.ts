@@ -3,7 +3,7 @@
  * No external API. Matches user input against admin-configured knowledge base rules.
  */
 
-import { getConfig } from './mockDb';
+import { getConfig , getApiBaseUrl } from './mockDb';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -304,7 +304,7 @@ export function matchRules(input: string, rules: AIKnowledgeRule[]): AIParseResu
 export async function fetchKnowledgeRules(): Promise<AIKnowledgeRule[]> {
   try {
     const config = getConfig();
-    const base = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+    const base = getApiBaseUrl();
     const userId = localStorage.getItem('paydone_active_user') || '';
     const token = localStorage.getItem('paydone_session_token') || '';
     
@@ -329,7 +329,7 @@ export async function fetchKnowledgeRules(): Promise<AIKnowledgeRule[]> {
 export async function saveKnowledgeRules(rules: AIKnowledgeRule[], adminHeaders: Record<string, string>): Promise<boolean> {
   try {
     const config = getConfig();
-    const base = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+    const base = getApiBaseUrl();
     const res = await fetch(`${base}/api/admin/ai/knowledge-rules`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...adminHeaders },
@@ -346,7 +346,7 @@ export async function saveKnowledgeRules(rules: AIKnowledgeRule[], adminHeaders:
 export async function reportUnknownPrompt(rawInput: string): Promise<void> {
   try {
     const config = getConfig();
-    const base = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+    const base = getApiBaseUrl();
     const userId = localStorage.getItem('paydone_active_user') || '';
     const token = localStorage.getItem('paydone_session_token') || '';
     await fetch(`${base}/api/ai/unknown-prompt`, {
@@ -373,7 +373,7 @@ export interface UnknownPrompt {
 export async function fetchUnknownPrompts(adminHeaders: Record<string, string>, status = 'pending'): Promise<UnknownPrompt[]> {
   try {
     const config = getConfig();
-    const base = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+    const base = getApiBaseUrl();
     const res = await fetch(`${base}/api/admin/ai/unknown-prompts?status=${status}`, { headers: adminHeaders });
     if (!res.ok) return [];
     const data = await res.json();
@@ -390,7 +390,7 @@ export async function resolveUnknownPrompt(
 ): Promise<boolean> {
   try {
     const config = getConfig();
-    const base = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+    const base = getApiBaseUrl();
     const res = await fetch(`${base}/api/admin/ai/unknown-prompts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...adminHeaders },

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { NavLink, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, BrainCircuit, Wallet, Menu, X, Bell, LogOut, PieChart, CalendarDays, ClipboardList, List, TrendingUp, DollarSign, Receipt, History, Users, UserCog, Search, ChevronDown, Globe, AlertCircle, CheckCircle2, PiggyBank, AlarmClock, Copy, Sparkles, Zap, ChevronRight, Wifi, RefreshCw, AlertTriangle, CloudUpload, Bug, CloudDownload, Code, Database, Eye, Terminal, Send, Megaphone, Info, Gift, ShieldAlert, ArrowRight, FileText } from 'lucide-react';
-import { useTranslation } from '../services/translationService';
+import { useTranslation, SUPPORTED_LANGUAGES, SupportedLang } from '../services/translationService';
 import { getUserData, getAllUsers, getConfig, getDB, saveDB } from '../services/mockDb';
 import { DebtItem, SinkingFund, TaskItem, User, AppConfig, AppNotification } from '../types';
 import { formatCurrency } from '../services/financeUtils';
@@ -74,6 +74,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const [notifMenuOpen, setNotifMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
+  const langMenuRef = useRef<HTMLDivElement>(null);
   
   const unreadCount = useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
 
@@ -99,6 +100,9 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       const handleClickOutside = (event: MouseEvent) => {
           if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
               setNotifMenuOpen(false);
+          }
+          if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) {
+              setLangMenuOpen(false);
           }
       };
       document.addEventListener("mousedown", handleClickOutside);
@@ -365,9 +369,37 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
 
             <div className="h-6 w-px bg-slate-200 mx-1"></div>
 
-            <div className="relative">
-               <button onClick={() => setLangMenuOpen(!langMenuOpen)} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 px-2 py-1 rounded-lg hover:bg-slate-50 transition font-bold text-xs uppercase">{language} <ChevronDown size={12} /></button>
-               {langMenuOpen && (<div className="absolute right-0 top-full mt-2 w-32 bg-white border border-slate-200 shadow-xl rounded-xl py-1 z-50 animate-fade-in-up"><button onClick={() => { setLanguage('id'); setLangMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"><span>Indonesia</span>{language === 'id' && <CheckCircle2 size={14} className="text-brand-600"/>}</button><button onClick={() => { setLanguage('en'); setLangMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between"><span>English</span>{language === 'en' && <CheckCircle2 size={14} className="text-brand-600"/>}</button></div>)}
+            <div className="relative" ref={langMenuRef}>
+                     <button
+                       onClick={() => setLangMenuOpen(!langMenuOpen)}
+                       className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 px-2 py-1 rounded-lg hover:bg-slate-50 transition"
+                       title="Change Language"
+                     >
+                       <span className="text-base leading-none">{SUPPORTED_LANGUAGES.find(l => l.code === language)?.flag || '🌐'}</span>
+                       <span className="text-[10px] font-black uppercase tracking-wider hidden sm:block">{language}</span>
+                       <ChevronDown size={10} />
+                     </button>
+                     {langMenuOpen && (
+                       <div className="absolute right-0 top-full mt-2 w-52 bg-white border border-slate-200 shadow-2xl rounded-2xl py-2 z-50 animate-fade-in-up overflow-hidden">
+                         <p className="px-4 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 mb-1">Language</p>
+                         {SUPPORTED_LANGUAGES.map(lang => (
+                           <button
+                             key={lang.code}
+                             onClick={() => { setLanguage(lang.code as SupportedLang); setLangMenuOpen(false); }}
+                             className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between transition-colors ${language === lang.code ? 'bg-brand-50 text-brand-700' : 'text-slate-700'}`}
+                           >
+                             <span className="flex items-center gap-2.5">
+                               <span className="text-base">{lang.flag}</span>
+                               <span className="font-semibold text-xs">{lang.name}</span>
+                             </span>
+                             {language === lang.code && <CheckCircle2 size={13} className="text-brand-600 flex-shrink-0"/>}
+                           </button>
+                         ))}
+                         <div className="border-t border-slate-100 mt-1 pt-1 px-4 py-2">
+                           <p className="text-[9px] text-slate-400">More settings in <span className="text-brand-600 font-bold">Profile → Language & Locale</span></p>
+                         </div>
+                       </div>
+                     )}
             </div>
 
             <div className="relative" ref={notifRef}>

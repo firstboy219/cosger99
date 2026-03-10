@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { getAdminHeaders } from '../../services/cloudSync';
 import { Database, Play, Trash2, AlertCircle, Code, Terminal, Sparkles, Loader2, Save, Clock, ChevronRight, FileJson, Download, Table as TableIcon, History, Search } from 'lucide-react';
 // @google/genai removed — using backend proxy via fetch
-import { getConfig } from '../../services/mockDb';
+import { getConfig , getApiBaseUrl } from '../../services/mockDb';
 
 export default function SQLStudio() {
   const [sql, setSql] = useState('');
@@ -24,7 +24,7 @@ export default function SQLStudio() {
 
     try {
       const config = getConfig();
-      const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+      const baseUrl = getApiBaseUrl();
       const adminId = localStorage.getItem('paydone_active_user') || 'admin';
       
       const res = await fetch(`${baseUrl}/api/admin/execute-sql`, {
@@ -76,7 +76,7 @@ export default function SQLStudio() {
       const config = getConfig();
       
       try {
-          const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+          const baseUrl = getApiBaseUrl();
           const userId = localStorage.getItem('paydone_active_user') || '';
           const token = localStorage.getItem('paydone_session_token') || '';
           const prompt = `You are a PostgreSQL expert. Write a SQL query based on: "${aiPrompt}". Tables: users, debts, incomes, daily_expenses, tasks, allocations, debt_installments. Return ONLY the SQL query string, no markdown.`;

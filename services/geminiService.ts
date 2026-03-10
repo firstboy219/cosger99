@@ -6,7 +6,7 @@
  */
 
 import { DebtItem, Opportunity, TaskItem } from "../types";
-import { getConfig, getAgentConfig } from "./mockDb";
+import { getConfig, getAgentConfig, getApiBaseUrl } from "./mockDb";
 
 // --- AI LIMIT ERROR (402 Handling) ---
 export class AILimitError extends Error {
@@ -34,7 +34,7 @@ const callBackendAI = async (payload: {
   responseJson?: boolean;
 }): Promise<string> => {
   const config = getConfig();
-  const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+  const baseUrl = getApiBaseUrl();
   const userId = localStorage.getItem('paydone_active_user') || '';
   const token = localStorage.getItem('paydone_session_token') || '';
 

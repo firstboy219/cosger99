@@ -3,7 +3,7 @@ import { getConfig, saveConfig } from '../../services/mockDb';
 import { saveGlobalConfigToCloud, loadGlobalConfigFromCloud } from '../../services/cloudSync';
 import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye, Fingerprint, Image, LayoutPanelLeft, X } from 'lucide-react';
 import { themePresets, ThemeConfig } from '../../services/themeService';
-import { useTranslation } from '../../services/translationService';
+import { useTranslation, SUPPORTED_LANGUAGES, SupportedLang } from '../../services/translationService';
 import { SystemRules, AdvancedConfig } from '../../types';
 
 export default function AdminSettings() {
@@ -29,7 +29,7 @@ export default function AdminSettings() {
   });
 
   // Translation Editor State
-  const [editLang, setEditLang] = useState<'id'|'en'>('id');
+  const [editLang, setEditLang] = useState<'id'|'en'|'zh'|'hi'|'es'|'fr'|'ru'|'ar'>('id');
   const [editDict, setEditDict] = useState<any>({});
 
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
@@ -513,9 +513,13 @@ export default function AdminSettings() {
                                 <p className="text-blue-200 text-xs font-medium">Ubah istilah dan terjemahan di seluruh aplikasi secara live.</p>
                             </div>
                         </div>
-                        <div className="flex bg-white/10 p-1 rounded-xl">
-                            <button type="button" onClick={() => setEditLang('id')} className={`px-6 py-2 text-xs font-black rounded-lg transition-all ${editLang === 'id' ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-400 hover:text-white'}`}>INDONESIAN</button>
-                            <button type="button" onClick={() => setEditLang('en')} className={`px-6 py-2 text-xs font-black rounded-lg transition-all ${editLang === 'en' ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-400 hover:text-white'}`}>ENGLISH</button>
+                        <div className="flex flex-wrap bg-white/10 p-1 rounded-xl gap-1">
+                            {SUPPORTED_LANGUAGES.map(l => (
+                              <button key={l.code} type="button" onClick={() => setEditLang(l.code as any)}
+                                className={`px-3 py-2 text-[10px] font-black rounded-lg transition-all ${editLang === l.code ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-400 hover:text-white'}`}>
+                                {l.flag} {l.code.toUpperCase()}
+                              </button>
+                            ))}
                         </div>
                     </div>
                     

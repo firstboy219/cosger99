@@ -1,8 +1,12 @@
 export enum LoanType {
   KPR = 'KPR',
-  KKB = 'KKB', // Kendaraan
-  KTA = 'KTA', // Tanpa Agunan
-  CC = 'Kartu Kredit'
+  KKB = 'KKB',       // Kendaraan
+  KTA = 'KTA',       // Tanpa Agunan (Personal)
+  CC = 'CC',         // Credit Card
+  STUDENT = 'STUDENT',
+  BUSINESS = 'BUSINESS',
+  PERSONAL = 'PERSONAL',
+  OTHER = 'OTHER'
 }
 
 // --- BASE INTERFACE FOR SYNC ---
@@ -216,6 +220,13 @@ export interface User {
   financialFreedomTarget?: number; 
   badges?: string[]; 
   
+  // Locale & Internationalization (V50.79)
+  preferredLanguage?: string;   // SupportedLang: 'id'|'en'|'zh'|'hi'|'es'|'fr'|'ru'|'ar'
+  preferredCurrency?: string;   // Currency code e.g. 'IDR', 'USD'
+  preferredTimezone?: string;   // IANA tz e.g. 'Asia/Jakarta'
+  preferredCountry?: string;    // ISO 3166-1 alpha-2 e.g. 'ID', 'US'
+  localeIsAuto?: boolean;       // true = auto-detect from browser
+
   // V50.34 Freemium fields (V50.35: TAHAP 1)
   subscription_id?: string;
   ai_hits_used?: number;

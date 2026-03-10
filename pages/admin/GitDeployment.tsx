@@ -7,7 +7,7 @@ import {
     Microscope, Lock, Eye, FileSearch, ArrowRight, Radiation,
     LifeBuoy, Wrench, DownloadCloud, FolderDown, X
 } from 'lucide-react';
-import { getConfig } from '../../services/mockDb';
+import { getConfig , getApiBaseUrl } from '../../services/mockDb';
 import { getHeaders , getAdminHeaders} from '../../services/cloudSync';
 
 interface AuditLog {
@@ -38,7 +38,7 @@ export default function GitDeployment() {
 
     const getConfigData = () => {
         const config = getConfig();
-        const baseUrl = config.backendUrl?.replace(/\/$/, '') || 'https://api.cosger.com';
+        const baseUrl = getApiBaseUrl();
         const adminId = localStorage.getItem('paydone_active_user') || 'admin';
         return { baseUrl, adminId };
     };

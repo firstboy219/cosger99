@@ -68,6 +68,18 @@ export default function SalesPaymentMethods() {
     finally { setSaving(false); }
   }, [editing, formBankName, formAccountNumber, formAccountName, formLogoUrl, formIsActive]);
 
+  // [V50.81 FIX] Delete payment method — Trash2 was imported but handler & button were missing
+  const handleDeleteMethod = useCallback(async (m: PaymentMethod) => {
+    const name = (m as any).bankName || m.bank_name || 'metode ini';
+    if (!window.confirm(`Hapus metode pembayaran "${name}"?\n\nTindakan ini tidak bisa dibatalkan.`)) return;
+    try {
+      await api.delete(`/sales/payment-methods/${m.id}`);
+      setMethods(prev => prev.filter(x => x.id !== m.id));
+    } catch (e: any) {
+      alert(e.message || 'Gagal menghapus metode pembayaran.');
+    }
+  }, []);
+
   if (loading) return <div className="flex items-center justify-center py-32"><Loader2 size={32} className="animate-spin text-emerald-600" /></div>;
 
   return (
@@ -102,7 +114,10 @@ export default function SalesPaymentMethods() {
                   <p className="text-xs text-slate-500">{accountName}</p>
                 </div>
               </div>
-              <button onClick={() => openEdit(m)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"><Edit3 size={14} /></button>
+              <div className="flex items-center gap-1">
+                <button onClick={() => openEdit(m)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="Edit"><Edit3 size={14} /></button>
+                <button onClick={() => handleDeleteMethod(m)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Hapus"><Trash2 size={14} /></button>
+              </div>
             </div>
             <p className="font-mono text-sm font-bold text-slate-700 bg-slate-50 px-3 py-2 rounded-lg">{accountNumber}</p>
             <div className="mt-3 flex items-center gap-2 text-xs">

@@ -162,6 +162,17 @@ export default function SalesPackages() {
     }
   }, [editingPkg, formName, formPrice, formAiLimit, formDescription, formBadgeColor, formIsActive, formIsDefaultFree, formFeatures]);
 
+  // [V50.80 NEW] Delete package with confirmation
+  const handleDeletePackage = useCallback(async (pkg: any) => {
+    if (!window.confirm(`Hapus paket "${pkg.name}"?\n\nPaket yang masih memiliki subscriber aktif tidak bisa dihapus.`)) return;
+    try {
+      await api.delete(`/sales/packages/${pkg.id}`);
+      setPackages(prev => prev.filter(p => p.id !== pkg.id));
+    } catch (e: any) {
+      alert(e.message || 'Gagal menghapus paket.');
+    }
+  }, []);
+
   const toggleFeature = (key: string) => {
     setFormFeatures(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -225,12 +236,21 @@ export default function SalesPackages() {
                     <p className="text-xs text-slate-500">{pkg.description || '-'}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => openEditModal(pkg)}
-                  className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
-                >
-                  <Edit3 size={16} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => openEditModal(pkg)}
+                    className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
+                  >
+                    <Edit3 size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDeletePackage(pkg)}
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                    title="Hapus paket"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-baseline gap-1 mb-4">

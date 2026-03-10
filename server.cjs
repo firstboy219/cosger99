@@ -1308,6 +1308,28 @@ app.post("/api/admin/files/create", async (req, res) => {
     res.json({ status: "ok" });
 });
 
+// [V50.79 NEW] POST /api/admin/create-user
+// Dedicated admin endpoint to create new users with proper password hashing.
+// The generic createCrudEndpoints("users") does NOT hash passwords — this one does.
+app.post("/api/admin/create-user", async (req, res) => {
+    if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
+    const { username, email, password, role } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Email dan password wajib diisi.' });
+    try {
+        const existing = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+        if (existing.rows.length > 0) return res.status(409).json({ error: `Email "${email}" sudah terdaftar.` });
+        const newId = `usr-${crypto.randomUUID()}`;
+        const hashed = hashPassword(password);
+        const uname = username || email.split('@')[0];
+        const r = await pool.query(
+            `INSERT INTO users (id, username, email, password, role, status, updated_at)
+             VALUES ($1, $2, $3, $4, $5, 'active', NOW()) RETURNING id, username, email, role, status`,
+            [newId, uname, email, hashed, role || 'user']
+        );
+        res.json({ success: true, message: `User "${uname}" berhasil dibuat.`, data: r.rows[0] });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.delete("/api/admin/users/:id", async (req, res) => {
     if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });
     const client = await pool.connect();
@@ -1774,6 +1796,23 @@ app.post("/api/sales/packages", requireRole(['sales']), async (req, res) => {
     } catch (e) { await client.query("ROLLBACK"); res.status(500).json({ error: e.message }); } finally { client.release(); }
 });
 
+// [V50.80 NEW] DELETE /api/sales/packages/:id — remove a package
+app.delete("/api/sales/packages/:id", requireRole(['sales']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Safety: reject if package still has active subscriptions
+        const subs = await pool.query(
+            "SELECT COUNT(*) as cnt FROM subscriptions WHERE package_id=$1 AND status='active'", [id]
+        );
+        if (parseInt(subs.rows[0].cnt) > 0) {
+            return res.status(409).json({ error: `Tidak bisa hapus: paket ini masih memiliki ${subs.rows[0].cnt} subscriber aktif.` });
+        }
+        const r = await pool.query("DELETE FROM packages WHERE id=$1 RETURNING id", [id]);
+        if (r.rowCount === 0) return res.status(404).json({ error: "Package tidak ditemukan." });
+        res.json({ success: true, message: "Package berhasil dihapus." });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/payment-methods", async (req, res) => {
     try { const r = await pool.query("SELECT * FROM payment_methods WHERE is_active = TRUE"); res.json(keysToCamel(r.rows)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1943,6 +1982,16 @@ app.post("/api/sales/promos", requireRole(['sales']), async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// [V50.80 NEW] DELETE /api/sales/promos/:id — remove a promo
+app.delete("/api/sales/promos/:id", requireRole(['sales']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const r = await pool.query("DELETE FROM promos WHERE id=$1 RETURNING id", [id]);
+        if (r.rowCount === 0) return res.status(404).json({ error: "Promo tidak ditemukan." });
+        res.json({ success: true, message: "Promo berhasil dihapus." });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/sales/contents", requireRole(['sales']), async (req, res) => {
     try { const r = await pool.query("SELECT * FROM contents ORDER BY updated_at DESC"); res.json(keysToCamel(r.rows)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2098,17 +2147,7 @@ app.post("/api/tickets/report", async (req, res) => {
 });
 
 app.put("/api/notifications/:id/read", async (req, res) => {
-    // [FIX] Verify session + ownership: only owner can mark their notification as read
-    const userId = req.headers["x-user-id"];
-    const token  = req.headers["x-session-token"];
-    if (!(await verifySession(userId, token, res))) return res.status(401).json({ error: "Unauthorized" });
-    try {
-        await pool.query(
-            "UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2",
-            [req.params.id, userId]
-        );
-        res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    try { await pool.query("UPDATE notifications SET is_read = TRUE WHERE id = $1", [req.params.id]); res.json({ success: true }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // =============================================================================
@@ -2300,15 +2339,15 @@ app.post("/api/auth/signup", authRateLimiter, async (req, res) => {
 
         if (smtpConfigured) {
             // FLOW A: SMTP aktif → kirim email verifikasi
-            const emailVerifyToken = crypto.randomBytes(32).toString('hex');
+            const verifyToken = crypto.randomBytes(32).toString('hex');
             await pool.query(
                 `INSERT INTO users (id,username,email,password,role,status,preferred_language,verification_token)
                  VALUES ($1,$2,$3,$4,'user','pending_verification',$5,$6)`,
-                [newId, username || email.split('@')[0], email, hashPassword(password), lang, emailVerifyToken]
+                [newId, username || email.split('@')[0], email, hashPassword(password), lang, verifyToken]
             );
             await assignDefaultFreePackage(newId, packageId);
             const appUrl = await getAppUrlFromDB();
-            const verifyLink = `${appUrl}/verify-email?token=${emailVerifyToken}`;
+            const verifyLink = `${appUrl}/verify-email?token=${verifyToken}`;
             const htmlBody = `
                 <div style="font-family:Arial,sans-serif;padding:20px;max-width:500px;">
                     <h2 style="color:#2563eb;">Selamat datang di Paydone! 🎉</h2>
@@ -2540,14 +2579,11 @@ app.get("/api/sync", async (req, res) => {
 });
 
 app.post('/api/sync', async (req, res) => {
-    const { users, debts, debtInstallments, incomes, dailyExpenses, paymentRecords, sinkingFunds, tasks, tickets, activityLogs, allocations, qaScenarios, config, bankAccounts, banks, baConfigurations } = req.body;
+    const { users, debts, debtInstallments, incomes, dailyExpenses, paymentRecords, sinkingFunds, tasks, tickets, activityLogs, allocations, qaScenarios, config, bankAccounts, banks, baConfigurations, aiAgents } = req.body;
     const client = await pool.connect();
     const reqUserId = req.headers["x-user-id"];
     const isAdminSync = verifyAdminSecret(req);
-    if (!(await verifySession(reqUserId, req.headers["x-session-token"], res))) {
-        client.release();
-        return res.status(401).json({ error: "Unauthorized" });
-    }
+    if (!(await verifySession(reqUserId, req.headers["x-session-token"], res))) return res.status(401).json({ error: "Unauthorized" });
 
     try {
         await client.query('BEGIN');
@@ -2656,6 +2692,21 @@ app.post('/api/sync', async (req, res) => {
         if (config && isAdminSync) await client.query("INSERT INTO config (id, data, updated_at) VALUES ('app_config', $1, $2) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at", [config, now]);
         if (Array.isArray(banks) && banks.length && isAdminSync) { for (const b of banks) { await client.query(`INSERT INTO banks (id,name,type,promo_rate,fixed_year,updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,type=EXCLUDED.type,promo_rate=EXCLUDED.promo_rate,fixed_year=EXCLUDED.fixed_year,updated_at=EXCLUDED.updated_at`, [b.id, b.name, b.type, b.promoRate ?? 0, b.fixedYear ?? 0, now]); } }
         if (Array.isArray(baConfigurations) && baConfigurations.length && isAdminSync) { for (const c of baConfigurations) { await client.query(`INSERT INTO ba_configurations (id,type,data,updated_at) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO UPDATE SET type=EXCLUDED.type,data=EXCLUDED.data,updated_at=EXCLUDED.updated_at`, [c.id, c.type, c.data, now]); } }
+        // [V50.79 FIX] aiAgents was missing from sync handler — agents saved by AICenter were silently dropped
+        if (Array.isArray(aiAgents) && aiAgents.length && isAdminSync) {
+            for (const a of aiAgents) {
+                const ag = keysToCamel(a);
+                await client.query(
+                    `INSERT INTO ai_agents (id,name,description,model,system_instruction,temperature,updated_at)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7)
+                     ON CONFLICT (id) DO UPDATE SET
+                         name=EXCLUDED.name, description=EXCLUDED.description,
+                         model=EXCLUDED.model, system_instruction=EXCLUDED.system_instruction,
+                         temperature=EXCLUDED.temperature, updated_at=EXCLUDED.updated_at`,
+                    [ag.id, ag.name, ag.description, ag.model, ag.systemInstruction, String(ag.temperature ?? 0.7), now]
+                );
+            }
+        }
         if (Array.isArray(qaScenarios) && qaScenarios.length && isAdminSync) { for (const q of qaScenarios) { let pLoad = q.payload; if (typeof pLoad === 'object') pLoad = JSON.stringify(pLoad); await client.query(`INSERT INTO qa_scenarios (id,name,category,type,target,method,payload,description,expected_status,is_negative_case,created_at,last_run,last_status,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,category=EXCLUDED.category,type=EXCLUDED.type,target=EXCLUDED.target,method=EXCLUDED.method,payload=EXCLUDED.payload,description=EXCLUDED.description,expected_status=EXCLUDED.expected_status,is_negative_case=EXCLUDED.is_negative_case,last_run=EXCLUDED.last_run,last_status=EXCLUDED.last_status,updated_at=EXCLUDED.updated_at`, [q.id, q.name, q.category, q.type, q.target, q.method, pLoad, q.description, q.expectedStatus ?? false, q.isNegativeCase ?? false, q.createdAt, q.lastRun, q.lastStatus, now]); } }
 
         await client.query('COMMIT');
@@ -3252,24 +3303,6 @@ app.put("/api/sales/promos/:id", requireRole(['sales']), async (req, res) => {
         );
         if (r.rowCount === 0) return res.status(404).json({ error: "Promo not found" });
         res.json({ success: true, data: r.rows[0] });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// [FIX] DELETE /api/sales/promos/:id — was missing, frontend may need it for promo deletion
-app.delete("/api/sales/promos/:id", requireRole(['sales']), async (req, res) => {
-    try {
-        const r = await pool.query("DELETE FROM promos WHERE id = $1 RETURNING id", [req.params.id]);
-        if (r.rowCount === 0) return res.status(404).json({ error: "Promo not found" });
-        res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// [FIX] DELETE /api/sales/packages/:id — was missing
-app.delete("/api/sales/packages/:id", requireRole(['sales']), async (req, res) => {
-    try {
-        const r = await pool.query("DELETE FROM packages WHERE id = $1 RETURNING id", [req.params.id]);
-        if (r.rowCount === 0) return res.status(404).json({ error: "Package not found" });
-        res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

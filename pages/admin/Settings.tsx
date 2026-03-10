@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getConfig, saveConfig } from '../../services/mockDb';
 import { saveGlobalConfigToCloud, loadGlobalConfigFromCloud } from '../../services/cloudSync';
-import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye, Fingerprint, Image, LayoutPanelLeft, X } from 'lucide-react';
+import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Shield, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye, Fingerprint, Image, LayoutPanelLeft, X } from 'lucide-react';
 import { themePresets, ThemeCustom, FONT_OPTIONS, applyTheme, saveCustomTheme, SidebarStyle, ButtonShape, ShadowIntensity, AnimSpeed } from '../../services/themeService';
 import { useTranslation, SUPPORTED_LANGUAGES, SupportedLang } from '../../services/translationService';
 import { SystemRules, AdvancedConfig } from '../../types';

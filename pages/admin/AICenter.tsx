@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getDB, saveAgentConfig, getConfig } from '../../services/mockDb';
-import { pushPartialUpdate } from '../../services/cloudSync';
+import { getAdminHeaders } from '../../services/cloudSync';
 import { AIAgent } from '../../types';
 import { Bot, Save, BrainCircuit, RefreshCw, Terminal, CheckCircle2, MessageSquare, AlertTriangle, Wifi, WifiOff, Activity, ShieldAlert, Zap, Wrench } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -58,25 +58,47 @@ export default function AICenter() {
         setLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), type, msg }]);
     };
 
-    const loadConfig = (agentId: string) => {
+    const loadConfig = async (agentId: string) => {
         setIsLoading(true);
+        setNeuroStatus('idle');
+        setLogs([]);
+
+        const sysConfig = getConfig();
+        const baseUrl = sysConfig.backendUrl?.replace(/\/$/, '') || '';
+        const adminId = localStorage.getItem('paydone_active_user') || 'admin';
+
+        // 1. Try cloud first
+        if (baseUrl) {
+            try {
+                const res = await fetch(`${baseUrl}/api/admin/ai-agents`, {
+                    headers: getAdminHeaders(adminId)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const agents: AIAgent[] = Array.isArray(data) ? data : (data.data || []);
+                    const found = agents.find(a => a.id === agentId);
+                    if (found) {
+                        setConfig(found);
+                        // Also update local cache
+                        saveAgentConfig(found);
+                        setIsLoading(false);
+                        return;
+                    }
+                }
+            } catch { /* fallback to local */ }
+        }
+
+        // 2. Fallback to local DB
         const db = getDB();
         const agent = db.aiAgents?.find(a => a.id === agentId);
-        
-        if (agent) {
-            setConfig(agent);
-        } else {
-            setConfig({
-                id: agentId,
-                name: AGENT_LIST.find(a => a.id === agentId)?.label || 'Unknown Agent',
-                description: 'System generated agent.',
-                model: 'gemini-3-flash-preview',
-                systemInstruction: 'You are a helpful financial assistant.',
-                updatedAt: new Date().toISOString()
-            });
-        }
-        setNeuroStatus('idle'); // Reset status on switch
-        setLogs([]);
+        setConfig(agent || {
+            id: agentId,
+            name: AGENT_LIST.find(a => a.id === agentId)?.label || 'Unknown Agent',
+            description: 'System generated agent.',
+            model: 'gemini-3-flash-preview',
+            systemInstruction: 'You are a helpful financial assistant.',
+            updatedAt: new Date().toISOString()
+        });
         setIsLoading(false);
     };
 
@@ -86,26 +108,61 @@ export default function AICenter() {
         
         // 1. Save Locally
         saveAgentConfig(config);
+
+        const sysConfig = getConfig();
+        const baseUrl = sysConfig.backendUrl?.replace(/\/$/, '') || '';
+        const adminId = localStorage.getItem('paydone_active_user') || 'admin';
         
-        // 2. Push to Cloud (Immediate Sync)
-        try {
-            const adminId = localStorage.getItem('paydone_active_user') || 'admin';
-            addLog("Syncing configuration to cloud database...", 'info');
-            
-            const success = await pushPartialUpdate(adminId, { aiAgents: [config] });
-            
-            if (success) {
-                addLog("Cloud Sync Successful. All clients updated.", 'success');
-            } else {
-                addLog("Cloud Sync Failed. Config saved locally only.", 'warning');
+        // 2. Push to Cloud via dedicated /api/admin/ai-agents endpoint
+        // (pushPartialUpdate → POST /api/sync does NOT handle aiAgents — use direct CRUD endpoint)
+        if (baseUrl) {
+            try {
+                addLog("Syncing agent configuration to cloud database...", 'info');
+                // Use UPSERT: POST creates, PUT updates. Try PUT first (agent may already exist).
+                const putRes = await fetch(`${baseUrl}/api/admin/ai-agents/${config.id}`, {
+                    method: 'PUT',
+                    headers: getAdminHeaders(adminId),
+                    body: JSON.stringify({
+                        name: config.name,
+                        description: config.description,
+                        model: config.model,
+                        systemInstruction: config.systemInstruction,
+                        temperature: config.temperature ?? 0.7
+                    })
+                });
+
+                if (putRes.ok) {
+                    addLog("Cloud Sync Successful — agent config persisted to DB.", 'success');
+                } else if (putRes.status === 404) {
+                    // Agent doesn't exist yet — create it
+                    const postRes = await fetch(`${baseUrl}/api/admin/ai-agents`, {
+                        method: 'POST',
+                        headers: getAdminHeaders(adminId),
+                        body: JSON.stringify({
+                            id: config.id,
+                            name: config.name,
+                            description: config.description,
+                            model: config.model,
+                            systemInstruction: config.systemInstruction,
+                            temperature: config.temperature ?? 0.7
+                        })
+                    });
+                    if (postRes.ok) {
+                        addLog("Cloud Sync Successful — new agent created in DB.", 'success');
+                    } else {
+                        addLog("Cloud Sync Failed (POST). Config saved locally only.", 'warning');
+                    }
+                } else {
+                    addLog("Cloud Sync Failed. Config saved locally only.", 'warning');
+                }
+            } catch (e: any) {
+                addLog(`Network Error during Sync: ${e.message}`, 'error');
             }
-        } catch (e) {
-            addLog("Network Error during Sync.", 'error');
+        } else {
+            addLog("Backend URL not configured. Config saved locally only.", 'warning');
         }
 
-        setTimeout(() => {
-            setIsSaving(false);
-        }, 500);
+        setTimeout(() => setIsSaving(false), 500);
     };
 
     // --- SMART DIAGNOSTICS ENGINE ---

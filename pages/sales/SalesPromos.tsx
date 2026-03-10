@@ -4,7 +4,7 @@ import { Promo } from '../../types';
 import {
   Megaphone, Plus, Edit3, Loader2, Check, X as XIcon, AlertCircle, Tag, Clock,
   Users, Send, RefreshCw, ToggleLeft, ToggleRight, Percent, DollarSign,
-  ImageIcon, Zap
+  ImageIcon, Zap, Trash2
 } from 'lucide-react';
 import { formatCurrency } from '../../services/financeUtils';
 
@@ -98,6 +98,18 @@ export default function SalesPromos() {
     finally { setSaving(false); }
   }, [editing, formCode, formDiscountPct, formDiscountNom, formValidUntil, formQuota, formDescription, formTargetUserId, formImageUrl]);
 
+  // [V50.80 NEW] Delete promo with confirmation
+  const handleDeletePromo = useCallback(async (promo: Promo) => {
+    if (!window.confirm(`Hapus promo "${promo.code}"?\nTindakan ini tidak bisa dibatalkan.`)) return;
+    try {
+      await api.delete(`/sales/promos/${promo.id}`);
+      setPromos(prev => prev.filter(p => p.id !== promo.id));
+      showToast('Promo berhasil dihapus.', 'success');
+    } catch (e: any) {
+      showToast(e.message || 'Gagal menghapus promo.', 'error');
+    }
+  }, []);
+
   const handleReactivate = useCallback(async (userId: string) => {
     setReactivateLoading(userId);
     try {
@@ -175,7 +187,10 @@ export default function SalesPromos() {
                 <div className="bg-emerald-50 px-3 py-1.5 rounded-lg">
                   <span className="font-black text-emerald-700 text-sm tracking-wider">{p.code}</span>
                 </div>
-                <button onClick={() => openEditPromo(p)} className="p-2 text-slate-400 hover:text-emerald-600 rounded-lg transition"><Edit3 size={14} /></button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => openEditPromo(p)} className="p-2 text-slate-400 hover:text-emerald-600 rounded-lg transition"><Edit3 size={14} /></button>
+                  <button onClick={() => handleDeletePromo(p)} className="p-2 text-slate-400 hover:text-red-600 rounded-lg transition" title="Hapus promo"><Trash2 size={14} /></button>
+                </div>
               </div>
               {p.description && <p className="text-xs text-slate-500 mb-3">{p.description}</p>}
               <div className="space-y-1.5">

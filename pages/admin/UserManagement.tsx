@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getAllUsers, updateUser, getUserData, getConfig } from '../../services/mockDb';
 import { getHeaders, getAdminHeaders } from '../../services/cloudSync'; // Import centralized headers
 import { User, DebtItem } from '../../types';
-import { Search, UserCheck, UserX, Shield, Eye, TrendingDown, X, AlertTriangle, RefreshCcw, Loader2, Skull, Edit, Trash2, LogOut } from 'lucide-react';
+import { Search, UserCheck, UserX, Shield, Eye, TrendingDown, X, AlertTriangle, RefreshCcw, Loader2, Skull, Edit, Trash2, LogOut, UserPlus, Save, Plus } from 'lucide-react';
 
 import { formatCurrency } from '../../services/financeUtils';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
@@ -115,9 +115,42 @@ export default function UserManagement() {
     onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
+  // [V50.80 NEW] Create User Modal State
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [createForm, setCreateForm] = useState({ username: '', email: '', password: '', role: 'user' });
+  const [createSaving, setCreateSaving] = useState(false);
+  const [createError, setCreateError] = useState('');
+
   useEffect(() => {
     loadData();
   }, []);
+
+  // [V50.80 NEW] Create User handler
+  const handleCreateUser = async () => {
+    if (!createForm.email.trim() || !createForm.password.trim()) {
+      setCreateError('Email dan password wajib diisi.'); return;
+    }
+    setCreateSaving(true); setCreateError('');
+    const config = getConfig();
+    const baseUrl = config.backendUrl?.replace(/\/$/, '') || '';
+    const adminId = localStorage.getItem('paydone_active_user') || 'admin';
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/create-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAdminHeaders(adminId) },
+        body: JSON.stringify(createForm)
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setShowCreateUser(false);
+        setCreateForm({ username: '', email: '', password: '', role: 'user' });
+        loadData(); // Refresh list
+      } else {
+        setCreateError(json.error || 'Gagal membuat user.');
+      }
+    } catch (e: any) { setCreateError('Network error: ' + e.message); }
+    setCreateSaving(false);
+  };
 
   const loadData = async () => {
       setLoading(true);
@@ -319,6 +352,17 @@ export default function UserManagement() {
         <div>
           <h2 className="text-2xl font-bold text-slate-900">User Management</h2>
           <p className="text-slate-500 text-sm">Smart Monitoring & Control Panel (Cloud Sync Active).</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={loadData} disabled={loading} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition" title="Refresh">
+            {loading ? <Loader2 size={18} className="animate-spin"/> : <RefreshCcw size={18}/>}
+          </button>
+          <button
+            onClick={() => { setCreateForm({ username: '', email: '', password: '', role: 'user' }); setCreateError(''); setShowCreateUser(true); }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-bold hover:bg-brand-700 transition"
+          >
+            <UserPlus size={15}/> Add User
+          </button>
         </div>
       </div>
 
@@ -571,6 +615,52 @@ export default function UserManagement() {
         cancelText="Batal"
         variant="danger"
       />
+
+      {/* [V50.80] MODAL: CREATE USER */}
+      {showCreateUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+            <button onClick={() => setShowCreateUser(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X size={20}/></button>
+            <h3 className="text-lg font-black text-slate-900 mb-5 flex items-center gap-2">
+              <UserPlus size={20} className="text-brand-600"/> Buat User Baru
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Username (opsional)</label>
+                <input type="text" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+                  value={createForm.username} onChange={e => setCreateForm(p => ({...p, username: e.target.value}))} placeholder="Otomatis dari email jika kosong"/>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email *</label>
+                <input type="email" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+                  value={createForm.email} onChange={e => setCreateForm(p => ({...p, email: e.target.value}))} placeholder="user@email.com"/>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password *</label>
+                <input type="password" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+                  value={createForm.password} onChange={e => setCreateForm(p => ({...p, password: e.target.value}))} placeholder="Min. 6 karakter"/>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Role</label>
+                <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+                  value={createForm.role} onChange={e => setCreateForm(p => ({...p, role: e.target.value}))}>
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                  <option value="sales">Sales</option>
+                </select>
+              </div>
+              {createError && <p className="text-xs text-red-600 font-bold">{createError}</p>}
+              <div className="flex justify-end gap-3 pt-2">
+                <button onClick={() => setShowCreateUser(false)} className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50">Batal</button>
+                <button onClick={handleCreateUser} disabled={createSaving}
+                  className="px-6 py-2 bg-brand-600 text-white rounded-lg text-sm font-bold hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2">
+                  {createSaving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Buat User
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

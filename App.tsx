@@ -148,6 +148,13 @@ export default function App() {
   // V50.35 TAHAP 6: Listen for auth events and show toast notifications
   useEffect(() => {
     const handleAuthExpired = (e: Event) => {
+      // Reset auth state so Router redirects to login
+      disconnectWebSocket();
+      setIsAuthenticated(false);
+      setUserRole('user');
+      setCurrentUserId(null);
+      localStorage.removeItem('paydone_active_user');
+      localStorage.removeItem('paydone_session_token');
       addToast({
         type: 'error',
         title: 'Session Expired',
@@ -157,6 +164,13 @@ export default function App() {
     };
 
     const handleForceLogout = (e: Event) => {
+      // Reset auth state so Router redirects to login
+      disconnectWebSocket();
+      setIsAuthenticated(false);
+      setUserRole('user');
+      setCurrentUserId(null);
+      localStorage.removeItem('paydone_active_user');
+      localStorage.removeItem('paydone_session_token');
       addToast({
         type: 'warning',
         title: 'Logged Out',
@@ -205,6 +219,20 @@ export default function App() {
     };
   }, [addToast]);
 
+  // [V50.81 FIX] Handle PAYDONE_FORCE_SYNC dispatched by socket.ts when server sends FORCE_SYNC.
+  // Previously socket.ts dispatched the event but App.tsx had no listener — sync never triggered.
+  // Fix: listen and call performBackgroundSync for 'user' role (only user has local data state).
+  useEffect(() => {
+    const handleForceSync = () => {
+      if (currentUserId && userRole === 'user') {
+        console.log('[App] FORCE_SYNC received from server — triggering background pull');
+        performBackgroundSync(currentUserId);
+      }
+    };
+    window.addEventListener('PAYDONE_FORCE_SYNC', handleForceSync);
+    return () => window.removeEventListener('PAYDONE_FORCE_SYNC', handleForceSync);
+  }, [currentUserId, userRole, performBackgroundSync]);
+
   const handleLogout = React.useCallback(() => {
     disconnectWebSocket(); 
     setIsAuthenticated(false);
@@ -216,7 +244,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!currentUserId || userRole !== 'user') return;
+    // [V50.81 FIX] Connect WebSocket for ALL authenticated roles (not just 'user').
+    // Admin needs ADMIN_ALERT, FORCE_SYNC, CRUD_UPDATE broadcasts too.
+    if (!currentUserId) return;
     connectWebSocket(currentUserId);
   }, [currentUserId, userRole]);
 
@@ -319,6 +349,7 @@ export default function App() {
   // LISTENER FOR DB UPDATES (Crucial for Auto-Sync UI Refresh)
   useEffect(() => {
       const handleDbUpdate = () => {
+          // [V50.81 FIX] Reload state for user role (admin/sales manage their own data via API)
           if (currentUserId && userRole === 'user') {
               console.log("[App] DB Update Detected. Reloading State...");
               loadLocalDataIntoState(currentUserId);
@@ -332,11 +363,6 @@ export default function App() {
       if (!currentUserId || !isDataLoaded) return;
       setSyncStatus('pushing');
       
-      const db = getConfig(); // Get full config
-      // Note: We need to access global DB for some admin items if user is admin, 
-      // but for now we just send what we have access to or what is in mockDb global state.
-      // The 'getAllUsers' function returns users from mockDb.
-      // We need to import getDB to access other global collections.
       const globalDB = getDB();
 
       const fullPayload = {
@@ -372,6 +398,9 @@ export default function App() {
     
     if (role === 'user') {
         loadLocalDataIntoState(userId);
+        // [V50.81 FIX] Trigger background sync immediately on login so freshest cloud data
+        // is loaded — previously user had to reload the page to get synced data.
+        performBackgroundSync(userId);
         // Apply user's saved locale preference on login
         try {
           const allUsers = getAllUsers();
@@ -390,7 +419,7 @@ export default function App() {
           }
         } catch {}
     }
-  }, [loadLocalDataIntoState]);
+  }, [loadLocalDataIntoState, performBackgroundSync]);
 
   // ADD_ALLOCATION via AI — MUST be declared BEFORE handleAIAction
   // (handleAIAction's useCallback dep array evaluates handleAIAllocation immediately at render time;
@@ -618,6 +647,7 @@ export default function App() {
             <Route path="planning" element={<Planning tasks={tasks} debts={debts} debtInstallments={debtInstallments} setDebtInstallments={setDebtInstallments} allocations={monthlyExpenses[currentMonthKey] || []} onToggleTask={id => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: t.status === 'pending' ? 'completed' : 'pending' } : t))} onToggleAllocation={handleToggleAllocation} />} />
             <Route path="logs" element={<ActivityLogs userType="user" />} />
             <Route path="profile" element={<Profile currentUserId={currentUserId} bankAccounts={bankAccounts} setBankAccounts={setBankAccounts} />} />
+            <Route path="family" element={<FamilyManager />} />
             <Route path="upgrade" element={<UpgradePage />} />
             <Route path="billing" element={<BillingPage />} />
           </Route>

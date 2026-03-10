@@ -278,7 +278,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
       { title: 'Overview', items: [{ to: '/app', icon: LayoutDashboard, label: t("nav.dashboard") }, { to: '/app/ai-strategist', icon: BrainCircuit, label: t("nav.ai_strategist"), badge: 'AI' }, { to: '/app/planning', icon: ClipboardList, label: t("nav.planning") }] },
       { title: 'Management', items: [{ to: '/app/my-debts', icon: List, label: t("nav.my_debts") }, { to: '/app/allocation', icon: PieChart, label: t("nav.allocation") }, { to: '/app/calendar', icon: CalendarDays, label: t("nav.calendar") }] },
       { title: 'Tracker', items: [{ to: '/app/income', icon: DollarSign, label: t("nav.income") }, { to: '/app/expenses', icon: Receipt, label: t("nav.expenses") }, { to: '/app/financial-freedom', icon: TrendingUp, label: t("nav.freedom"), featureKey: 'financial_freedom' }] },
-      { title: 'Account', items: [{ to: '/app/logs', icon: History, label: t("nav.history") }, { to: '/app/profile', icon: UserCog, label: t("nav.profile") }, { to: '/app/upgrade', icon: Zap, label: 'Upgrade', badge: 'PRO' }, { to: '/app/billing', icon: FileText, label: 'Billing' }] }
+      { title: 'Account', items: [{ to: '/app/logs', icon: History, label: t("nav.history") }, { to: '/app/profile', icon: UserCog, label: t("nav.profile") }, { to: '/app/family', icon: Users, label: 'Keluarga' }, { to: '/app/upgrade', icon: Zap, label: 'Upgrade', badge: 'PRO' }, { to: '/app/billing', icon: FileText, label: 'Billing' }] }
   ], [t]);
 
   const filteredMenu = useMemo(() => {

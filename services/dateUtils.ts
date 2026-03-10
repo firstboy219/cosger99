@@ -126,10 +126,15 @@ export const sanitizeDatePayload = (obj: any, dateFields: string[] = []): any =>
   
   fieldsToCheck.forEach(field => {
     if (result[field] !== undefined && result[field] !== null) {
-      try {
-        result[field] = toISOString(result[field]);
-      } catch (e) {
-        console.warn(`[dateUtils] Failed to sanitize field ${field}`, e);
+      // [FIX] Empty string date fields (from legacy null→"" keysToCamel bug) should be null
+      if (result[field] === '') {
+        result[field] = null;
+      } else {
+        try {
+          result[field] = toISOString(result[field]);
+        } catch (e) {
+          console.warn(`[dateUtils] Failed to sanitize field ${field}`, e);
+        }
       }
     }
   });

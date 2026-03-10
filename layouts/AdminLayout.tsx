@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { ShieldCheck, Database, LogOut, Users, Settings, Briefcase, Server, Code, Rocket, RefreshCw, Wifi, WifiOff, History, LayoutDashboard, Terminal, Workflow, Ticket, ArrowLeftRight, Bot, Activity, Building2, DatabaseZap, Eye, X, Copy, ArrowUpRight, ArrowDownLeft, GitBranch, FileText } from 'lucide-react';
+import { ShieldCheck, Database, LogOut, Users, Settings, Briefcase, Server, Code, Rocket, RefreshCw, Wifi, WifiOff, History, LayoutDashboard, Terminal, Workflow, Ticket, ArrowLeftRight, Bot, Activity, Building2, DatabaseZap, Eye, X, Copy, ArrowUpRight, ArrowDownLeft, GitBranch, FileText, UserCog, HeartPulse } from 'lucide-react';
 import { getConfig } from '../services/mockDb';
 
 const SidebarItem = ({ to, icon: Icon, label, badge }: { to: string, icon: any, label: string, badge?: string }) => {
@@ -132,7 +132,9 @@ export default function AdminLayout({ onLogout }: { onLogout: () => void }) {
             <h3 className="px-4 mb-3 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">Management</h3>
             <div className="space-y-1">
                 <SidebarItem to="/admin/master" icon={Users} label="Users & Partners" />
+                <SidebarItem to="/admin/users" icon={UserCog} label="User Management" />
                 <SidebarItem to="/admin/ba" icon={Workflow} label="Business Logic" />
+                <SidebarItem to="/admin/health" icon={HeartPulse} label="Backend Health" />
             </div>
           </div>
 

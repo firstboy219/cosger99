@@ -103,7 +103,7 @@
  * ==============================================================================
  */
 
-console.log("🚀 IGNITING PAYDONE SERVER V50.78 (NARRATIVE EDITION)...");
+console.log("🚀 IGNITING PAYDONE SERVER V50.81-BUGFIX (NARRATIVE + STABILITY EDITION)...");
 
 const { WebSocketServer } = require('ws');
 require("dotenv").config();
@@ -238,7 +238,9 @@ const unpackMetadata = (row) => {
 const keysToCamel = (o) => {
     if (o === Object(o) && !Array.isArray(o) && typeof o !== "function" && !(o instanceof Date)) {
         const n = {};
-        Object.keys(o).forEach((k) => { let value = keysToCamel(o[k]); n[toCamel(k)] = value === null ? "" : value; });
+        // [V50.81 FIX] Do NOT convert null to "". Null numeric fields became ""
+        // which caused NaN in frontend arithmetic (DSR, health score, etc.).
+        Object.keys(o).forEach((k) => { let value = keysToCamel(o[k]); n[toCamel(k)] = value; });
         return n;
     } else if (Array.isArray(o)) return o.map((i) => keysToCamel(i));
     return o;
@@ -883,7 +885,10 @@ const initDB = async () => {
         ];
         for (const sql of migrations) { await client.query(sql).catch(() => {}); }
 
-        await client.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_payment ON subscriptions (amount_paid) WHERE status = 'awaiting_payment'").catch(() => {});
+        // [V50.81 FIX] Index must be (user_id, amount_paid) — not amount_paid alone.
+        // The old index rejected valid invoices from different users that happened to
+        // share the same final amount (basePrice + randomCode).
+        await client.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_payment ON subscriptions (user_id, amount_paid) WHERE status = 'awaiting_payment'").catch(() => {});
 
         // Seed: Default Free Package
         const checkFree = await client.query("SELECT id FROM packages WHERE is_default_free = TRUE");
@@ -970,7 +975,10 @@ const requireRole = (allowedRoles) => {
         try {
             const r = await pool.query("SELECT role FROM users WHERE id=$1", [userId]);
             if (r.rows.length === 0) return res.status(401).json({ error: "User not found" });
-            if (!allowedRoles.includes(r.rows[0].role) && r.rows[0].role !== 'admin') return res.status(403).json({ error: "Access denied." });
+            // [V50.81 FIX] super_admin and superadmin must also bypass role check,
+            // same as admin. Previously super_admin was rejected from sales routes.
+            const userRole = r.rows[0].role;
+            if (!allowedRoles.includes(userRole) && !['admin', 'super_admin', 'superadmin'].includes(userRole)) return res.status(403).json({ error: "Access denied." });
             next();
         } catch (e) { res.status(500).json({ error: e.message }); }
     };
@@ -1009,7 +1017,7 @@ const checkAiQuota = async (req, res, next) => {
 // =============================================================================
 // --- UTILITY ROUTES ---
 // =============================================================================
-app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.78-narrative-fixed5", db: "connected" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.81-bugfix", db: "connected" }));
 app.get("/api/features/list", (req, res) => res.json(SYSTEM_FEATURES));
 
 // =============================================================================
@@ -1719,7 +1727,10 @@ app.post("/api/sales/transactions/:id/approve", requireRole(['sales']), async (r
         const sub = await client.query("SELECT * FROM subscriptions WHERE id = $1 AND status = 'verifying' FOR UPDATE", [id]);
         if (sub.rowCount === 0) throw new Error("Transaction not found or already processed");
         const userId = sub.rows[0].user_id;
-        const activeSub = await pool.query(`SELECT s.id, s.end_date, p.is_default_free FROM subscriptions s JOIN packages p ON s.package_id = p.id WHERE s.user_id = $1 AND s.status = 'active'`, [userId]);
+        // [V50.81 FIX] Use client.query (not pool.query) inside the BEGIN transaction
+        // so the SELECT runs on the same connection — pool.query would use a different
+        // connection and bypass the transaction's FOR UPDATE lock.
+        const activeSub = await client.query(`SELECT s.id, s.end_date, p.is_default_free FROM subscriptions s JOIN packages p ON s.package_id = p.id WHERE s.user_id = $1 AND s.status = 'active'`, [userId]);
         let extraDays = 0; const now = new Date();
         if (activeSub.rows.length > 0) {
             const oldSub = activeSub.rows[0];
@@ -2181,7 +2192,7 @@ const createCrudEndpoints = (tableName, routePath, featureKey = null) => {
             const result = await pool.query(`INSERT INTO ${tableName} (${keys.join(", ")}) VALUES (${placeholders}) RETURNING *`, values);
             if (global.broadcastWS) global.broadcastWS({ type: "CRUD_UPDATE", table: tableName, action: "INSERT", id: data.id, userId, timestamp: new Date() });
             res.json({ success: true, message: "Created", data: keysToCamel(unpackMetadata(result.rows[0])) });
-        } catch (e) { res.status(500).json({ error: "Processing Error" }); }
+        } catch (e) { console.error('[CRUD POST]', tableName, e.message); res.status(500).json({ error: e.message || "Processing Error" }); }
     });
 
     app.put(`/api/${routePath}/:id`, ...mws, async (req, res) => {
@@ -2219,7 +2230,7 @@ const createCrudEndpoints = (tableName, routePath, featureKey = null) => {
             if (result.rowCount === 0) return res.status(404).json({ error: "Not found" });
             if (global.broadcastWS) global.broadcastWS({ type: "CRUD_UPDATE", table: tableName, action: "UPDATE", id, userId: reqUserId, timestamp: new Date() });
             res.json({ success: true, message: "Updated", data: keysToCamel(unpackMetadata(result.rows[0])) });
-        } catch (e) { res.status(500).json({ error: "Update Error" }); }
+        } catch (e) { console.error('[CRUD PUT]', tableName, e.message); res.status(500).json({ error: e.message || "Update Error" }); }
     });
 
     app.delete(`/api/${routePath}/:id`, ...mws, async (req, res) => {
@@ -2252,7 +2263,7 @@ const createCrudEndpoints = (tableName, routePath, featureKey = null) => {
             await client.query('COMMIT');
             if (global.broadcastWS) global.broadcastWS({ type: "CRUD_UPDATE", table: tableName, action: "DELETE", id, userId: reqUserId });
             res.json({ success: true });
-        } catch (e) { await client.query('ROLLBACK'); res.status(500).json({ error: "Delete Error" }); } finally { client.release(); }
+        } catch (e) { await client.query('ROLLBACK'); console.error('[CRUD DELETE]', tableName, e.message); res.status(500).json({ error: e.message || "Delete Error" }); } finally { client.release(); }
     });
 };
 
@@ -2263,6 +2274,9 @@ createCrudEndpoints("allocations",      "allocations",         "pos_budget");
 createCrudEndpoints("tasks",            "tasks",               "tasks_calendar");
 createCrudEndpoints("sinking_funds",    "sinking-funds",       "sinking_fund");
 createCrudEndpoints("bank_accounts",    "bank-accounts",       "bank_accounts");
+// NOTE: activity-logs POST is explicitly defined above (with proper metadata mapping).
+// createCrudEndpoints only adds PUT + DELETE for activity-logs; skip POST to avoid conflict.
+// We achieve this by registering after the explicit POST so Express uses first-match routing.
 createCrudEndpoints("activity_logs",    "activity-logs");
 createCrudEndpoints("debt_installments","debt-installments",   "debt_management");
 createCrudEndpoints("payment_records",  "payment-records",     "debt_management");
@@ -2498,9 +2512,10 @@ app.get("/api/sync", async (req, res) => {
     if (!userId || userId === "check") {
         try { const a = await pool.query("SELECT * FROM ai_agents"); return res.json({ status: "ready", aiAgents: keysToCamel(a.rows) }); } catch (e) { return res.status(500).json({ error: e.message }); }
     }
+    // [FIX] Validate session BEFORE acquiring pool connection to prevent connection leak
+    if (!(await verifySession(userId, req.headers["x-session-token"], res))) return res.status(401).json({ error: "Session Invalid" });
     const client = await pool.connect();
     try {
-        if (!(await verifySession(userId, req.headers["x-session-token"], res))) return res.status(401).json({ error: "Session Invalid" });
         await client.query("UPDATE users SET last_login = NOW() WHERE id = $1", [userId]);
         const activeData = await getUserActivePackage(userId);
         const configDataRes = await client.query("SELECT data FROM config WHERE id = 'app_config'");
@@ -2580,10 +2595,11 @@ app.get("/api/sync", async (req, res) => {
 
 app.post('/api/sync', async (req, res) => {
     const { users, debts, debtInstallments, incomes, dailyExpenses, paymentRecords, sinkingFunds, tasks, tickets, activityLogs, allocations, qaScenarios, config, bankAccounts, banks, baConfigurations, aiAgents } = req.body;
-    const client = await pool.connect();
     const reqUserId = req.headers["x-user-id"];
     const isAdminSync = verifyAdminSecret(req);
+    // [FIX] Validate session BEFORE acquiring pool connection to prevent connection leak
     if (!(await verifySession(reqUserId, req.headers["x-session-token"], res))) return res.status(401).json({ error: "Unauthorized" });
+    const client = await pool.connect();
 
     try {
         await client.query('BEGIN');
@@ -2948,9 +2964,9 @@ app.post("/api/notifications", async (req, res) => {
     if (!(await verifySession(userId, token, res))) return res.status(401).json({ error: "Unauthorized" });
     try {
         const { id, title, message, type, link } = req.body;
-        const notifId = id || `notif-${require('crypto').randomUUID()}`;
+        const notifId = id || `notif-${crypto.randomUUID()}`;
         const r = await pool.query(
-            "INSERT INTO notifications (id, user_id, title, message, type, link, is_read, created_at) VALUES ($1, $2, $3, $4, $5, $6, FALSE, NOW()) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, message=EXCLUDED.message RETURNING *",
+            "INSERT INTO notifications (id, user_id, title, message, type, link, is_read, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, FALSE, NOW(), NOW()) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, message=EXCLUDED.message, updated_at=NOW() RETURNING *",
             [notifId, userId, title || '', message || '', type || 'info', link || null]
         );
         res.json({ success: true, data: keysToCamel(r.rows[0]) });
@@ -3385,22 +3401,32 @@ const startCron = () => {
         });
 
         // 2. DB Maintenance
+        // [V50.81 FIX] Cron Connection Leak: client.release() was inside try (not finally)
+        // and catch had no ROLLBACK. If any query threw, the pool connection was never returned,
+        // causing pool exhaustion over time (server hangs after ~10 cron cycles).
+        let cronClient = null;
         try {
-            const client = await pool.connect();
-            await client.query("BEGIN");
-            const expInvoices = await client.query("SELECT promo_id FROM subscriptions WHERE status = 'awaiting_payment' AND created_at < NOW() - INTERVAL '1 day'");
-            for (let row of expInvoices.rows) { if (row.promo_id) await client.query("UPDATE promos SET quota = quota + 1 WHERE id = $1", [row.promo_id]); }
-            await client.query("UPDATE subscriptions SET status = 'expired' WHERE status = 'awaiting_payment' AND created_at < NOW() - INTERVAL '1 day'");
+            cronClient = await pool.connect();
+            await cronClient.query("BEGIN");
+            const expInvoices = await cronClient.query("SELECT promo_id FROM subscriptions WHERE status = 'awaiting_payment' AND created_at < NOW() - INTERVAL '1 day'");
+            for (let row of expInvoices.rows) { if (row.promo_id) await cronClient.query("UPDATE promos SET quota = quota + 1 WHERE id = $1", [row.promo_id]); }
+            await cronClient.query("UPDATE subscriptions SET status = 'expired' WHERE status = 'awaiting_payment' AND created_at < NOW() - INTERVAL '1 day'");
             // [V50.77 FIX #4] Delete orphaned subscriptions BEFORE deleting unverified users
             // assignDefaultFreePackage() creates a subscription for every new user.
             // Without this, deleted users leave behind orphaned subscription records.
-            await client.query("DELETE FROM subscriptions WHERE user_id IN (SELECT id FROM users WHERE status = 'pending_verification' AND created_at < NOW() - INTERVAL '1 day')");
-            await client.query("DELETE FROM users WHERE status = 'pending_verification' AND created_at < NOW() - INTERVAL '1 day'");
-            await client.query("UPDATE users SET reset_token = NULL WHERE reset_token IS NOT NULL AND updated_at < NOW() - INTERVAL '1 hour'");
-            await client.query("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL '30 days'");
-            await client.query("COMMIT");
-            client.release();
-        } catch(e) {}
+            await cronClient.query("DELETE FROM subscriptions WHERE user_id IN (SELECT id FROM users WHERE status = 'pending_verification' AND created_at < NOW() - INTERVAL '1 day')");
+            await cronClient.query("DELETE FROM users WHERE status = 'pending_verification' AND created_at < NOW() - INTERVAL '1 day'");
+            await cronClient.query("UPDATE users SET reset_token = NULL WHERE reset_token IS NOT NULL AND updated_at < NOW() - INTERVAL '1 hour'");
+            await cronClient.query("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL '30 days'");
+            await cronClient.query("COMMIT");
+        } catch(e) {
+            // [V50.81 FIX] ROLLBACK on failure to prevent stuck transaction
+            if (cronClient) await cronClient.query("ROLLBACK").catch(() => {});
+            console.error("[CRON] DB Maintenance error:", e.message);
+        } finally {
+            // [V50.81 FIX] Always release connection back to pool
+            if (cronClient) cronClient.release();
+        }
 
         // 3. Email Queue Worker (throttled: max 10 emails per 30s cycle)
         try {

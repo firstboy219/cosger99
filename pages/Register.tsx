@@ -101,7 +101,7 @@ export default function Register() {
         } catch { /* ignore hydration errors */ }
 
         setSuccess(true);
-        setTimeout(() => navigate('/app/dashboard'), 1500);
+        setTimeout(() => navigate('/app'), 1500);
       } else {
         setSuccess(true);
       }

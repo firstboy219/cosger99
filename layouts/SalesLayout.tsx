@@ -138,7 +138,7 @@ export default function SalesLayout({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="flex h-screen bg-[#f8fafc] text-slate-900 overflow-hidden font-sans">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex w-72 bg-[#0f172a] border-r border-slate-800 flex-col z-30 shadow-2xl">
+      <aside id="cosger-sidebar" className="hidden lg:flex w-72 bg-[#0f172a] border-r border-slate-800 flex-col z-30 shadow-2xl">
         {sidebarContent}
       </aside>
 
@@ -156,7 +156,7 @@ export default function SalesLayout({ onLogout }: { onLogout: () => void }) {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-30 flex">
           <div className="absolute inset-0 bg-black/60" onClick={() => setMobileOpen(false)} />
-          <aside className="relative w-72 bg-[#0f172a] flex flex-col z-40 shadow-2xl">
+          <aside id="cosger-sidebar" className="relative w-72 bg-[#0f172a] flex flex-col z-40 shadow-2xl">
             {sidebarContent}
           </aside>
         </div>
@@ -164,7 +164,7 @@ export default function SalesLayout({ onLogout }: { onLogout: () => void }) {
 
       {/* Main */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-[#f8fafc] relative">
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-20 max-lg:mt-16">
+        <header id="cosger-topbar" className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-20 max-lg:mt-16">
           <div>
             <h2 className="text-slate-900 font-black text-xl tracking-tight">Sales Panel</h2>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">CRM & Subscription Management</p>

@@ -11,8 +11,8 @@ import ConfirmDialog from '../components/ui/ConfirmDialog';
 interface MyDebtsProps {
   debts: DebtItem[];
   setDebts: React.Dispatch<React.SetStateAction<DebtItem[]>>;
-  paymentRecords: PaymentRecord[];
-  setPaymentRecords: React.Dispatch<React.SetStateAction<PaymentRecord[]>>;
+  paymentRecords?: PaymentRecord[];
+  setPaymentRecords?: React.Dispatch<React.SetStateAction<PaymentRecord[]>>;
   userId: string;
   debtInstallments?: DebtInstallment[];
   setDebtInstallments?: React.Dispatch<React.SetStateAction<DebtInstallment[]>>;

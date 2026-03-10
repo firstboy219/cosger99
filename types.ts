@@ -86,6 +86,7 @@ export interface AppConfig extends SyncMetadata {
     inputBgColor?: string;
     inputTextColor?: string;
     currentThemePreset?: string;
+    customTheme?: import('./services/themeService').ThemeCustom;
     language?: string;
     dashboardWidgets?: { id: string; type: string; visible: boolean }[];
     

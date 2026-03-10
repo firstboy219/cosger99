@@ -95,7 +95,10 @@ export default function App() {
 
   useEffect(() => {
     const config = getConfig();
-    if (config.currentThemePreset) applyTheme(config.currentThemePreset);
+    // Apply theme: prefer customTheme object, fallback to presetId
+    if (config.customTheme) applyTheme(config.customTheme);
+    else if (config.currentThemePreset) applyTheme(config.currentThemePreset);
+    else applyTheme('trust');
     // Dynamic document title from brand identity
     const appName = config.appName || 'Paydone.id';
     const appDesc = config.appDescription || 'Financial Cockpit';
@@ -114,7 +117,9 @@ export default function App() {
           const cloudConfig = result.data.config || result.data;
           const merged = { ...config, ...cloudConfig };
           saveConfig(merged);
-          if (merged.currentThemePreset) applyTheme(merged.currentThemePreset);
+          // Apply merged theme from cloud
+          if (merged.customTheme) applyTheme(merged.customTheme);
+          else if (merged.currentThemePreset) applyTheme(merged.currentThemePreset);
           const name = merged.appName || 'Paydone.id';
           const desc = merged.appDescription || 'Financial Cockpit';
           document.title = `${name} | ${desc}`;

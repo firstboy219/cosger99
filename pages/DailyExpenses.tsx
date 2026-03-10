@@ -237,13 +237,13 @@ export default function DailyExpenses({ expenses = [], setExpenses, allocations 
       
       try {
           const result = await parseTransactionAI(quickText, { allocations });
-          if (result.intent === 'ADD_DAILY_EXPENSE' || result.intent === 'ADD_EXPENSE') {
+          if ((result.intent === 'ADD_DAILY_EXPENSE' || result.intent === 'ADD_EXPENSE') && result.data) {
               const newItem: DailyExpense = {
                   id: `exp-${Date.now()}`,
                   userId,
-                  title: result.data.title || 'Pengeluaran AI',
-                  amount: Number(result.data.amount) || 0, 
-                  category: (result.data.category as any) || 'Others',
+                  title: result.data?.title || 'Pengeluaran AI',
+                  amount: Number(result.data?.amount) || 0, 
+                  category: (result.data?.category as any) || 'Others',
                   date: filterDate, 
                   updatedAt: new Date().toISOString(),
                   _deleted: false

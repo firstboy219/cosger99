@@ -242,7 +242,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
 
   return (
     <div className="flex h-screen bg-[#f8fafc] font-sans text-slate-900 overflow-hidden">
-      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#0f172a] text-slate-300 border-r border-slate-800 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 shadow-2xl flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside id="cosger-sidebar" className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#0f172a] text-slate-300 border-r border-slate-800 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 shadow-2xl flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="h-20 flex items-center px-6 border-b border-slate-800/60 bg-gradient-to-r from-[#0f172a] to-[#1e293b]">
             <div className="flex items-center gap-3 text-white w-full">
                 {appLogo ? (
@@ -331,7 +331,7 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
         <GracePeriodBanner />
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-8 z-20 shadow-sm">
+        <header id="cosger-topbar" className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-8 z-20 shadow-sm">
           <div className="flex items-center gap-4">
             <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden text-slate-500 hover:text-slate-900"><Menu size={20} /></button>
             <div className="hidden md:flex items-center text-sm text-slate-500 font-semibold text-slate-900">{filteredMenu.flatMap(g => g.items).find(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))?.label || 'Dashboard'}</div>

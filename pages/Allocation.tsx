@@ -70,7 +70,7 @@ function CircularProgress({ percent, size = 56, strokeWidth = 5, color = '#3b82f
 interface AllocationProps {
   monthlyExpenses: Record<string, ExpenseItem[]>;
   setMonthlyExpenses: React.Dispatch<React.SetStateAction<Record<string, ExpenseItem[]>>>;
-  onAddToDailyLog: (expense: DailyExpense) => void;
+  onAddToDailyLog?: (expense: DailyExpense) => void;
   dailyExpenses: DailyExpense[]; 
   onToggleAllocation: (id: string) => void; 
   sinkingFunds: SinkingFund[];

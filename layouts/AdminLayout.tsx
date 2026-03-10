@@ -98,7 +98,7 @@ export default function AdminLayout({ onLogout }: { onLogout: () => void }) {
     <div className="flex h-screen bg-[#f8fafc] text-slate-900 overflow-hidden font-sans">
       
       {/* Sidebar - Dark Professional Theme */}
-      <aside className="w-72 bg-[#0f172a] border-r border-slate-800 flex flex-col z-30 shadow-2xl">
+      <aside id="cosger-sidebar" className="w-72 bg-[#0f172a] border-r border-slate-800 flex flex-col z-30 shadow-2xl">
         <div className="h-20 flex items-center px-6 border-b border-slate-800/50">
           <div className="flex items-center gap-3">
             {appLogo ? (
@@ -189,7 +189,7 @@ export default function AdminLayout({ onLogout }: { onLogout: () => void }) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-[#f8fafc] relative">
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-20">
+        <header id="cosger-topbar" className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-20">
           <div className="flex flex-col">
               <h2 className="text-slate-900 font-black text-xl tracking-tight">Control Panel</h2>
               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">System Administration</p>

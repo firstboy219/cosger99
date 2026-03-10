@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getConfig, saveConfig } from '../../services/mockDb';
 import { saveGlobalConfigToCloud, loadGlobalConfigFromCloud } from '../../services/cloudSync';
 import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye, Fingerprint, Image, LayoutPanelLeft, X } from 'lucide-react';
-import { themePresets, ThemeConfig } from '../../services/themeService';
+import { themePresets, ThemeCustom, FONT_OPTIONS, applyTheme, saveCustomTheme, SidebarStyle, ButtonShape, ShadowIntensity, AnimSpeed } from '../../services/themeService';
 import { useTranslation, SUPPORTED_LANGUAGES, SupportedLang } from '../../services/translationService';
 import { SystemRules, AdvancedConfig } from '../../types';
 
@@ -102,8 +102,13 @@ export default function AdminSettings() {
     
     setIsSaving(false);
     
-    if (config.currentThemePreset && config.currentThemePreset !== getConfig().currentThemePreset) {
-       window.location.reload(); 
+    // Apply theme immediately without page reload + persist to localStorage
+    const themeToApply = config.customTheme || config.currentThemePreset || 'trust';
+    if (typeof themeToApply === 'object') {
+      applyTheme(themeToApply);
+      saveCustomTheme(themeToApply);
+    } else {
+      applyTheme(themeToApply as string);
     }
     
     setShowSuccess(true);
@@ -466,41 +471,8 @@ export default function AdminSettings() {
                 </div>
             )}
 
-            {/* TAB: APPEARANCE */}
-            {activeTab === 'appearance' && (
-                <div className="space-y-8 animate-fade-in">
-                    <h3 className="font-black text-slate-800 text-sm mb-4 uppercase tracking-widest flex items-center gap-2"><Palette size={20} className="text-pink-600"/> Visual Theme Selection</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {themePresets.map(theme => (
-                            <div 
-                                key={theme.id} 
-                                onClick={() => setConfig({...config, currentThemePreset: theme.id})}
-                                className={`p-6 rounded-[2rem] border-4 cursor-pointer transition-all duration-300 relative overflow-hidden group ${
-                                    config.currentThemePreset === theme.id 
-                                    ? 'border-brand-500 bg-brand-50 shadow-2xl scale-[1.02]' 
-                                    : 'border-slate-100 bg-white hover:border-slate-200 hover:shadow-xl'
-                                }`}
-                            >
-                                {config.currentThemePreset === theme.id && <div className="absolute top-4 right-4 bg-brand-600 text-white p-1 rounded-full shadow-lg animate-bounce"><CheckCircle size={16}/></div>}
-                                <div className="flex items-center gap-4 mb-4">
-                                    <div className="w-12 h-12 rounded-2xl shadow-inner flex items-center justify-center text-2xl" style={{backgroundColor: theme.primaryColor}}>
-                                        <Layout className="text-white/50" size={24}/>
-                                    </div>
-                                    <div>
-                                        <span className="block font-black text-slate-900 text-lg tracking-tight">{theme.name}</span>
-                                        <div className="flex gap-1 mt-1">
-                                            <div className="w-3 h-3 rounded-full" style={{backgroundColor: theme.primaryColor}}></div>
-                                            <div className="w-3 h-3 rounded-full" style={{backgroundColor: theme.secondaryColor}}></div>
-                                            <div className="w-3 h-3 rounded-full" style={{backgroundColor: theme.bgColor}}></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <p className="text-xs text-slate-500 leading-relaxed font-medium">{theme.description}</p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+            {/* TAB: APPEARANCE — full theming engine */}
+            {activeTab === 'appearance' && <ThemingPanel config={config} setConfig={setConfig} />}
 
             {/* TAB: LANGUAGE */}
             {activeTab === 'language' && (
@@ -548,6 +520,599 @@ export default function AdminSettings() {
                 </div>
             )}
 
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// THEMING PANEL — Full interactive CSS design system editor
+// ============================================================================
+
+const PRESET_META: Record<string, {name:string;desc:string;icon:string}> = {
+  trust:     { name:'Trust (Default)', desc:'Profesional, bersih, terpercaya',    icon:'🔵' },
+  calm:      { name:'Tenang (Calm)',   desc:'Alam, menenangkan, low-stress',       icon:'🌿' },
+  happy:     { name:'Happy (Fun)',     desc:'Energi, semangat, asyik',             icon:'☀️' },
+  corporate: { name:'Corporate',       desc:'Tegas, serius, efisien',              icon:'🏢' },
+  luxury:    { name:'Mewah (Sultan)',  desc:'Eksklusif, premium, dark-gold',       icon:'👑' },
+};
+
+const SIDEBAR_STYLES: {id:SidebarStyle;label:string;icon:string;desc:string}[] = [
+  {id:'dark',  label:'Dark',    icon:'🌑', desc:'Sidebar gelap klasik'},
+  {id:'light', label:'Light',   icon:'☀️', desc:'Sidebar putih/terang'},
+  {id:'brand', label:'Brand',   icon:'🎨', desc:'Warna primary brand'},
+  {id:'glass', label:'Glass',   icon:'🪟', desc:'Glassmorphism blur'},
+];
+
+const BUTTON_SHAPES: {id:ButtonShape;label:string;preview:string}[] = [
+  {id:'square',  label:'Sharp',   preview:'px-4 py-1.5 rounded-sm'},
+  {id:'rounded', label:'Rounded', preview:'px-4 py-1.5 rounded-lg'},
+  {id:'pill',    label:'Pill',    preview:'px-4 py-1.5 rounded-full'},
+];
+
+const SHADOWS: {id:ShadowIntensity;label:string;desc:string}[] = [
+  {id:'none',   label:'None',   desc:'Flat design'},
+  {id:'soft',   label:'Soft',   desc:'Sangat halus'},
+  {id:'medium', label:'Medium', desc:'Standar modern'},
+  {id:'strong', label:'Strong', desc:'Bold / lifted'},
+];
+
+const ANIM_OPTIONS: {id:AnimSpeed;label:string;ms:string}[] = [
+  {id:'off',    label:'Off',    ms:'0ms — Instant'},
+  {id:'fast',   label:'Fast',   ms:'100ms'},
+  {id:'normal', label:'Normal', ms:'220ms'},
+  {id:'slow',   label:'Slow',   ms:'400ms'},
+];
+
+interface ThemingPanelProps {
+  config: any;
+  setConfig: (c: any) => void;
+}
+
+function ColorRow({ label, value, onChange, hint }: { label:string; value:string; onChange:(v:string)=>void; hint?:string }) {
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-slate-100 last:border-0 gap-4">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-slate-700">{label}</p>
+        {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="relative">
+          <input
+            type="color"
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            className="w-9 h-9 rounded-lg border-2 border-slate-200 cursor-pointer p-0.5 bg-white"
+          />
+        </div>
+        <input
+          type="text"
+          value={value}
+          onChange={e => { if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) onChange(e.target.value); }}
+          className="w-24 text-[11px] font-mono border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:border-blue-500 outline-none"
+        />
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({ icon, title, count }: { icon:React.ReactNode; title:string; count?:string }) {
+  return (
+    <div className="flex items-center gap-2.5 mb-4 pb-2.5 border-b border-slate-100">
+      <div className="p-1.5 bg-slate-100 rounded-lg text-slate-600">{icon}</div>
+      <span className="text-xs font-black uppercase tracking-widest text-slate-500">{title}</span>
+      {count && <span className="ml-auto text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-bold">{count}</span>}
+    </div>
+  );
+}
+
+function ThemingPanel({ config, setConfig }: ThemingPanelProps) {
+  const initTheme = (): ThemeCustom => {
+    if (config.customTheme) return config.customTheme;
+    const pid = config.currentThemePreset || 'trust';
+    return themePresets.find(t=>t.presetId===pid) || themePresets[0];
+  };
+
+  const [theme, setTheme] = React.useState<ThemeCustom>(initTheme);
+  const [section, setSection] = React.useState<string>('presets');
+  const [livePreview, setLivePreview] = React.useState(true);
+
+  // Sync theme state when cloud config loads externally
+  React.useEffect(() => {
+    if (config.customTheme) {
+      const incoming = config.customTheme as ThemeCustom;
+      // Only sync if presetId or primaryColor changed (avoid loop from own setConfig calls)
+      setTheme(prev => {
+        if (prev.presetId !== incoming.presetId || prev.primaryColor !== incoming.primaryColor) {
+          return incoming;
+        }
+        return prev;
+      });
+    }
+  }, [config.customTheme]);
+
+  // Live preview
+  React.useEffect(() => {
+    if (livePreview) applyTheme(theme);
+  }, [theme, livePreview]);
+
+  const updateTheme = (patch: Partial<ThemeCustom>) => {
+    const next = { ...theme, ...patch };
+    setTheme(next);
+    setConfig({ ...config, customTheme: next, currentThemePreset: next.presetId });
+  };
+
+  const applyPreset = (presetId: string) => {
+    const preset = themePresets.find(t=>t.presetId===presetId) || themePresets[0];
+    setTheme(preset);
+    setConfig({ ...config, customTheme: preset, currentThemePreset: presetId });
+    saveCustomTheme(preset);
+  };
+
+  const resetToPreset = () => applyPreset(theme.presetId);
+
+  const sections = [
+    { id:'presets',    label:'Presets',    icon:'🎨' },
+    { id:'colors',     label:'Colors',     icon:'🎭' },
+    { id:'typography', label:'Typography', icon:'✏️' },
+    { id:'shapes',     label:'Shapes',     icon:'⬜' },
+    { id:'sidebar',    label:'Sidebar',    icon:'📐' },
+    { id:'motion',     label:'Motion',     icon:'⚡' },
+    { id:'custom',     label:'Custom CSS', icon:'💻' },
+  ];
+
+  return (
+    <div className="animate-fade-in">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+          <h3 className="font-black text-slate-900 text-lg flex items-center gap-2">
+            <Palette size={20} className="text-violet-600"/> Theme Designer
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">Edit CSS design tokens • Perubahan diterapkan secara live ke seluruh halaman</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <div
+              onClick={()=>setLivePreview(!livePreview)}
+              className={`relative w-9 h-5 rounded-full transition-colors ${livePreview?'bg-violet-600':'bg-slate-300'}`}
+            >
+              <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${livePreview?'left-4':'left-0.5'}`}/>
+            </div>
+            <span className="text-xs font-semibold text-slate-600">Live Preview</span>
+          </label>
+          <button onClick={resetToPreset} className="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold transition">
+            ↺ Reset
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-6">
+        {/* LEFT: Section Nav + Controls */}
+        <div className="w-64 flex-shrink-0 space-y-1">
+          {sections.map(s => (
+            <button
+              key={s.id}
+              onClick={() => setSection(s.id)}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-left text-xs font-bold transition-all ${
+                section === s.id
+                  ? 'bg-violet-600 text-white shadow-md'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span className="text-sm">{s.icon}</span> {s.label}
+            </button>
+          ))}
+
+          {/* Mini Preview Card */}
+          <div className="mt-4 p-3 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Preview Aktif</p>
+            <div className="h-20 rounded-lg overflow-hidden flex" style={{borderRadius:`${theme.borderRadiusBase}px`}}>
+              <div className="w-8 h-full" style={{backgroundColor: theme.bgSidebar}}/>
+              <div className="flex-1 flex flex-col" style={{backgroundColor: theme.bgPage}}>
+                <div className="h-4" style={{backgroundColor: theme.bgTopbar, borderBottom:`1px solid ${theme.borderColor}`}}/>
+                <div className="flex-1 flex gap-1 p-1">
+                  <div className="flex-1 rounded" style={{backgroundColor: theme.bgCard, borderRadius:`${Math.max(2,theme.borderRadiusBase*0.5)}px`}}/>
+                  <div className="flex-1 rounded" style={{backgroundColor: theme.bgCard, borderRadius:`${Math.max(2,theme.borderRadiusBase*0.5)}px`}}/>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-1 flex-wrap">
+              {[theme.primaryColor, theme.secondaryColor, theme.accentColor, theme.successColor, theme.dangerColor, theme.warningColor].map((c,i) => (
+                <div key={i} className="w-5 h-5 rounded-full border-2 border-white shadow" style={{backgroundColor:c}}/>
+              ))}
+            </div>
+            <div className="h-5 rounded flex items-center justify-center text-[9px] text-white font-bold" style={{backgroundColor:theme.primaryColor, borderRadius: theme.buttonShape==='pill'?'9999px':theme.buttonShape==='square'?'2px':`${theme.borderRadiusBase}px`}}>
+              Button
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT: Content */}
+        <div className="flex-1 min-w-0">
+
+          {/* PRESETS */}
+          {section === 'presets' && (
+            <div>
+              <SectionHeader icon={<Palette size={14}/>} title="Visual Presets" count="5 themes"/>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {themePresets.map(preset => {
+                  const meta = PRESET_META[preset.presetId] || {name:preset.presetId, desc:'', icon:'🎨'};
+                  const isActive = theme.presetId === preset.presetId;
+                  return (
+                    <div
+                      key={preset.presetId}
+                      onClick={() => applyPreset(preset.presetId)}
+                      className={`p-4 rounded-2xl border-2 cursor-pointer transition-all hover:shadow-md ${
+                        isActive ? 'border-violet-500 shadow-lg shadow-violet-100' : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      {isActive && <div className="flex justify-end mb-1"><span className="text-[10px] bg-violet-600 text-white px-2 py-0.5 rounded-full font-bold">AKTIF</span></div>}
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-md" style={{backgroundColor: preset.primaryColor}}>
+                          {meta.icon}
+                        </div>
+                        <div>
+                          <p className="font-black text-sm text-slate-900">{meta.name}</p>
+                          <p className="text-[11px] text-slate-500">{meta.desc}</p>
+                        </div>
+                      </div>
+                      {/* Color swatches */}
+                      <div className="flex gap-1.5">
+                        {[preset.primaryColor, preset.secondaryColor, preset.accentColor, preset.bgPage, preset.bgSidebar].map((c,i) => (
+                          <div key={i} className="flex-1 h-3 rounded-full" style={{backgroundColor:c, border:'1px solid rgba(0,0,0,.1)'}}/>
+                        ))}
+                      </div>
+                      {/* Typography preview */}
+                      <div className="mt-2.5 flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400 font-medium">Aa</span>
+                        <span className="text-[10px] text-slate-500">{preset.fontHeading}</span>
+                        <span className="text-[10px] text-slate-300 mx-0.5">·</span>
+                        <span className="text-[10px] text-slate-400">r={preset.borderRadiusBase}px</span>
+                        <span className="text-[10px] text-slate-300 mx-0.5">·</span>
+                        <span className="text-[10px] text-slate-400">{preset.buttonShape}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-4 text-xs text-slate-400 text-center">Pilih preset lalu kustomisasi lebih lanjut di tab lain →</p>
+            </div>
+          )}
+
+          {/* COLORS */}
+          {section === 'colors' && (
+            <div>
+              <SectionHeader icon={<Type size={14}/>} title="Palette Warna" count="14 tokens"/>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-0">
+                {/* Brand */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-violet-600 mb-1 mt-2">Brand</p>
+                  <ColorRow label="Primary" value={theme.primaryColor} onChange={v=>updateTheme({primaryColor:v})} hint="CTA buttons, active nav, links"/>
+                  <ColorRow label="Primary Hover" value={theme.primaryHover} onChange={v=>updateTheme({primaryHover:v})} hint="Darker shade of primary"/>
+                  <ColorRow label="Secondary" value={theme.secondaryColor} onChange={v=>updateTheme({secondaryColor:v})} hint="Badges, secondary accents"/>
+                  <ColorRow label="Accent" value={theme.accentColor} onChange={v=>updateTheme({accentColor:v})} hint="Highlights, sparkle effects"/>
+                </div>
+                {/* Backgrounds */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 mb-1 mt-2">Backgrounds</p>
+                  <ColorRow label="Page Background" value={theme.bgPage} onChange={v=>updateTheme({bgPage:v})} hint="Body / page shell"/>
+                  <ColorRow label="Card Background" value={theme.bgCard} onChange={v=>updateTheme({bgCard:v})} hint="Cards, panels, modals"/>
+                  <ColorRow label="Sidebar BG" value={theme.bgSidebar} onChange={v=>updateTheme({bgSidebar:v})} hint="Navigation sidebar"/>
+                  <ColorRow label="Topbar BG" value={theme.bgTopbar} onChange={v=>updateTheme({bgTopbar:v})} hint="Header / topbar"/>
+                </div>
+                {/* Text */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1 mt-2">Text</p>
+                  <ColorRow label="Text Primary" value={theme.textPrimary} onChange={v=>updateTheme({textPrimary:v})} hint="Headings, main body"/>
+                  <ColorRow label="Text Secondary" value={theme.textSecondary} onChange={v=>updateTheme({textSecondary:v})} hint="Sub-headings"/>
+                  <ColorRow label="Text Muted" value={theme.textMuted} onChange={v=>updateTheme({textMuted:v})} hint="Captions, placeholders"/>
+                  <ColorRow label="Border" value={theme.borderColor} onChange={v=>updateTheme({borderColor:v})} hint="Dividers, input borders"/>
+                </div>
+                {/* Semantic */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-green-600 mb-1 mt-2">Semantic</p>
+                  <ColorRow label="Success" value={theme.successColor} onChange={v=>updateTheme({successColor:v})} hint="Positive, paid, approved"/>
+                  <ColorRow label="Danger" value={theme.dangerColor} onChange={v=>updateTheme({dangerColor:v})} hint="Errors, delete, overdue"/>
+                  <ColorRow label="Warning" value={theme.warningColor} onChange={v=>updateTheme({warningColor:v})} hint="Alerts, pending"/>
+                </div>
+                {/* Landing */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-indigo-600 mb-1 mt-2">Landing Page</p>
+                  <ColorRow label="Landing BG" value={theme.landingBg} onChange={v=>updateTheme({landingBg:v})} hint="Landing page background"/>
+                  <ColorRow label="Landing Accent" value={theme.landingAccent} onChange={v=>updateTheme({landingAccent:v})} hint="CTA, highlights di landing"/>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TYPOGRAPHY */}
+          {section === 'typography' && (
+            <div className="space-y-5">
+              <SectionHeader icon={<Type size={14}/>} title="Typography" count="5 tokens"/>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Heading font */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Heading Font</label>
+                  <select
+                    value={theme.fontHeading}
+                    onChange={e=>updateTheme({fontHeading:e.target.value})}
+                    className="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-white text-slate-800 focus:border-violet-500 outline-none"
+                  >
+                    {FONT_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label} ({f.category})</option>)}
+                  </select>
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <p style={{fontFamily:`'${theme.fontHeading}',sans-serif`,fontWeight:theme.fontWeightHeading as any, fontSize:20}} className="text-slate-900 leading-tight">
+                      Heading Contoh
+                    </p>
+                  </div>
+                </div>
+                {/* Body font */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Body Font</label>
+                  <select
+                    value={theme.fontBody}
+                    onChange={e=>updateTheme({fontBody:e.target.value})}
+                    className="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-white text-slate-800 focus:border-violet-500 outline-none"
+                  >
+                    {FONT_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label} ({f.category})</option>)}
+                  </select>
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <p style={{fontFamily:`'${theme.fontBody}',sans-serif`, fontSize:13}} className="text-slate-600 leading-relaxed">
+                      Body text contoh. Kalimat ini menampilkan font yang dipilih untuk teks paragraf di seluruh halaman.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Base font size */}
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-700">Base Font Size</label>
+                  <span className="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-600">{theme.fontSizeBase}px</span>
+                </div>
+                <input type="range" min="12" max="17" step="1"
+                  value={theme.fontSizeBase}
+                  onChange={e=>updateTheme({fontSizeBase:Number(e.target.value)})}
+                  className="w-full accent-violet-600"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                  <span>12px (compact)</span><span>14px (default)</span><span>17px (large)</span>
+                </div>
+              </div>
+
+              {/* Heading weight */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">Heading Weight</label>
+                <div className="flex gap-2 flex-wrap">
+                  {(['400','500','600','700','800','900'] as const).map(w => (
+                    <button
+                      key={w}
+                      onClick={()=>updateTheme({fontWeightHeading:w})}
+                      className={`px-4 py-2 rounded-xl text-sm border-2 transition-all ${theme.fontWeightHeading===w?'border-violet-500 bg-violet-50 text-violet-700 font-bold':'border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                      style={{fontWeight: Number(w)}}
+                    >
+                      {w}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Line height */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">Line Height</label>
+                <div className="flex gap-2">
+                  {(['1.4','1.5','1.6','1.7','1.8'] as const).map(lh => (
+                    <button
+                      key={lh}
+                      onClick={()=>updateTheme({lineHeight:lh})}
+                      className={`flex-1 py-2 rounded-xl text-xs border-2 transition-all font-semibold ${theme.lineHeight===lh?'border-violet-500 bg-violet-50 text-violet-700':'border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                    >
+                      {lh}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SHAPES */}
+          {section === 'shapes' && (
+            <div className="space-y-6">
+              <SectionHeader icon={<Layout size={14}/>} title="Shapes & Radius" count="3 tokens"/>
+
+              {/* Border Radius Base */}
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-700">Base Border Radius</label>
+                  <span className="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-600">{theme.borderRadiusBase}px</span>
+                </div>
+                <input type="range" min="0" max="24" step="1"
+                  value={theme.borderRadiusBase}
+                  onChange={e=>updateTheme({borderRadiusBase:Number(e.target.value)})}
+                  className="w-full accent-violet-600"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                  <span>0px (sharp)</span><span>12px (default)</span><span>24px (very round)</span>
+                </div>
+                {/* Radius preview */}
+                <div className="mt-4 flex gap-3 flex-wrap">
+                  {[
+                    {label:'sm',  r: Math.max(2, Math.round(theme.borderRadiusBase*0.5))},
+                    {label:'md',  r: theme.borderRadiusBase},
+                    {label:'lg',  r: Math.round(theme.borderRadiusBase*1.5)},
+                    {label:'xl',  r: Math.round(theme.borderRadiusBase*2)},
+                  ].map(item => (
+                    <div key={item.label} className="flex flex-col items-center gap-1">
+                      <div className="w-12 h-12 bg-slate-200 border-2 border-slate-300"
+                        style={{borderRadius:`${item.r}px`}}/>
+                      <span className="text-[10px] text-slate-500 font-mono">{item.label} ({item.r}px)</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Button Shape */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-3">Button Shape</label>
+                <div className="flex gap-3">
+                  {BUTTON_SHAPES.map(bs => (
+                    <button
+                      key={bs.id}
+                      onClick={()=>updateTheme({buttonShape:bs.id})}
+                      className={`flex-1 flex flex-col items-center gap-2 p-4 border-2 rounded-xl transition-all ${theme.buttonShape===bs.id?'border-violet-500 bg-violet-50':'border-slate-200 hover:border-slate-300 bg-white'}`}
+                    >
+                      <div
+                        className="px-4 py-1.5 text-xs font-bold text-white shadow-sm"
+                        style={{
+                          backgroundColor:theme.primaryColor,
+                          borderRadius: bs.id==='pill'?'9999px':bs.id==='square'?'2px':`${theme.borderRadiusBase}px`
+                        }}
+                      >
+                        Button
+                      </div>
+                      <span className={`text-xs font-semibold ${theme.buttonShape===bs.id?'text-violet-700':'text-slate-500'}`}>{bs.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Shadow intensity */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-3">Shadow Intensity</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SHADOWS.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={()=>updateTheme({shadowIntensity:s.id})}
+                      className={`flex items-center gap-3 p-3 border-2 rounded-xl text-left transition-all ${theme.shadowIntensity===s.id?'border-violet-500 bg-violet-50':'border-slate-200 hover:border-slate-300 bg-white'}`}
+                    >
+                      <div
+                        className="w-8 h-8 rounded-lg bg-white border border-slate-200"
+                        style={{boxShadow: s.id==='none'?'none':s.id==='soft'?'0 1px 3px rgba(0,0,0,.12)':s.id==='medium'?'0 4px 12px rgba(0,0,0,.15)':'0 8px 24px rgba(0,0,0,.2)'}}
+                      />
+                      <div>
+                        <p className={`text-xs font-bold ${theme.shadowIntensity===s.id?'text-violet-700':'text-slate-700'}`}>{s.label}</p>
+                        <p className="text-[10px] text-slate-400">{s.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SIDEBAR */}
+          {section === 'sidebar' && (
+            <div className="space-y-6">
+              <SectionHeader icon={<LayoutPanelLeft size={14}/>} title="Sidebar Style" count="4 options"/>
+              <div className="grid grid-cols-2 gap-3">
+                {SIDEBAR_STYLES.map(ss => {
+                  const bgColor = ss.id==='dark'?theme.bgSidebar:ss.id==='light'?theme.bgCard:ss.id==='brand'?theme.primaryColor:'rgba(15,23,42,.65)';
+                  return (
+                    <button
+                      key={ss.id}
+                      onClick={()=>updateTheme({sidebarStyle:ss.id})}
+                      className={`flex flex-col items-start p-4 border-2 rounded-xl text-left transition-all ${theme.sidebarStyle===ss.id?'border-violet-500 shadow-md':'border-slate-200 hover:border-slate-300 bg-white'}`}
+                    >
+                      {/* Mini sidebar preview */}
+                      <div className="w-full h-20 rounded-lg overflow-hidden mb-3 border border-slate-200 flex"
+                        style={{background: ss.id==='glass'?'linear-gradient(135deg,#0f172a88,#1e293b66)':undefined}}>
+                        <div className="w-12 h-full flex flex-col items-center py-2 gap-2"
+                          style={{backgroundColor:bgColor, backdropFilter:ss.id==='glass'?'blur(20px)':undefined}}>
+                          <div className="w-4 h-4 rounded-full" style={{backgroundColor:ss.id==='brand'?'rgba(255,255,255,.3)':theme.primaryColor+'33'}}/>
+                          {[1,2,3].map(i => (
+                            <div key={i} className="w-8 h-2 rounded" style={{backgroundColor:i===2?(ss.id==='brand'||ss.id==='glass'?'rgba(255,255,255,.8)':theme.primaryColor):'rgba(255,255,255,.2)'}}/>
+                          ))}
+                        </div>
+                        <div className="flex-1 bg-slate-100 p-1.5 flex flex-col gap-1">
+                          <div className="h-3 bg-white rounded-sm w-full"/>
+                          <div className="flex-1 flex gap-1">
+                            <div className="flex-1 bg-white rounded-sm"/>
+                            <div className="flex-1 bg-white rounded-sm"/>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{ss.icon}</span>
+                        <div>
+                          <p className={`text-xs font-bold ${theme.sidebarStyle===ss.id?'text-violet-700':'text-slate-700'}`}>{ss.label}</p>
+                          <p className="text-[10px] text-slate-400">{ss.desc}</p>
+                        </div>
+                        {theme.sidebarStyle===ss.id && <span className="ml-auto text-[10px] bg-violet-600 text-white px-2 py-0.5 rounded-full">✓</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* MOTION */}
+          {section === 'motion' && (
+            <div className="space-y-6">
+              <SectionHeader icon={<Activity size={14}/>} title="Motion & Animation"/>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-3">Transition Speed</label>
+                <div className="space-y-2">
+                  {ANIM_OPTIONS.map(ao => (
+                    <button
+                      key={ao.id}
+                      onClick={()=>updateTheme({animSpeed:ao.id})}
+                      className={`w-full flex items-center justify-between p-3.5 border-2 rounded-xl text-left transition-all ${theme.animSpeed===ao.id?'border-violet-500 bg-violet-50':'border-slate-200 hover:border-slate-300 bg-white'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full border-2 flex-shrink-0 transition-all ${theme.animSpeed===ao.id?'border-violet-500 bg-violet-500':'border-slate-300'}`}/>
+                        <span className={`text-sm font-bold ${theme.animSpeed===ao.id?'text-violet-700':'text-slate-700'}`}>{ao.label}</span>
+                      </div>
+                      <span className="text-[11px] font-mono text-slate-400">{ao.ms}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-3">⚡ "Off" menonaktifkan semua transisi untuk performa maksimal.</p>
+              </div>
+            </div>
+          )}
+
+          {/* CUSTOM CSS */}
+          {section === 'custom' && (
+            <div className="space-y-4">
+              <SectionHeader icon={<FileCode size={14}/>} title="Custom CSS"/>
+              <div className="bg-slate-900 rounded-xl p-1 border border-slate-700">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800">
+                  <div className="w-3 h-3 rounded-full bg-red-500"/>
+                  <div className="w-3 h-3 rounded-full bg-yellow-500"/>
+                  <div className="w-3 h-3 rounded-full bg-green-500"/>
+                  <span className="ml-2 text-[10px] text-slate-500 font-mono">custom.css — diinjeksi setelah theme variables</span>
+                </div>
+                <textarea
+                  value={theme.customCss}
+                  onChange={e=>updateTheme({customCss:e.target.value})}
+                  rows={18}
+                  placeholder={`/* Contoh: */\n\n/* Override specific component */\n.my-card { border: 2px solid var(--t-primary); }\n\n/* Custom animation */\n@keyframes pulse-brand {\n  0%, 100% { opacity: 1; }\n  50% { opacity: .7; }\n}\n\n/* Force dark mode on specific section */\n#cosger-sidebar .logo-text { font-size: 18px !important; }\n\n/* Available CSS variables: */\n/* --t-primary, --t-bg-card, --t-bg-sidebar */\n/* --t-text-primary, --t-border, --t-radius-md */\n/* --t-font-heading, --t-font-body */\n/* --t-shadow-card, --t-anim */`}
+                  className="w-full bg-slate-900 text-green-300 font-mono text-xs p-4 rounded-lg border-0 focus:outline-none resize-none leading-relaxed"
+                  spellCheck={false}
+                />
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <p className="text-xs font-bold text-slate-700 mb-2">📚 Available CSS Variables</p>
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    '--t-primary','--t-primary-h','--t-secondary','--t-accent',
+                    '--t-bg-page','--t-bg-card','--t-bg-sidebar','--t-bg-topbar',
+                    '--t-text-primary','--t-text-muted','--t-border','--t-border-focus',
+                    '--t-success','--t-danger','--t-warning','--t-info',
+                    '--t-radius-sm','--t-radius-md','--t-radius-lg','--t-radius-xl',
+                    '--t-font-heading','--t-font-body','--t-shadow-card','--t-anim',
+                  ].map(v => (
+                    <span key={v} className="text-[10px] font-mono text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded">{v}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
       </div>
     </div>
   );

@@ -1335,7 +1335,7 @@ export default function LandingPage() {
   const tv = useCountUp(35, 1500, statsView.inView);
 
   return (
-    <div className="min-h-screen bg-[#060b12] text-white antialiased" style={{ fontFamily: "'Inter', sans-serif" }}>
+    <div id="cosger-landing" className="min-h-screen bg-[#060b12] text-white antialiased" style={{ fontFamily: "'Inter', sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Sora:wght@700;800;900&display=swap');
         @keyframes grad-x { 0%,100%{background-position:0% 50%}50%{background-position:100% 50%} }

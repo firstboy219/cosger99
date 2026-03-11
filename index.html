@@ -6,7 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="origin-when-cross-origin" />
     <title>Paydone.id | Bayar, Selesai</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- NOTE: Tailwind CDN removed for production. Use PostCSS + tailwind.config.js instead. -->
+    <!-- Dev-only fallback: uncomment the line below ONLY during local non-Vite dev -->
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- GOOGLE IDENTITY SERVICES SDK -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -31,48 +33,8 @@
         }
       }
     </script>
-    <style>
-      body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
-      
-      /* DYNAMIC THEME VARIABLES (Defaults) */
-      :root {
-        --input-bg: #ffffff;
-        --input-text: #0f172a;
-      }
-
-      /* Global Input Override to Fix Contrast Issues */
-      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), 
-      select, 
-      textarea {
-        background-color: var(--input-bg) !important;
-        color: var(--input-text) !important;
-        border-color: #cbd5e1;
-      }
-      
-      /* Ensure placeholder is visible even if user sets weird colors */
-      ::placeholder {
-        color: #94a3b8 !important;
-        opacity: 1;
-      }
-
-      /* Custom scrollbar for better aesthetics */
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-      ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@^19.2.4",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.564.0",
-    "recharts": "https://esm.sh/recharts@^3.7.0"
-  }
-}
-</script>
+    <!-- Styles are managed via index.css (PostCSS + Tailwind) -->
+    <!-- Vite handles all module resolution. importmap is NOT needed and removed. -->
 </head>
   <body>
     <div id="root"></div>

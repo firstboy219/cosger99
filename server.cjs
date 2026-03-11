@@ -125,7 +125,7 @@ const os         = require("os");
 
 const app    = express();
 const PORT   = process.env.PORT || 3001;
-const SERVER_SECRET = process.env.ADMIN_SECRET || process.env.PROJECT_ID || "PAYDONE_EMERGENCY_SECURE_KEY_99X_2026";
+const SERVER_SECRET = process.env.ADMIN_SECRET || process.env.PROJECT_ID || (() => { console.warn('[SECURITY] ADMIN_SECRET env var not set! Using insecure fallback. Set ADMIN_SECRET in production.'); return "PAYDONE_EMERGENCY_SECURE_KEY_99X_2026"; })();
 
 // =============================================================================
 // --- AES-256 VAULT ---
@@ -206,7 +206,7 @@ const authRateLimiter = (req, res, next) => {
 // =============================================================================
 const dbConfig = {
     user:     process.env.DB_USER     || "postgres",
-    password: process.env.DB_PASSWORD || process.env.DB_PASS || "Abasmallah_12",
+    password: process.env.DB_PASSWORD || process.env.DB_PASS || (() => { throw new Error('DB_PASSWORD env var is required. Set it in your .env file.'); })(),
     database: process.env.DB_NAME     || "paydone_db",
     port:     5432,
 };
@@ -389,7 +389,14 @@ const verifySession = async (userId, token, res = null) => {
         const r = await pool.query("SELECT session_tokens, last_login, session_token FROM users WHERE id=$1", [userId]);
         if (r.rowCount === 0) return false;
         const row = r.rows[0];
-        let sessions = Array.isArray(row.session_tokens) ? row.session_tokens : [];
+        // Handle session_tokens as array (JSONB), JSON string, or null
+        let sessions = [];
+        if (Array.isArray(row.session_tokens)) {
+            sessions = row.session_tokens;
+        } else if (typeof row.session_tokens === 'string') {
+            try { sessions = JSON.parse(row.session_tokens); } catch { sessions = []; }
+        }
+        // Also include legacy single session_token column
         if (row.session_token && typeof row.session_token === 'string') sessions.push(row.session_token);
         if (!sessions.includes(token)) { if (res) res.setHeader('X-Auth-Status', 'Expired'); return false; }
         if (row.last_login && Date.now() - new Date(row.last_login).getTime() > (30 * 24 * 60 * 60 * 1000)) {

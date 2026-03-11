@@ -9,7 +9,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    target: 'es2020',
+    target: 'esnext',
     rollupOptions: {
       input: path.resolve('index.html'),
       output: {
@@ -72,9 +72,10 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // Do NOT exclude recharts — let Vite pre-bundle it during dev.
-    // Pre-bundling resolves d3 circular deps automatically in dev mode.
-    // Dynamic import() in LazyCharts.tsx handles the runtime lazy loading.
-    include: ['recharts'],
+    // Exclude recharts from pre-bundling — it is loaded dynamically via LazyCharts.tsx
+    // using import('recharts'). Pre-bundling recharts here conflicts with manualChunks
+    // in the production build and can cause TDZ errors ("Cannot access 'X' before
+    // initialization") when Rollup inlines the chunk alongside the app bundle.
+    exclude: ['recharts'],
   },
 });

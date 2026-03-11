@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import Toast, { useToast } from './components/Toast';
@@ -223,20 +223,6 @@ export default function App() {
     };
   }, [addToast]);
 
-  // [V50.81 FIX] Handle PAYDONE_FORCE_SYNC dispatched by socket.ts when server sends FORCE_SYNC.
-  // Previously socket.ts dispatched the event but App.tsx had no listener — sync never triggered.
-  // Fix: listen and call performBackgroundSync for 'user' role (only user has local data state).
-  useEffect(() => {
-    const handleForceSync = () => {
-      if (currentUserId && userRole === 'user') {
-        console.log('[App] FORCE_SYNC received from server — triggering background pull');
-        performBackgroundSync(currentUserId);
-      }
-    };
-    window.addEventListener('PAYDONE_FORCE_SYNC', handleForceSync);
-    return () => window.removeEventListener('PAYDONE_FORCE_SYNC', handleForceSync);
-  }, [currentUserId, userRole, performBackgroundSync]);
-
   const handleLogout = React.useCallback(() => {
     disconnectWebSocket(); 
     setIsAuthenticated(false);
@@ -308,6 +294,22 @@ export default function App() {
         setSyncStatus('error');
     }
   }, []);
+
+  // [V50.81 FIX] Handle PAYDONE_FORCE_SYNC dispatched by socket.ts when server sends FORCE_SYNC.
+  // Previously socket.ts dispatched the event but App.tsx had no listener — sync never triggered.
+  // Fix: moved AFTER performBackgroundSync declaration to prevent TDZ ReferenceError
+  // ("Cannot access 'X' before initialization") caused by referencing performBackgroundSync
+  // in the dep array before it was defined via useCallback.
+  useEffect(() => {
+    const handleForceSync = () => {
+      if (currentUserId && userRole === 'user') {
+        console.log('[App] FORCE_SYNC received from server — triggering background pull');
+        performBackgroundSync(currentUserId);
+      }
+    };
+    window.addEventListener('PAYDONE_FORCE_SYNC', handleForceSync);
+    return () => window.removeEventListener('PAYDONE_FORCE_SYNC', handleForceSync);
+  }, [currentUserId, userRole, performBackgroundSync]);
 
   useEffect(() => {
     const initApp = async () => {

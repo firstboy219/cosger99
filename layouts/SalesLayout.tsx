@@ -100,6 +100,7 @@ export default function SalesLayout({ onLogout }: { onLogout: () => void }) {
           <SidebarItem to="/sales/promos" icon={Megaphone} label="Promo & Idle User" />
           <SidebarItem to="/sales/content" icon={FileText} label="Konten / Artikel" />
           <SidebarItem to="/sales/email-blast" icon={Mail} label="Email Blast" />
+          <SidebarItem to="/sales/leads" icon={Users} label="Leads" />
           <SidebarItem to="/sales/reactivate" icon={UserCheck} label="Reactivation" badge="NEW" />
         </div>
       </nav>

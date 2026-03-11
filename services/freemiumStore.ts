@@ -1,3 +1,7 @@
+// [BUG FIX] React import moved to TOP to prevent TDZ bundle error
+// ("Cannot access 'ee' before initialization" in minified build)
+// Rollup/Vite requires all imports at the very top of a module.
+import { useState, useEffect, useCallback } from 'react';
 import { ActiveFeatures, SubscriptionStatus } from '../types';
 import { getDB } from './mockDb';
 
@@ -68,8 +72,6 @@ export const setFreemiumData = (data: Partial<FreemiumState>) => {
 };
 
 // --- REACT HOOK ---
-import { useState, useEffect, useCallback } from 'react';
-
 export const useFreemium = () => {
   const [state, setState] = useState<FreemiumState>(getFreemiumState);
 

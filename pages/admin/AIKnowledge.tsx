@@ -3,11 +3,12 @@ import { Bot, Plus, Trash2, Save, CheckCircle2, AlertCircle, RefreshCw,
   ChevronDown, ChevronUp, Tag, Lightbulb, MessageSquare, CheckCheck,
   XCircle, Zap, AlertTriangle, Edit2 } from 'lucide-react';
 import { getAdminHeaders } from '../../services/cloudSync';
-const myAdminId = () => localStorage.getItem('paydone_active_user') || 'admin';
 import {
   AIKnowledgeRule, DEFAULT_RULES, saveKnowledgeRules, fetchKnowledgeRules,
   UnknownPrompt, fetchUnknownPrompts, resolveUnknownPrompt, AIActionType
 } from '../../services/localAI';
+
+const myAdminId = () => localStorage.getItem('paydone_active_user') || 'admin';
 
 const ACTION_OPTIONS = [
   { value: 'ADD_EXPENSE',  label: '💸 Catat Pengeluaran',       color: 'bg-red-100 text-red-700' },

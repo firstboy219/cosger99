@@ -4,6 +4,8 @@ import { DebtItem, TaskItem } from '../types';
 import { analyzeDebtStrategy, sendChatMessage, AILimitError } from '../services/geminiService';
 import { getConfig } from '../services/mockDb';
 import { BrainCircuit, Sparkles, Send, Bot, CheckCircle, ListPlus, User, RefreshCw, Zap, Briefcase, ChevronDown, Lock, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from '../services/translationService';
 // react-markdown removed — using inline renderer to prevent TDZ bundle errors
 const SimpleMarkdown: React.FC<{children: string}> = ({ children }) => {
   const html = (children || '')
@@ -19,8 +21,6 @@ const SimpleMarkdown: React.FC<{children: string}> = ({ children }) => {
     .replace(/\n/g, '<br/>');
   return <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: `<p class="mb-2">${html}</p>` }} />;
 };
-import { Link, useNavigate } from 'react-router-dom';
-import { useTranslation } from '../services/translationService';
 
 interface AIStrategistProps {
   debts: DebtItem[];

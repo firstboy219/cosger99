@@ -27,6 +27,10 @@ export default function SalesReactivate() {
   const [thresholdSaving, setThresholdSaving] = useState(false);
   const [thresholdLoaded, setThresholdLoaded] = useState(false);
 
+  // Grace period settings
+  const [gracePeriodDays, setGracePeriodDays] = useState(7);
+  const [graceSaving, setGraceSaving] = useState(false);
+
   // Per-user reactivation
   const [reactivateLoading, setReactivateLoading] = useState<string | null>(null);
 
@@ -42,9 +46,10 @@ export default function SalesReactivate() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, settingsRes] = await Promise.allSettled([
+      const [usersRes, settingsRes, graceRes] = await Promise.allSettled([
         api.get('/sales/users/idle'),
         api.get('/sales/settings/idle-threshold'),
+        api.get('/sales/settings/grace-period'),
       ]);
       if (usersRes.status === 'fulfilled') {
         // [V50.70 FIX] Backend returns { thresholdDays, idleUsers: [...] } — not .users
@@ -54,6 +59,9 @@ export default function SalesReactivate() {
         const threshold = settingsRes.value.threshold || settingsRes.value.idle_threshold || 30;
         setIdleThreshold(Number(threshold));
         setThresholdLoaded(true);
+      if (graceRes.status === 'fulfilled' && (graceRes.value as any)?.gracePeriodDays !== undefined) {
+        setGracePeriodDays(Number((graceRes.value as any).gracePeriodDays) || 7);
+      }
       }
     } catch (e) {
       console.warn('[SalesReactivate] Load error', e);
@@ -78,6 +86,17 @@ export default function SalesReactivate() {
       setThresholdSaving(false);
     }
   }, [idleThreshold, loadData]);
+
+  const handleSaveGracePeriod = useCallback(async () => {
+    if (gracePeriodDays < 0) { showToast('Masa tenggang tidak boleh negatif.', 'error'); return; }
+    setGraceSaving(true);
+    try {
+      await api.post('/sales/settings/grace-period', { gracePeriodDays });
+      showToast(`Masa tenggang diperbarui: ${gracePeriodDays} hari.`, 'success');
+    } catch (e: any) {
+      showToast(e?.message || 'Gagal menyimpan masa tenggang.', 'error');
+    } finally { setGraceSaving(false); }
+  }, [gracePeriodDays]);
 
   const handleReactivateUser = useCallback(async (userId: string) => {
     setReactivateLoading(userId);
@@ -189,6 +208,32 @@ export default function SalesReactivate() {
               className="flex items-center gap-2 px-5 py-3 bg-amber-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-amber-700 transition disabled:opacity-50 active:scale-95 transform"
             >
               {thresholdSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Simpan
+            </button>
+          </div>
+        </div>
+
+        {/* Grace Period Setting */}
+        <div className="bg-white border-2 border-slate-100 rounded-2xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+              <Clock size={20} />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-sm">Masa Tenggang</h3>
+              <p className="text-[10px] text-slate-400">Hari setelah langganan habis</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 relative">
+              <input type="number" min={0} max={90} value={gracePeriodDays}
+                onChange={e => setGracePeriodDays(Number(e.target.value))}
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none text-sm font-black text-center" />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">hari</span>
+            </div>
+            <button onClick={handleSaveGracePeriod} disabled={graceSaving}
+              className="flex items-center gap-2 px-5 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-blue-700 transition disabled:opacity-50 active:scale-95 transform">
+              {graceSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               Simpan
             </button>
           </div>

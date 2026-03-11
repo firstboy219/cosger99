@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getConfig, saveConfig } from '../../services/mockDb';
 import { saveGlobalConfigToCloud, loadGlobalConfigFromCloud } from '../../services/cloudSync';
-import { Save, Key, Globe, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Shield, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye, Fingerprint, Image, LayoutPanelLeft, X } from 'lucide-react';
+import { Save, Key, Globe, Mail, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Shield, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye, Fingerprint, Image, LayoutPanelLeft, X } from 'lucide-react';
 import { themePresets, ThemeCustom, FONT_OPTIONS, applyTheme, saveCustomTheme, SidebarStyle, ButtonShape, ShadowIntensity, AnimSpeed } from '../../services/themeService';
 import { useTranslation, SUPPORTED_LANGUAGES, SupportedLang } from '../../services/translationService';
 import { SystemRules, AdvancedConfig } from '../../types';
@@ -149,6 +149,7 @@ export default function AdminSettings() {
         <button onClick={() => setActiveTab('controls')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === 'controls' ? 'border-brand-600 text-brand-600 bg-brand-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>App Controls</button>
         <button onClick={() => setActiveTab('appearance')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === 'appearance' ? 'border-brand-600 text-brand-600 bg-brand-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Theming</button>
         <button onClick={() => setActiveTab('language')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === 'language' ? 'border-brand-600 text-brand-600 bg-brand-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Language</button>
+        <button onClick={() => setActiveTab('smtp')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === 'smtp' ? 'border-brand-600 text-brand-600 bg-brand-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>📧 SMTP Email</button>
       </div>
 
       <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm min-h-[500px]">
@@ -475,6 +476,8 @@ export default function AdminSettings() {
             {activeTab === 'appearance' && <ThemingPanel config={config} setConfig={setConfig} />}
 
             {/* TAB: LANGUAGE */}
+            {activeTab === 'smtp' && <SmtpSettingsPanel />}
+
             {activeTab === 'language' && (
                 <div className="space-y-8 animate-fade-in">
                     <div className="flex justify-between items-center bg-slate-900 text-white p-6 rounded-3xl shadow-xl">
@@ -1113,6 +1116,85 @@ function ThemingPanel({ config, setConfig }: ThemingPanelProps) {
           )}
 
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── SMTP Settings Panel ──────────────────────────────────────────────────────
+function SmtpSettingsPanel() {
+  const [form, setForm] = React.useState({ host: '', port: '465', user: '', password: '', sender_name: 'Paydone' });
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [status, setStatus] = React.useState<'idle' | 'success' | 'error'>('idle');
+  const [msg, setMsg] = React.useState('');
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${(window as any).__PAYDONE_CONFIG__?.backendUrl || ''}/api/admin/config/smtp`, {
+          headers: { 'x-admin-secret': localStorage.getItem('paydone_admin_secret') || '' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.host) setForm(f => ({ ...f, host: data.host || '', port: String(data.port || '465'), user: data.user || '', sender_name: data.sender_name || 'Paydone' }));
+        }
+      } catch { /* first time, empty form is fine */ }
+      setLoading(false);
+    })();
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true); setStatus('idle');
+    try {
+      const base = (window as any).__PAYDONE_CONFIG__?.backendUrl || '';
+      const res = await fetch(`${base}/api/admin/config/smtp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-secret': localStorage.getItem('paydone_admin_secret') || '' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setStatus('success'); setMsg('Konfigurasi SMTP berhasil disimpan.');
+    } catch (e: any) {
+      setStatus('error'); setMsg(e?.message || 'Gagal menyimpan SMTP.');
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="flex items-center justify-center py-16"><div className="animate-spin w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full" /></div>;
+
+  const field = (label: string, key: keyof typeof form, type = 'text', placeholder = '') => (
+    <div className="space-y-1.5">
+      <label className="text-xs font-black text-slate-500 uppercase tracking-widest">{label}</label>
+      <input type={type} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+        className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none text-sm font-medium transition"
+        placeholder={placeholder} />
+    </div>
+  );
+
+  return (
+    <div className="space-y-6 animate-fade-in max-w-xl">
+      <div>
+        <h3 className="font-black text-slate-900 text-lg flex items-center gap-2">📧 Konfigurasi SMTP</h3>
+        <p className="text-slate-500 text-sm mt-1">Digunakan untuk mengirim email verifikasi, reset password, dan notifikasi ke user.</p>
+      </div>
+      {status !== 'idle' && (
+        <div className={`p-3 rounded-xl text-sm font-medium ${status === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{msg}</div>
+      )}
+      <div className="space-y-4">
+        {field('SMTP Host', 'host', 'text', 'smtp.gmail.com')}
+        {field('SMTP Port', 'port', 'number', '465')}
+        {field('Email / Username', 'user', 'email', 'noreply@paydone.id')}
+        {field('Password / App Password', 'password', 'password', '••••••••')}
+        {field('Nama Pengirim', 'sender_name', 'text', 'Paydone')}
+      </div>
+      <div className="pt-2 flex items-center gap-3">
+        <button onClick={handleSave} disabled={saving}
+          className="flex items-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-xl font-bold text-sm hover:bg-brand-700 transition disabled:opacity-50 shadow">
+          {saving ? <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> : <Save size={16} />}
+          Simpan SMTP
+        </button>
+        <p className="text-xs text-slate-400">Password tersimpan terenkripsi.</p>
       </div>
     </div>
   );

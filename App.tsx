@@ -7,6 +7,9 @@ import AdminLayout from './layouts/AdminLayout';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import VerifyEmail from './pages/VerifyEmail';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Simulator from './pages/Simulator';
 import AIStrategist from './pages/AIStrategist';
@@ -48,6 +51,7 @@ import SalesPromos from './pages/sales/SalesPromos';
 import SalesContent from './pages/sales/SalesContent';
 import SalesEmailBlast from './pages/sales/SalesEmailBlast';
 import SalesReactivate from './pages/sales/SalesReactivate';
+import SalesLeads from './pages/sales/SalesLeads';
 import BlogPage from './pages/BlogPage';
 import BackendHealthCheck from './pages/admin/BackendHealthCheck';
 import SyncWatchdog from './components/SyncWatchdog';
@@ -613,6 +617,9 @@ export default function App() {
           <Route path="/blog" element={<BlogPage />} />
           <Route path="/login" element={<Login onLogin={handleLogin} />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           <Route 
             path="/app" 
@@ -684,6 +691,7 @@ export default function App() {
             <Route path="content" element={<SalesContent />} />
             <Route path="email-blast" element={<SalesEmailBlast />} />
             <Route path="reactivate" element={<SalesReactivate />} />
+            <Route path="leads" element={<SalesLeads />} />
           </Route>
         </Routes>
 

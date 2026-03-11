@@ -2239,7 +2239,7 @@ const createCrudEndpoints = (tableName, routePath, featureKey = null) => {
             await client.query('BEGIN'); let reqUserId = null; let baseParams = [id]; let userCheck = "";
             if (!routePath.includes("admin")) {
                 reqUserId = req.headers["x-user-id"];
-                if (!(await verifySession(reqUserId, req.headers["x-session-token"], res))) { client.release(); return res.status(401).json({ error: "Unauthorized" }); }
+                if (!(await verifySession(reqUserId, req.headers["x-session-token"], res))) { await client.query('ROLLBACK'); client.release(); return res.status(401).json({ error: "Unauthorized" }); }
                 userCheck = " AND user_id = $2"; baseParams.push(reqUserId);
             }
             if (['daily_expenses','subscriptions','contents'].includes(tableName)) {

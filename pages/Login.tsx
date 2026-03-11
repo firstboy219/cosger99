@@ -248,7 +248,10 @@ export default function Login({ onLogin }: LoginProps) {
 
                 <div className="mt-10 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
                     <div className="flex items-center gap-2"><ShieldCheck size={14} className="text-green-500"/> Data Terenkripsi</div>
-                    <Link to="/register" className="text-brand-600 hover:underline">Buat Akun Baru</Link>
+                    <div className="flex flex-col items-end gap-1.5">
+                        <Link to="/register" className="text-brand-600 hover:underline">Buat Akun Baru</Link>
+                        <Link to="/forgot-password" className="text-slate-400 hover:text-brand-600 transition">Lupa Password?</Link>
+                    </div>
                 </div>
             </div>
         </div>

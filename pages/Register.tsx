@@ -9,7 +9,11 @@ import { api } from '../services/api';
 import { pullUserDataFromCloud } from '../services/cloudSync';
 import { recordActivityLog } from '../services/activityLogger';
 
-export default function Register() {
+interface RegisterProps {
+  onLogin?: (role: 'admin' | 'user' | 'sales', userId: string) => void;
+}
+
+export default function Register({ onLogin }: RegisterProps) {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [isPendingVerification, setIsPendingVerification] = useState(false);
@@ -100,6 +104,9 @@ export default function Register() {
           await pullUserDataFromCloud(user.id, token);
         } catch { /* ignore hydration errors */ }
 
+        // [BUG FIX] Call onLogin so App.tsx sets isAuthenticated=true.
+        // Without this, App.tsx redirects back to /login immediately after registration.
+        if (onLogin) onLogin(user.role || 'user', user.id);
         setSuccess(true);
         setTimeout(() => navigate('/app'), 1500);
       } else {

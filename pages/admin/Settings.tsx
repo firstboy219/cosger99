@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getConfig, saveConfig } from '../../services/mockDb';
+import { getConfig, saveConfig, getApiBaseUrl } from '../../services/mockDb';
 import { saveGlobalConfigToCloud, loadGlobalConfigFromCloud } from '../../services/cloudSync';
 import { Save, Key, Globe, Mail, Cloud, Server, Palette, Type, Layout, Smartphone, MessageSquare, Edit3, Megaphone, BrainCircuit, Calculator, ShieldAlert, Shield, Percent, Activity, Workflow, ArrowRight, Clock, ToggleLeft, ToggleRight, Scale, Cpu, CheckCircle, Link as LinkIcon, FileCode, Eye, Fingerprint, Image, LayoutPanelLeft, X } from 'lucide-react';
 import { themePresets, ThemeCustom, FONT_OPTIONS, applyTheme, saveCustomTheme, SidebarStyle, ButtonShape, ShadowIntensity, AnimSpeed } from '../../services/themeService';
@@ -1133,7 +1133,8 @@ function SmtpSettingsPanel() {
   React.useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${(window as any).__PAYDONE_CONFIG__?.backendUrl || ''}/api/admin/config/smtp`, {
+        // [BUG FIX] Was using undefined window.__PAYDONE_CONFIG__.backendUrl → use getApiBaseUrl() instead
+        const res = await fetch(`${getApiBaseUrl()}/api/admin/config/smtp`, {
           headers: { 'x-admin-secret': localStorage.getItem('paydone_admin_secret') || '' }
         });
         if (res.ok) {
@@ -1148,7 +1149,8 @@ function SmtpSettingsPanel() {
   const handleSave = async () => {
     setSaving(true); setStatus('idle');
     try {
-      const base = (window as any).__PAYDONE_CONFIG__?.backendUrl || '';
+      // [BUG FIX] Was using undefined window.__PAYDONE_CONFIG__.backendUrl → use getApiBaseUrl() instead
+      const base = getApiBaseUrl();
       const res = await fetch(`${base}/api/admin/config/smtp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-secret': localStorage.getItem('paydone_admin_secret') || '' },

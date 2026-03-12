@@ -1,3 +1,4 @@
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
 import { useFreemium } from '../services/freemiumStore';

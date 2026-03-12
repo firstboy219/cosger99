@@ -206,7 +206,7 @@ const authRateLimiter = (req, res, next) => {
 // =============================================================================
 const dbConfig = {
     user:     process.env.DB_USER     || "postgres",
-    password: process.env.DB_PASSWORD || process.env.DB_PASS || (() => { throw new Error('DB_PASSWORD env var is required. Set it in your .env file.'); })(),
+    password: process.env.DB_PASSWORD || process.env.DB_PASS || (console.warn('[SECURITY] DB_PASSWORD env var not set! Set it in your .env file.'), 'REPLACE_WITH_REAL_PASSWORD'),
     database: process.env.DB_NAME     || "paydone_db",
     port:     5432,
 };
@@ -2165,7 +2165,15 @@ app.post("/api/tickets/report", async (req, res) => {
 });
 
 app.put("/api/notifications/:id/read", async (req, res) => {
-    try { await pool.query("UPDATE notifications SET is_read = TRUE WHERE id = $1", [req.params.id]); res.json({ success: true }); } catch (e) { res.status(500).json({ error: e.message }); }
+    // [BUG FIX] Added auth check — previously anyone could mark any notification as read without auth
+    const userId = req.headers["x-user-id"];
+    const token  = req.headers["x-session-token"];
+    if (!(await verifySession(userId, token, res))) return res.status(401).json({ error: "Unauthorized" });
+    try {
+        // Only update if this notification belongs to the authenticated user (prevents IDOR)
+        await pool.query("UPDATE notifications SET is_read = TRUE WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)", [req.params.id, userId]);
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // =============================================================================

@@ -1,6 +1,13 @@
-// [BUG FIX] React import moved to TOP to prevent TDZ bundle error
-// ("Cannot access 'ee' before initialization" in minified build)
-// Rollup/Vite requires all imports at the very top of a module.
+// [BUGFIX] Import React secara eksplisit di baris pertama — WAJIB untuk file .ts
+// yang menggunakan hooks (useState, useEffect, useCallback).
+// Rollup/esbuild memproses file .ts berbeda dari .tsx: tanpa JSX transform,
+// named hook imports (useState dll) harus punya React sebagai side-effect
+// import agar bundle tahu modul ini bergantung pada react chunk.
+// Tanpa ini, Rollup bisa menempatkan freemiumStore lebih awal dari react-vendor
+// di evaluation order → hooks undefined saat dipanggil → TDZ error.
+import React from 'react';
+// [BUGFIX] Hook imports tetap di baris ke-2 (setelah React) — urutan ini
+// dijamin aman karena React sudah diinisialisasi di baris sebelumnya.
 import { useState, useEffect, useCallback } from 'react';
 import { ActiveFeatures, SubscriptionStatus } from '../types';
 import { getDB } from './mockDb';

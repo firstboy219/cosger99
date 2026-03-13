@@ -2,6 +2,32 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+/**
+ * BUGFIX LOG:
+ * ─────────────────────────────────────────────────────────────────────────────
+ * [FIX #1] TDZ: "Cannot access 'O' before initialization" (react-vendor chunk)
+ *
+ * ROOT CAUSE:
+ *   lucide-react v0.300+ menggunakan deep ESM named re-exports. Ketika Rollup
+ *   menempatkannya di chunk TERPISAH ('lucide-vendor'), Rollup's tree-shaking
+ *   dapat meng-hoist variabel dari lucide ke dalam react-vendor SEBELUM
+ *   lucide-vendor selesai diinisialisasi → TDZ ReferenceError saat runtime.
+ *
+ *   Isolasi chunk TERPISAH justru memperparah masalah karena menciptakan
+ *   cross-chunk circular initialization dependency yang Rollup tidak bisa
+ *   resolve dengan aman.
+ *
+ * FIX YANG DILAKUKAN:
+ *   1. lucide-react DIHAPUS dari manualChunks (tidak lagi jadi chunk sendiri).
+ *      Ia masuk ke 'vendor' chunk bersama semua node_modules lain.
+ *      esbuild pre-bundle (optimizeDeps.include) tetap aktif untuk dev server.
+ *   2. Tambahkan minifyInternalExports: false → Rollup tidak meng-rename/
+ *      mereorder internal exports yang melewati batas chunk → mencegah TDZ.
+ *   3. Tambahkan build.minify: 'esbuild' untuk konsistensi (default Vite,
+ *      tapi kita eksplisitkan agar jelas tidak menggunakan terser).
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 export default defineConfig({
   plugins: [react()],
   root: './',
@@ -10,10 +36,17 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     target: 'esnext',
+    // [FIX #1] Gunakan esbuild sebagai minifier (default Vite, lebih aman untuk ESM)
+    minify: 'esbuild',
     rollupOptions: {
       input: path.resolve('index.html'),
       output: {
         hoistTransitiveImports: false,
+        // [FIX #1] minifyInternalExports: false — cegah Rollup meng-rename
+        // internal exports yang melewati batas chunk. Ini adalah penyebab
+        // utama TDZ: minifikasi mengubah urutan inisialisasi variabel
+        // di cross-chunk references.
+        minifyInternalExports: false,
         manualChunks(id) {
           // Chunk 1: Recharts + ALL d3 sub-packages
           // Isolated to prevent d3 circular-module TDZ errors
@@ -38,16 +71,18 @@ export default defineConfig({
             return 'charts-vendor';
           }
 
-          // Chunk 2: lucide-react — MUST be isolated separately.
-          // lucide-react v0.300+ has deep ESM named exports that Rollup
-          // mis-orders during tree-shaking, causing TDZ errors like
-          // "Cannot access 'O' before initialization" in the vendor chunk.
-          // Own chunk = evaluated fully before any app module references it.
-          if (id.includes('lucide-react')) {
-            return 'lucide-vendor';
-          }
+          // [FIX #1] lucide-react TIDAK lagi diisolasi ke chunk sendiri.
+          // Chunk terpisah menyebabkan cross-chunk TDZ initialization error
+          // "Cannot access 'O' before initialization" di react-vendor.
+          // lucide-react sekarang masuk ke 'vendor' chunk (baris di bawah),
+          // dan tetap di-pre-bundle oleh esbuild via optimizeDeps.include.
+          //
+          // KODE LAMA (DIHAPUS — penyebab bug):
+          // if (id.includes('lucide-react')) {
+          //   return 'lucide-vendor';
+          // }
 
-          // Chunk 3: React core — stable, evaluated first
+          // Chunk 2: React core — stable, evaluated first
           if (
             id.includes('node_modules/react/') ||
             id.includes('node_modules/react-dom/') ||
@@ -57,7 +92,7 @@ export default defineConfig({
             return 'react-vendor';
           }
 
-          // Chunk 4: All other node_modules
+          // Chunk 3: All other node_modules (termasuk lucide-react sekarang)
           if (id.includes('node_modules')) {
             return 'vendor';
           }
@@ -75,7 +110,9 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // Pre-bundle in dev to resolve internal circular deps via esbuild.
+    // [FIX #1] lucide-react tetap di-pre-bundle oleh esbuild untuk dev server.
+    // esbuild menangani ESM circular re-exports dengan benar (berbeda dari Rollup).
+    // Ini mencegah TDZ di dev mode.
     include: ['lucide-react', 'react-router-dom'],
     // recharts is excluded: LazyCharts.tsx loads it via dynamic import()
     exclude: ['recharts'],

@@ -1,13 +1,27 @@
 /**
  * ==============================================================================
- * SERVER.CJS - PAYDONE BACKEND V50.66 (THE BUG-FIX EDITION)
+ * SERVER.CJS - PAYDONE BACKEND V50.67 (SESSION INTEGRITY FIX)
  * ==============================================================================
- * BASE    : V50.65 (Sync & Alignment Edition) — 100% preserved
- * MERGED  : V50.66 Critical Bug Fixes
+ * BASE    : V50.66 (Bug-Fix Edition) — 100% preserved
+ * MERGED  : V50.67 Session & Auth Integrity Fixes
  *
- * CHANGES IN V50.66 vs V50.65:
+ * CHANGES IN V50.67 vs V50.66:
  *
- *  [FIX #1]  verifyToken middleware — CRITICAL SERVER-CRASH FIX
+ *  [FIX #1]  verifySession — NULL PUSH & DUPLICATE TOKEN BUG
+ *            session_tokens array bisa mengandung null atau token duplikat
+ *            karena baris:
+ *              sessions.push(row.session_token)  ← tidak ada guard duplikat
+ *            Jika row.session_token sudah ada di array JSONB, ia di-push lagi,
+ *            menciptakan duplikat yang membuang slot dari batas 5 token.
+ *            Lebih buruk: jika DB mengembalikan session_token = null (mis. user
+ *            lama sebelum kolom ini diisi), null masuk array dan bisa
+ *            menyebabkan false-positive auth pada token kosong.
+ *            FIX: tambahkan guard !sessions.includes(row.session_token)
+ *            sebelum push, sehingga legacy token hanya masuk jika belum ada
+ *            dan bukan null/empty string.
+ *
+ * ==============================================================================
+ *
  *            verifyToken was used as route middleware at lines
  *            /api/ai/knowledge-rules and /api/ai/unknown-prompt
  *            but was never defined as a module-level function.
@@ -397,7 +411,12 @@ const verifySession = async (userId, token, res = null) => {
             try { sessions = JSON.parse(row.session_tokens); } catch { sessions = []; }
         }
         // Also include legacy single session_token column
-        if (row.session_token && typeof row.session_token === 'string') sessions.push(row.session_token);
+        // [BUGFIX] Guard duplikat: jangan push jika token sudah ada di array,
+        // dan pastikan token bukan null/empty string sebelum di-push.
+        if (row.session_token && typeof row.session_token === 'string'
+            && !sessions.includes(row.session_token)) {
+            sessions.push(row.session_token);
+        }
         if (!sessions.includes(token)) { if (res) res.setHeader('X-Auth-Status', 'Expired'); return false; }
         if (row.last_login && Date.now() - new Date(row.last_login).getTime() > (30 * 24 * 60 * 60 * 1000)) {
             if (res) res.setHeader('X-Auth-Status', 'Expired_Inactivity'); return false;
@@ -1024,7 +1043,7 @@ const checkAiQuota = async (req, res, next) => {
 // =============================================================================
 // --- UTILITY ROUTES ---
 // =============================================================================
-app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.81-bugfix", db: "connected" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.82-bugfix", db: "connected" }));
 app.get("/api/features/list", (req, res) => res.json(SYSTEM_FEATURES));
 
 // =============================================================================

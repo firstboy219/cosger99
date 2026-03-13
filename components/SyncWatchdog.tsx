@@ -1,8 +1,21 @@
 
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, RefreshCw, X, Send, WifiOff } from 'lucide-react';
-import { getHeaders } from '../services/cloudSync';
 import { getConfig } from '../services/mockDb';
+
+// [BUGFIX] getHeaders tidak diexport dari cloudSync.ts — menyebabkan runtime
+// import error saat komponen di-mount. Fix: bangun headers inline dari
+// localStorage (sama persis seperti getHeaders() di cloudSync.ts melakukannya).
+const buildHeaders = (userId: string): Record<string, string> => {
+    const token = localStorage.getItem('paydone_session_token') || '';
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-user-id': userId,
+        'x-session-token': token,
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+};
 
 interface UnsyncedItem {
     url: string;
@@ -49,7 +62,8 @@ export default function SyncWatchdog() {
             try {
                 const res = await fetch(item.url, {
                     method: item.method,
-                    headers: getHeaders(adminId),
+                    // [FIX] Gunakan buildHeaders (inline) menggantikan getHeaders yang tidak diexport
+                    headers: buildHeaders(adminId),
                     body: item.method !== 'DELETE' ? JSON.stringify(item.body) : undefined
                 });
 
@@ -88,7 +102,8 @@ export default function SyncWatchdog() {
         try {
             await fetch(`${baseUrl}/api/tickets`, {
                 method: 'POST',
-                headers: getHeaders(adminId),
+                // [FIX] Gunakan buildHeaders (inline) menggantikan getHeaders yang tidak diexport
+                headers: buildHeaders(adminId),
                 body: JSON.stringify({
                     title: `Sync Watchdog Alert: ${items.length} Failed Txn`,
                     description: `Automatic Report.\nFailures:\n${items.map(i => `- ${i.method} ${i.url} (${i.error})`).join('\n')}\n\nPayloads are stored in user localStorage.`,

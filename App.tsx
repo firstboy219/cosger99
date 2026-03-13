@@ -430,18 +430,27 @@ export default function App() {
   // ADD_ALLOCATION via AI — MUST be declared BEFORE handleAIAction
   // (handleAIAction's useCallback dep array evaluates handleAIAllocation immediately at render time;
   //  declaring it after causes a TDZ ReferenceError: "Cannot access 'C' before initialization")
+  //
+  // [BUGFIX] Stale closure: handleAIAllocation sebelumnya membaca `monthlyExpenses`
+  // langsung dari closure (dep array: [currentUserId, monthlyExpenses]).
+  // Jika monthlyExpenses berubah antara render, callback memegang state lama →
+  // item alokasi baru bisa tumpang tindih / priority salah.
+  //
+  // FIX: Bangun newItem dulu (tanpa priority), lalu gunakan functional updater
+  // setMonthlyExpenses(prev => ...) agar selalu membaca state TERBARU.
+  // monthlyExpenses dihapus dari dep array karena tidak lagi diakses langsung.
   const handleAIAllocation = React.useCallback(async (data: any) => {
     if (!currentUserId) return;
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    const currentList = monthlyExpenses[monthKey] || [];
-    const newItem: any = {
+
+    // Build item tanpa priority dulu — priority dihitung di dalam functional updater
+    const baseItem: any = {
       id: `ai-alloc-${Date.now()}`,
       userId: currentUserId,
       name: data.name || 'Alokasi AI',
       amount: Number(data.amount) || 0,
       category: data.category || 'needs',
-      priority: currentList.length + 1,
       isTransferred: false,
       isRecurring: false,
       assignedAccountId: null,
@@ -450,21 +459,39 @@ export default function App() {
       updatedAt: new Date().toISOString(),
       _deleted: false,
     };
-    const updatedList = [...currentList, newItem];
-    setMonthlyExpenses(prev => ({ ...prev, [monthKey]: updatedList }));
+
+    // [FIX] Gunakan functional updater agar selalu baca state terbaru (bukan closure)
+    let finalItem: any;
+    setMonthlyExpenses(prev => {
+      const currentList = prev[monthKey] || [];
+      finalItem = { ...baseItem, priority: currentList.length + 1 };
+      return { ...prev, [monthKey]: [...currentList, finalItem] };
+    });
+
     const config = getConfig();
     const strategy = config.advancedConfig?.syncStrategy || 'background';
+    // Beri waktu satu tick agar finalItem terisi dari setter di atas
+    await Promise.resolve();
+    const newItem = finalItem || { ...baseItem, priority: 1 };
     try {
       await saveItemToCloud('allocations', newItem, true);
     } catch (_e) {
       if (strategy === 'manual_only') {
-        saveUserData(currentUserId, { allocations: { ...monthlyExpenses, [monthKey]: updatedList } });
+        // Tidak perlu akses monthlyExpenses closure — state sudah diupdate via setter
         setHasUnsavedChanges(true);
       }
     }
     setAiResult({show: true, type: 'success', title: 'Alokasi Ditambahkan', message: `${newItem.name} Rp ${newItem.amount.toLocaleString('id')} berhasil dialokasikan.`});
-  }, [currentUserId, monthlyExpenses]);
+  // [FIX] monthlyExpenses DIHAPUS dari dep array — tidak lagi diakses langsung
+  }, [currentUserId]);
 
+  // [BUGFIX] handleAIAction: stale closure pada dailyExpenses dan incomes.
+  // ADD_EXPENSE: saveUserData dipanggil dengan `dailyExpenses` dari closure (data lama).
+  // ADD_INCOME: saveUserData dipanggil dengan `incomes` dari closure (data lama).
+  //
+  // FIX: Ganti saveUserData yang membaca closure langsung dengan functional updater
+  // pattern. Baca state terbaru dari setter callback, bukan dari closed-over variable.
+  // dailyExpenses dan incomes dihapus dari dep array karena tidak lagi diakses langsung.
   const handleAIAction = React.useCallback(async (action: any) => {
     if (!currentUserId) return;
     const { intent, data } = action;
@@ -487,15 +514,20 @@ export default function App() {
             updatedAt: new Date().toISOString(),
             _deleted: false
         };
-        setDailyExpenses(prev => [newItem, ...prev]);
-        saveUserData(currentUserId, { dailyExpenses: [newItem, ...dailyExpenses] });
-        
+        // [FIX] Gunakan functional updater — baca state terbaru, bukan closure
+        setDailyExpenses(prev => {
+            const updated = [newItem, ...prev];
+            // saveUserData di sini membaca 'updated' (fresh), bukan closure
+            saveUserData(currentUserId, { dailyExpenses: updated });
+            return updated;
+        });
+
         if (isAutoSync) {
             pushPartialUpdate(currentUserId, { dailyExpenses: [newItem] });
         } else {
             setHasUnsavedChanges(true);
         }
-        
+
         setAiResult({show: true, type: 'success', title: 'Dicatat', message: 'Pengeluaran berhasil disimpan.'});
     }
 
@@ -518,17 +550,20 @@ export default function App() {
             _deleted: false,
         };
 
-        // Optimistic update
-        setIncomes(prev => [newIncome, ...prev]);
+        // [FIX] Gunakan functional updater untuk incomes juga
+        setIncomes(prev => {
+            const updated = [newIncome, ...prev];
+            saveUserData(currentUserId, { incomes: updated });
+            return updated;
+        });
 
-        // Persist
-        const config = getConfig();
+        // Persist ke cloud
         const strategy = config.advancedConfig?.syncStrategy || 'background';
         try {
             await saveItemToCloud('incomes', newIncome, true);
         } catch (_e) {
             if (strategy === 'manual_only') {
-                saveUserData(currentUserId, { incomes: [newIncome, ...incomes] });
+                // State sudah diupdate via functional setter di atas
                 setHasUnsavedChanges(true);
             }
         }
@@ -539,7 +574,8 @@ export default function App() {
     if (intent === 'ADD_ALLOCATION') {
         await handleAIAllocation(data);
     }
-  }, [currentUserId, dailyExpenses, incomes, handleAIAllocation]);
+  // [FIX] dailyExpenses dan incomes DIHAPUS dari dep array — tidak lagi diakses langsung
+  }, [currentUserId, handleAIAllocation]);
 
   // ROBUST ALLOCATION TOGGLE (Fixes Crash)
   const handleToggleAllocation = React.useCallback(async (id: string) => {

@@ -1,3 +1,17 @@
+// =============================================================================
+// ⚠️  DEAD CODE — FILE INI TIDAK DIGUNAKAN / ORPHAN FILE
+// =============================================================================
+// File ini adalah sisa/duplikat dari root App.tsx yang TIDAK DIIMPORT oleh
+// apapun. index.tsx mengimport dari '../App' (root App.tsx), BUKAN dari sini.
+//
+// Import paths di file ini juga SALAH karena file ini berada di pages/,
+// sehingga './pages/LandingPage' sebenarnya akan resolve ke pages/pages/
+// yang tidak ada → crash jika file ini pernah diimport.
+//
+// AKSI YANG DISARANKAN: Hapus file ini dari repo untuk menghindari kebingungan.
+// Jangan mengedit atau mengimport file ini.
+// =============================================================================
+
 
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';

@@ -521,13 +521,31 @@ export const saveGlobalConfigToCloud = async (id: string, config: any): Promise<
 };
 
 // Load Global Config from Cloud DB (config table)
+// [BUGFIX v50.83] Endpoint dipilih berdasarkan role user:
+//   - Admin/super_admin → GET /api/admin/config (full config + settings sensitif)
+//   - User biasa / belum login → GET /api/config (public, hanya branding + theme)
+// Sebelumnya selalu memanggil /api/admin/config → 403 Forbidden untuk user biasa
+// → console error merah dan potensi ErrorBoundary crash.
 export const loadGlobalConfigFromCloud = async (): Promise<SyncResult> => {
     try {
-        const data = await api.get('/admin/config');
-        dispatchNetworkLog('GET', '/api/admin/config', 200, data);
+        // Deteksi role dari localStorage untuk pilih endpoint yang tepat
+        const userId   = localStorage.getItem('paydone_active_user');
+        const userRole = (() => {
+            try {
+                const raw = localStorage.getItem('paydone_db_v45');
+                if (!raw) return 'user';
+                const db = JSON.parse(raw);
+                const found = (db.users || []).find((u: any) => u.id === userId);
+                return found?.role || 'user';
+            } catch { return 'user'; }
+        })();
+        const isAdmin  = ['admin', 'super_admin', 'superadmin'].includes(userRole);
+        const endpoint = isAdmin ? '/admin/config' : '/config';
+        const data     = await api.get(endpoint);
+        dispatchNetworkLog('GET', `/api${endpoint}`, 200, data);
         return { success: true, data };
     } catch (e: any) {
-        dispatchNetworkLog('GET', '/api/admin/config', 500, { error: e.message });
+        dispatchNetworkLog('GET', '/api/config', 500, { error: e.message });
         return { success: false, error: e.message };
     }
 };

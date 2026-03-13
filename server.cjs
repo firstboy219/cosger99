@@ -1,8 +1,38 @@
 /**
  * ==============================================================================
- * SERVER.CJS - PAYDONE BACKEND V50.67 (SESSION INTEGRITY FIX)
+ * SERVER.CJS - PAYDONE BACKEND V50.83 (PUBLIC CONFIG + MULTI BUGFIX)
  * ==============================================================================
- * BASE    : V50.66 (Bug-Fix Edition) — 100% preserved
+ * BASE    : V50.82 (Session Integrity Fix) — 100% preserved
+ * MERGED  : V50.83 Multi-BugFix
+ *
+ * CHANGES IN V50.83 vs V50.82:
+ *
+ *  [FIX #1]  GET /api/config — PUBLIC ENDPOINT (no auth required)
+ *            App.tsx memanggil loadGlobalConfigFromCloud() di useEffect([]) untuk
+ *            SEMUA user agar load theme & branding. Endpoint lama /api/admin/config
+ *            mensyaratkan admin role → user biasa dapat 403 Forbidden → console
+ *            error merah. Fix: tambahkan /api/config (publik) yang mengembalikan
+ *            subset config aman (appName, appDescription, theme, logo).
+ *            Data sensitif (adminSecret, SMTP, systemRules) TIDAK disertakan.
+ *
+ *  [FIX #2]  diagnosticsHandler — SQL IDENTIFIER INJECTION RISK
+ *            `FROM ${t.table_name}` menginterpolasi nama tabel langsung ke SQL
+ *            tanpa quoting. Meskipun table_name dari information_schema relatif
+ *            aman, identifier tidak di-quote bisa crash jika ada nama tabel
+ *            dengan karakter khusus. Fix: quote identifier dengan double-quote
+ *            PostgreSQL dan escape internal double-quote.
+ *
+ *  [FIX #3]  diagnosticsHandler — parseInt TANPA RADIX
+ *            parseInt(c.rows[0].count) tanpa radix ke-2 → ambigu untuk string
+ *            dengan leading zero. Fix: parseInt(..., 10).
+ *
+ *  [FIX #4]  assignDefaultFreePackage — EMPTY CATCH BLOCK
+ *            catch (e) {} menelan semua error saat assign free package ke user
+ *            baru → user tidak dapat package, tidak ada log, debugging buta.
+ *            Fix: tambahkan console.error agar error terlihat di PM2 logs.
+ *
+ * ==============================================================================
+ * BASE    : V50.67 (Session Integrity Fix — preserved below)
  * MERGED  : V50.67 Session & Auth Integrity Fixes
  *
  * CHANGES IN V50.67 vs V50.66:
@@ -988,7 +1018,12 @@ const assignDefaultFreePackage = async (userId, packageIdOverride = null) => {
             await pool.query("UPDATE users SET subscription_id = $1, ai_hits_used = 0 WHERE id = $2", [subId, userId]);
             if (global.broadcastWS) global.broadcastWS({ type: "FORCE_SYNC", userId });
         }
-    } catch (e) {}
+    } catch (e) {
+        // [BUGFIX v50.83 FIX #4] Log error — empty catch menyembunyikan kegagalan
+        // assign free package. User bisa berakhir tanpa package sama sekali
+        // dan tidak ada trace di log untuk debugging.
+        console.error('[assignDefaultFreePackage] Error assigning free package to user:', userId, e.message);
+    }
 };
 
 // =============================================================================
@@ -1043,7 +1078,7 @@ const checkAiQuota = async (req, res, next) => {
 // =============================================================================
 // --- UTILITY ROUTES ---
 // =============================================================================
-app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.82-bugfix", db: "connected" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", version: "v50.83-bugfix", db: "connected" }));
 app.get("/api/features/list", (req, res) => res.json(SYSTEM_FEATURES));
 
 // =============================================================================
@@ -1630,12 +1665,35 @@ const diagnosticsHandler = async (req, res) => {
         const schema = {}; r.rows.forEach(x => { if (!schema[x.table_name]) schema[x.table_name] = []; schema[x.table_name].push({ columnName: x.column_name, dataType: x.data_type }); });
         const tablesQuery = await pool.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'");
         const counts = {};
-        for (const t of tablesQuery.rows) { const c = await pool.query(`SELECT COUNT(*) FROM ${t.table_name}`); counts[t.table_name] = parseInt(c.rows[0].count); }
+        for (const t of tablesQuery.rows) { const safeName = t.table_name.replace(/"/g, '""'); const c = await pool.query(`SELECT COUNT(*) FROM "${safeName}"`); counts[t.table_name] = parseInt(c.rows[0].count, 10); } // [BUGFIX v50.83 FIX #2+#3] quote identifier, add radix
         res.json({ status: "ok", schema, tables: schema, counts });
     } catch (e) { res.status(500).json({ error: e.message }); }
 };
 app.get("/api/diagnostics", diagnosticsHandler);
 app.get("/api/diagnostic",  diagnosticsHandler);
+
+// [BUGFIX v50.83 FIX #1] GET /api/config — PUBLIC endpoint (no auth required)
+// App.tsx memanggil loadGlobalConfigFromCloud() di useEffect([]) untuk SEMUA user
+// (termasuk non-admin) agar bisa load theme & branding dari cloud.
+// Sebelumnya selalu ke /api/admin/config → 403 untuk user biasa.
+// Endpoint ini hanya mengembalikan subset config yang AMAN untuk publik.
+// Data sensitif (adminSecret, SMTP, systemRules, dll) TIDAK disertakan.
+app.get("/api/config", async (req, res) => {
+    try {
+        const r = await pool.query("SELECT data FROM config WHERE id = 'app_config' LIMIT 1");
+        const full = r.rows[0]?.data || {};
+        // Subset aman untuk publik — HANYA branding dan theme
+        const publicConfig = {
+            appName:            full.appName            || 'Cosger',
+            appDescription:     full.appDescription     || 'Costing Manager',
+            appDomain:          full.appDomain          || '',
+            currentThemePreset: full.currentThemePreset || 'trust',
+            customTheme:        full.customTheme        || null,
+            logoUrl:            full.logoUrl            || null,
+        };
+        res.json(publicConfig);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get("/api/admin/config", async (req, res) => {
     if (!(await verifyAdminOrRole(req))) return res.status(403).json({ error: 'Forbidden' });

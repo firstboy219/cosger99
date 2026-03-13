@@ -303,7 +303,10 @@ const toHybridUser = (userRow) => {
     if (!userRow) return null;
     const unpacked = unpackMetadata(userRow);
     const safeSnake = {};
-    for (let k in unpacked) safeSnake[k] = unpacked[k] === null ? "" : unpacked[k];
+    // [V50.83 FIX] Do NOT convert null to "". Null numeric fields (ai_hits_used,
+    // monthly_income, etc.) became "" which caused NaN in frontend arithmetic.
+    // Preserve null exactly as-is, consistent with keysToCamel behaviour.
+    for (let k in unpacked) safeSnake[k] = unpacked[k];
     if (safeSnake.id && !safeSnake.user_id) safeSnake.user_id = safeSnake.id;
     const safeCamel = keysToCamel(unpacked);
     if (safeCamel.id && !safeCamel.userId) safeCamel.userId = safeCamel.id;
@@ -413,17 +416,25 @@ const mockSendEmail = (toEmail, subject, body) => {
 };
 
 const appendSessionToken = async (userId, token) => {
+    // [V50.83 FIX] Deduplicate tokens: filter out the new token before appending
+    // so concurrent login requests cannot push the same token multiple times.
     await pool.query(
         `UPDATE users SET
             session_token = $1,
             session_tokens = (
                 SELECT jsonb_agg(elem) FROM (
-                    SELECT elem FROM jsonb_array_elements(COALESCE(session_tokens, '[]'::jsonb) || $2::jsonb) AS elem
+                    SELECT elem FROM jsonb_array_elements(
+                        (
+                            SELECT jsonb_agg(x) FROM jsonb_array_elements(
+                                COALESCE(session_tokens, '[]'::jsonb)
+                            ) AS x WHERE x::text != $2
+                        )::jsonb || $3::jsonb
+                    ) AS elem
                     ORDER BY elem DESC LIMIT 5
                 ) s
             )
-         WHERE id = $3`,
-        [token, JSON.stringify([token]), userId]
+         WHERE id = $4`,
+        [token, JSON.stringify(token), JSON.stringify([token]), userId]
     );
 };
 
@@ -3298,8 +3309,16 @@ app.put("/api/sales/content/:id", requireRole(['sales']), async (req, res) => {
         let idx = 1;
         if (title      !== undefined) { setClauses.push(`title=$${idx++}`);           params.push(title); }
         if (slug       !== undefined) { setClauses.push(`slug=$${idx++}`);            params.push(slug); }
-        if (bodyHtml   !== undefined) { const finalUrl = await saveBase64ToFileAsync(thumbnailUrl); setClauses.push(`body_html=$${idx++}`); params.push(bodyHtml); setClauses.push(`thumbnail_url=$${idx++}`); params.push(finalUrl); }
-        else if (thumbnailUrl !== undefined) { const finalUrl = await saveBase64ToFileAsync(thumbnailUrl); setClauses.push(`thumbnail_url=$${idx++}`); params.push(finalUrl); }
+        if (bodyHtml   !== undefined) {
+            // [V50.83 FIX] Only write thumbnail_url when thumbnailUrl is present.
+            // Previously this branch always called saveBase64ToFileAsync(thumbnailUrl)
+            // even when only bodyHtml was sent, storing undefined as the URL.
+            setClauses.push(`body_html=$${idx++}`); params.push(bodyHtml);
+            if (thumbnailUrl !== undefined) {
+                const finalUrl = await saveBase64ToFileAsync(thumbnailUrl);
+                setClauses.push(`thumbnail_url=$${idx++}`); params.push(finalUrl);
+            }
+        } else if (thumbnailUrl !== undefined) { const finalUrl = await saveBase64ToFileAsync(thumbnailUrl); setClauses.push(`thumbnail_url=$${idx++}`); params.push(finalUrl); }
         if (status     !== undefined) { setClauses.push(`status=$${idx++}`); params.push(status); setClauses.push(`published_at=CASE WHEN $${idx++}='published' AND published_at IS NULL THEN NOW() ELSE published_at END`); params.push(status); }
         if (contentType !== undefined) { setClauses.push(`content_type=$${idx++}`);  params.push(contentType); }
         if (mediaUrl   !== undefined) { setClauses.push(`media_url=$${idx++}`);       params.push(mediaUrl); }

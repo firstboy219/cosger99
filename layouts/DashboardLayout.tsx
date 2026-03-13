@@ -77,8 +77,6 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
   const langMenuRef = useRef<HTMLDivElement>(null);
   
   const unreadCount = useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
-  // Bell badge = unread notifs + urgent tasks count
-  const totalBadgeCount = useMemo(() => unreadCount + urgentTasks.length, [unreadCount, urgentTasks]);
 
   const [isPulling, setIsPulling] = useState(false);
   const [pullResult, setPullResult] = useState<{ status: 'success' | 'error', data: any } | null>(null);
@@ -250,6 +248,10 @@ export default function DashboardLayout({ onLogout, userId, syncStatus, onManual
     });
     return all.slice(0, 8); // cap at 8 items
   }, [userId, notifications]); // re-compute when DB updates (notifications state changes on PAYDONE_DB_UPDATE)
+
+  // Bell badge = unread notifs + urgent tasks count
+  // NOTE: Declared AFTER urgentTasks to avoid TDZ (urgentTasks used in deps + callback)
+  const totalBadgeCount = useMemo(() => unreadCount + urgentTasks.length, [unreadCount, urgentTasks]);
 
   const handleManualPull = async () => {
       setIsPulling(true);

@@ -1,0 +1,40 @@
+{
+  "summary": "Frontend-only e2e testing of Paydone Mobile (Expo Web) at viewport 414x800. Tested login, home dashboard, quick actions, FAB, all 4 bottom tabs, all 3 Strategi sub-tabs with sheets, Action Plan task CRUD/toggle, Profile screen and Logout. 17/18 critical flows working. One CRITICAL bug found: Logout button is non-functional on web (Alert.alert with multi-button does not render in react-native-web).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ProfileScreen logout",
+        "issue": "Tapping the Logout button (data-testid=logout-button) does NOT show any confirmation dialog and does NOT log the user out. Session token remains in localStorage and URL stays at /profile. Root cause: React Native's Alert.alert() with a buttons[] array (Cancel + Destructive) is not implemented in react-native-web for confirm-style dialogs — the call is a no-op. The OnPress handler at /app/frontend/app/(tabs)/profile.tsx line 47 wraps signOut() inside Alert.alert callback, which never fires on web.",
+        "selector": "[data-testid=\"logout-button\"]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Home dashboard — Pemasukan/bln total",
+        "issue": "Initially after login, Total Pemasukan shows Rp 0 even though 2 pre-seeded incomes exist in the list (visible as income-item-inc-1771583404504 and income-item-inc-1771569490544). After creating a new monthly income (5jt), dashboard correctly shows Rp 5jt — confirming pre-seeded incomes are excluded from monthly sum (likely one-time/passive frequency). MAY be by design but worth verifying that the dashboard's 'Pemasukan/bln' aggregation matches user expectation.",
+        "affected_selectors": ["[data-testid=\"dashboard-total-income\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "FIX (HIGH): Replace Alert.alert in profile.tsx logout handler with a web-compatible solution. Either (a) use window.confirm() when Platform.OS === 'web', or (b) implement a custom Modal-based confirmation dialog that works on both native and web. Currently logout is completely broken on Web/Expo Web preview.",
+    "VERIFY: Whether the 2 pre-seeded incomes for user u2 are intended to be excluded from 'Pemasukan/bln' aggregation. If they are recurring monthly incomes, the aggregation logic in AppContext or sync mapping is dropping them.",
+    "DOC: review_request mentioned testIDs 'sf-add' and 'pos-add' but actual code uses 'add-sinking-fund' and 'add-pos' for the Tambah trigger buttons. Sheets ('sf-sheet', 'pos-sheet') match. Update request docs or rename testIDs for consistency."
+  ],
+  "critical_code_review_comments": [
+    "react-native Alert.alert with buttons[] is not reliable on react-native-web (multi-button confirm not rendered). Centralize a cross-platform `confirmAsync(title,message)` helper that uses window.confirm on web and Alert.alert on native; reuse for delete confirmations too (delete-debt, delete-income, delete-task, delete-sf, delete-pos buttons all rely on Alert.alert and may have the same issue).",
+    "Optimistic IDs (temp-debt-...) from older sessions are persisted instead of being replaced with server IDs after sync. Visible in DOM (data-testid=\"debt-item-temp-debt-1771727575003\"). This indicates a missed reconciliation step after the POST /api/debts response — temp IDs should be swapped with the server-returned id."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "94% (17/18 flows pass)"},
+  "test_credentials": "user@paydone.id / user (pre-filled on login screen, prod api.cosger.com)",
+  "seed_data_creation": "Created on production DB for u2: 1 debt 'TestDebt-1778152501' (Rp 10jt principal, TestBank), 1 income 'TestIncome-...' (Rp 5jt monthly), 1 task 'TestTask-1778152789985' (Payment category, marked completed during toggle test).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login pre-fill works; flow= tap [data-testid=login-submit-button] → home. Hutang sheet testIDs: hutang-{name,bank,principal,monthly,tenor,interest,duedate}-input + hutang-save-button + 7 hutang-type-{KPR,KKB,KTA,CC,STUDENT,BUSINESS,OTHER} chips. Income sheet uses income-source-input (NOT income-name-input). Strategi sheet triggers are add-sinking-fund and add-pos (not sf-add/pos-add). Backend api.cosger.com has 60s rate limit after 5 failed logins — reuse session. Task toggle id = task-toggle-{id}. Pull-to-refresh is RN-only and not testable via Playwright web; skip. Logout flow needs main-agent fix before retest.",
+  "rca of the issue": "RCA — Logout broken on Web: profile.tsx:47 calls Alert.alert('Keluar','Yakin keluar dari akun?',[{text:'Batal',style:'cancel'},{text:'Keluar',style:'destructive',onPress:async()=>await signOut()}]). In react-native-web, Alert.alert with a buttons array containing more than 1 button is unsupported / silently no-ops (it does not fall back to window.confirm). Result: the destructive button's onPress callback never fires, signOut() is never invoked, token stays in localStorage, and the auth gate does not re-redirect to /login. Reproduction: load /, login → tap Profile → scroll → tap 'Keluar dari Akun' → expected: confirm prompt then redirect to /login; actual: nothing happens. Mitigation: detect Platform.OS==='web' and use `if (window.confirm('Yakin keluar dari akun?')) await signOut();` OR implement a shared `<ConfirmDialog/>` modal component."
+}

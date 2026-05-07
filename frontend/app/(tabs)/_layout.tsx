@@ -44,6 +44,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
+          tabBarTestID: 'tab-home',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name={focused ? 'home' : 'home-outline'} color={color} focused={focused} />
           ),
@@ -53,6 +54,7 @@ export default function TabsLayout() {
         name="strategi"
         options={{
           title: 'Strategi',
+          tabBarTestID: 'tab-strategi',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name={focused ? 'rocket' : 'rocket-outline'} color={color} focused={focused} />
           ),
@@ -62,6 +64,7 @@ export default function TabsLayout() {
         name="action-plan"
         options={{
           title: 'Action Plan',
+          tabBarTestID: 'tab-action-plan',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               name={focused ? 'checkmark-done-circle' : 'checkmark-done-circle-outline'}
@@ -75,6 +78,7 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
+          tabBarTestID: 'tab-profile',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               name={focused ? 'person-circle' : 'person-circle-outline'}

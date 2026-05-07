@@ -153,3 +153,10 @@ npx eas build -p android   # produces .apk / .aab
 
 ## Last Updated
 2026-05-07 — Initial mobile app MVP completed.
+
+### Iteration 2 (2026-05-07)
+- ✅ Fixed CRITICAL bug: `Alert.alert` with multi-buttons was a no-op on react-native-web → introduced `src/utils/confirm.ts` with `confirmAsync()` (window.confirm fallback) and `alertAsync()` (window.alert fallback)
+- ✅ Migrated all 6 destructive-action call-sites: Logout (Profile), Delete Debt/Income (Home), Delete Sinking Fund/Pos (Strategi), Delete Task (Action Plan)
+- ✅ Migrated all validation alerts in InputHutang/InputPenghasilan/Strategi/ActionPlan to alertAsync
+- ✅ Added data-testid attributes to bottom tabs (tab-home, tab-strategi, tab-action-plan, tab-profile)
+- ✅ Testing agent retest: 16/16 testable flows PASS, 100% success rate

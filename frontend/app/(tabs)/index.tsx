@@ -30,6 +30,7 @@ const DSRRing: React.FC<{ value: number; size?: number }> = ({ value, size = 96 
   const clamped = Math.min(100, Math.max(0, value));
   const offset = c * (1 - clamped / 100);
   const tone = value > 35 ? colors.danger : value > 20 ? colors.warning : colors.primary;
+  const displayText = value > 999 ? '999+' : value > 100 ? `${Math.round(value)}%` : `${Math.round(value)}%`;
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size}>
@@ -55,10 +56,19 @@ const DSRRing: React.FC<{ value: number; size?: number }> = ({ value, size = 96 
         />
       </Svg>
       <View style={{ position: 'absolute', alignItems: 'center' }}>
-        <Text style={{ ...typography.h3, color: colors.textPrimary, fontWeight: '800' }}>
-          {Math.round(value)}%
+        <Text
+          style={{
+            ...typography.h3,
+            color: value > 100 ? colors.danger : colors.textPrimary,
+            fontWeight: '800',
+            fontSize: value > 999 ? 18 : value > 100 ? 20 : 22,
+          }}
+        >
+          {displayText}
         </Text>
-        <Text style={{ ...typography.bodySm, color: colors.textSecondary, fontSize: 10 }}>DSR</Text>
+        <Text style={{ ...typography.bodySm, color: colors.textSecondary, fontSize: 10 }}>
+          {value > 100 ? 'DSR (overload)' : 'DSR'}
+        </Text>
       </View>
     </View>
   );

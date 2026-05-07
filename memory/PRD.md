@@ -151,12 +151,28 @@ npx eas build -p ios       # produces .ipa
 npx eas build -p android   # produces .apk / .aab
 ```
 
-## Last Updated
-2026-05-07 — Initial mobile app MVP completed.
+### Iteration 3 (2026-05-07)
+**NEW Home features added per user request:**
+- ✅ **AI Insight Card** (`/app/frontend/src/components/AIInsightCard.tsx`) — calls `POST /api/ai/analyze` (Gemini); falls back to local heuristic when AI quota is 402; cached quota-block flag prevents hammering API for 1 hour; manual refresh button forces re-call.
+- ✅ **Charts on Home** (`/app/frontend/src/components/Charts.tsx`):
+  - **Donut chart** "Distribusi Hutang" with center total + per-loan-type legend %
+  - **Horizontal bars** "Pengeluaran Bulan Ini" by category (only shows when there are expenses)
+  - **Horizontal bars** "Pemasukan vs Kewajiban Bulanan" comparing income, cicilan, expenses
+- ✅ **Daily Expenses widget** (`/app/frontend/src/components/InputDailyExpenseSheet.tsx`):
+  - 6 categories (Makanan/Transport/Belanja/Tagihan/Hiburan/Lainnya)
+  - 3rd Quick Action card "Catat Pengeluaran" showing today's total
+  - "Pengeluaran Terbaru" list section
+  - 3rd FAB action `fab-action-expense`
+- ✅ **DSR Ring polish**: when DSR > 100% (kritis), shows tone-shifted text + "DSR (overload)" subtitle to avoid visual confusion
+- ✅ Testing agent iteration 3: 12/12 acceptance items PASS, 100% success rate
 
-### Iteration 2 (2026-05-07)
-- ✅ Fixed CRITICAL bug: `Alert.alert` with multi-buttons was a no-op on react-native-web → introduced `src/utils/confirm.ts` with `confirmAsync()` (window.confirm fallback) and `alertAsync()` (window.alert fallback)
-- ✅ Migrated all 6 destructive-action call-sites: Logout (Profile), Delete Debt/Income (Home), Delete Sinking Fund/Pos (Strategi), Delete Task (Action Plan)
-- ✅ Migrated all validation alerts in InputHutang/InputPenghasilan/Strategi/ActionPlan to alertAsync
-- ✅ Added data-testid attributes to bottom tabs (tab-home, tab-strategi, tab-action-plan, tab-profile)
-- ✅ Testing agent retest: 16/16 testable flows PASS, 100% success rate
+### Architecture additions
+```
+src/services/ai.ts             # callAI() with AILimitError + localInsight() fallback
+src/components/AIInsightCard.tsx
+src/components/Charts.tsx      # DonutChart, HorizontalBars, MiniSparkline
+src/components/InputDailyExpenseSheet.tsx
+```
+
+## Last Updated
+2026-05-07 — Iteration 3: Daily Expenses, AI Strategist insight, and Charts now live on Home screen.

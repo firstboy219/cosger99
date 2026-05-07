@@ -1,9 +1,13 @@
 // src/components/AIInsightCard.tsx
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { callAI, localInsight, AILimitError } from '../services/ai';
 import { colors, spacing, radius, typography, shadows } from '../theme';
+
+const AI_QUOTA_FLAG = 'paydone_ai_quota_blocked';
+const AI_QUOTA_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 type Metrics = {
   dsr: number;
@@ -27,26 +31,46 @@ export const AIInsightCard: React.FC<{ metrics: Metrics }> = ({ metrics }) => {
   const local = localInsight(metrics);
   const tone = TONE_STYLES[local.tone];
 
-  const generate = useCallback(async () => {
-    setLoading(true);
-    setAiError(null);
-    try {
-      const result = await callAI({
-        prompt: `Metrics finansial saya: total hutang Rp ${metrics.totalDebt.toLocaleString('id')}, cicilan/bln Rp ${metrics.monthlyObligation.toLocaleString('id')}, pemasukan/bln Rp ${metrics.totalIncome.toLocaleString('id')}, DSR ${metrics.dsr.toFixed(1)}%, jumlah hutang aktif ${metrics.debtCount}. Berikan saran personal max 2 kalimat singkat dalam bahasa Indonesia, fokus action konkret minggu ini.`,
-        systemInstruction:
-          'Anda adalah financial advisor untuk Indonesia (Paydone.id). Bahasa santai tapi profesional. Maks 2 kalimat. JANGAN sebutkan angka spesifik dari prompt — fokus aksi.',
-      });
-      setAiText(result.trim().slice(0, 320));
-    } catch (e: any) {
-      if (e instanceof AILimitError) {
-        setAiError('AI Premium 🔒 — Upgrade untuk insight personal');
-      } else {
-        setAiError(e?.message || 'AI offline');
+  const generate = useCallback(
+    async (forced = false) => {
+      // Check cached quota-blocked flag (avoids hammering /api/ai/analyze)
+      if (!forced) {
+        try {
+          const flag = await AsyncStorage.getItem(AI_QUOTA_FLAG);
+          if (flag) {
+            const ts = parseInt(flag, 10);
+            if (!isNaN(ts) && Date.now() - ts < AI_QUOTA_TTL_MS) {
+              setAiError('AI Premium 🔒 — Upgrade untuk insight personal');
+              return;
+            }
+          }
+        } catch (_) {}
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [metrics]);
+      setLoading(true);
+      setAiError(null);
+      try {
+        const result = await callAI({
+          prompt: `Metrics finansial saya: total hutang Rp ${metrics.totalDebt.toLocaleString('id')}, cicilan/bln Rp ${metrics.monthlyObligation.toLocaleString('id')}, pemasukan/bln Rp ${metrics.totalIncome.toLocaleString('id')}, DSR ${metrics.dsr.toFixed(1)}%, jumlah hutang aktif ${metrics.debtCount}. Berikan saran personal max 2 kalimat singkat dalam bahasa Indonesia, fokus action konkret minggu ini.`,
+          systemInstruction:
+            'Anda adalah financial advisor untuk Indonesia (Paydone.id). Bahasa santai tapi profesional. Maks 2 kalimat. JANGAN sebutkan angka spesifik dari prompt — fokus aksi.',
+        });
+        setAiText(result.trim().slice(0, 320));
+        // Clear quota flag on success
+        try { await AsyncStorage.removeItem(AI_QUOTA_FLAG); } catch (_) {}
+      } catch (e: any) {
+        if (e instanceof AILimitError) {
+          setAiError('AI Premium 🔒 — Upgrade untuk insight personal');
+          // Cache flag so we don't auto-fire again for 1h
+          try { await AsyncStorage.setItem(AI_QUOTA_FLAG, String(Date.now())); } catch (_) {}
+        } else {
+          setAiError(e?.message || 'AI offline');
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [metrics]
+  );
 
   useEffect(() => {
     // Auto-generate once on mount when there's enough data
@@ -70,7 +94,7 @@ export const AIInsightCard: React.FC<{ metrics: Metrics }> = ({ metrics }) => {
             {aiText ? 'AI ANALYST · GEMINI' : 'INSIGHT FINANSIAL'}
           </Text>
         </View>
-        <TouchableOpacity onPress={generate} disabled={loading} style={styles.refreshBtn} testID="ai-insight-refresh">
+        <TouchableOpacity onPress={() => generate(true)} disabled={loading} style={styles.refreshBtn} testID="ai-insight-refresh">
           {loading ? (
             <ActivityIndicator size="small" color={tone.fg} />
           ) : (

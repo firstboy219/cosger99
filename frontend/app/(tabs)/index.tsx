@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx — Home (Dashboard + Input Hutang/Penghasilan)
+// app/(tabs)/index.tsx — Home (Dashboard + Input Hutang/Penghasilan + AI Insight + Charts + Daily Expenses)
 import React, { useMemo, useState } from 'react';
 import {
   View,
@@ -15,6 +15,9 @@ import { useApp } from '../../src/contexts/AppContext';
 import { Card, SectionTitle, Empty } from '../../src/components/UI';
 import { InputHutangSheet } from '../../src/components/InputHutangSheet';
 import { InputPenghasilanSheet } from '../../src/components/InputPenghasilanSheet';
+import { InputDailyExpenseSheet } from '../../src/components/InputDailyExpenseSheet';
+import { AIInsightCard } from '../../src/components/AIInsightCard';
+import { DonutChart, HorizontalBars } from '../../src/components/Charts';
 import { colors, spacing, radius, typography, shadows } from '../../src/theme';
 import { formatCurrency, formatCurrencyFull, monthKey } from '../../src/utils/format';
 import { confirmAsync, alertAsync } from '../../src/utils/confirm';
@@ -65,6 +68,7 @@ export default function HomeScreen() {
   const { user, data, refresh, isSyncing, patchData } = useApp();
   const [showHutang, setShowHutang] = useState(false);
   const [showPenghasilan, setShowPenghasilan] = useState(false);
+  const [showDailyExp, setShowDailyExp] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
 
   const totals = useMemo(() => {
@@ -93,11 +97,87 @@ export default function HomeScreen() {
       })
       .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
     const dsr = totalIncome > 0 ? (monthlyObligation / totalIncome) * 100 : 0;
-    return { totalDebt, monthlyObligation, totalIncome, dsr };
+    return {
+      totalDebt,
+      monthlyObligation,
+      totalIncome,
+      dsr,
+      debtCount: data.debts.filter((d) => !d._deleted).length,
+    };
   }, [data]);
+
+  // ─── Charts data ───────────────────────────────────────────────────
+  // Donut: Hutang distribution by loan type
+  const debtByType = useMemo(() => {
+    const TYPE_COLORS: Record<string, string> = {
+      KPR: '#7D8F69',
+      KKB: '#CD7D5C',
+      KTA: '#E8AA42',
+      CC: '#A85F5F',
+      STUDENT: '#5C7CD9',
+      BUSINESS: '#9B7CB6',
+      PERSONAL: '#5DA39B',
+      OTHER: '#A6A9A2',
+    };
+    const groups: Record<string, number> = {};
+    data.debts
+      .filter((d) => !d._deleted)
+      .forEach((d) => {
+        const key = d.type || 'OTHER';
+        const v = Number(d.remainingPrincipal) || Number(d.totalLiability) || 0;
+        groups[key] = (groups[key] || 0) + v;
+      });
+    return Object.entries(groups).map(([k, v]) => ({
+      label: k,
+      value: v,
+      color: TYPE_COLORS[k] || '#A6A9A2',
+    }));
+  }, [data.debts]);
+
+  // Daily Expenses for current month
+  const curMonth = monthKey();
+  const monthlyExpenses = useMemo(() => {
+    return data.dailyExpenses
+      .filter((e) => !e._deleted)
+      .filter((e) => e.date && String(e.date).startsWith(curMonth));
+  }, [data.dailyExpenses, curMonth]);
+
+  const monthlyExpenseTotal = monthlyExpenses.reduce(
+    (s, e) => s + (Number(e.amount) || 0),
+    0
+  );
+
+  // Today's expenses
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayExpenses = monthlyExpenses.filter((e) => e.date === todayKey);
+  const todayTotal = todayExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  // Expense breakdown by category for chart
+  const expenseByCategory = useMemo(() => {
+    const CAT_COLORS: Record<string, string> = {
+      Food: '#CD7D5C',
+      Transport: '#5C7CD9',
+      Shopping: '#9B7CB6',
+      Utilities: '#E8AA42',
+      Entertainment: '#5DA39B',
+      Others: '#A6A9A2',
+    };
+    const map: Record<string, number> = {};
+    monthlyExpenses.forEach((e) => {
+      const cat = e.category || 'Others';
+      map[cat] = (map[cat] || 0) + (Number(e.amount) || 0);
+    });
+    return Object.entries(map)
+      .sort(([, a], [, b]) => b - a)
+      .map(([k, v]) => ({ label: k, value: v, color: CAT_COLORS[k] || '#A6A9A2' }));
+  }, [monthlyExpenses]);
 
   const recentDebts = data.debts.filter((d) => !d._deleted).slice(0, 4);
   const recentIncomes = data.incomes.filter((i) => !i._deleted).slice(0, 4);
+  const recentExpenses = monthlyExpenses
+    .slice()
+    .sort((a, b) => (b.date > a.date ? 1 : -1))
+    .slice(0, 5);
 
   const handleDeleteDebt = async (debt: any) => {
     const ok = await confirmAsync('Hapus Hutang', `Yakin hapus "${debt.name}"?`, {
@@ -194,6 +274,11 @@ export default function HomeScreen() {
           </View>
         </Card>
 
+        {/* AI Insight Card */}
+        <View style={{ marginTop: spacing.md }}>
+          <AIInsightCard metrics={totals} />
+        </View>
+
         {/* Quick Actions */}
         <View style={styles.quickRow}>
           <TouchableOpacity
@@ -227,6 +312,162 @@ export default function HomeScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.quickBtn, { backgroundColor: colors.warningBg }]}
+            onPress={() => setShowDailyExp(true)}
+            activeOpacity={0.85}
+            testID="quick-input-expense"
+          >
+            <View style={[styles.quickIcon, { backgroundColor: colors.warning }]}>
+              <Ionicons name="receipt-outline" size={18} color={colors.surface} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.quickTitle}>Catat Pengeluaran</Text>
+              <Text style={styles.quickSub}>
+                Hari ini: {formatCurrency(todayTotal)}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Charts Section */}
+        {(debtByType.length > 0 || expenseByCategory.length > 0) && (
+          <View style={{ marginTop: spacing.lg }}>
+            <SectionTitle title="Visualisasi Keuangan" />
+            <View style={{ gap: 10 }}>
+              {debtByType.length > 0 && (
+                <Card testID="chart-debt-distribution">
+                  <Text style={styles.chartLabel}>DISTRIBUSI HUTANG</Text>
+                  <View style={styles.chartRow}>
+                    <DonutChart
+                      data={debtByType}
+                      size={140}
+                      thickness={20}
+                      centerLabel="Total"
+                      centerValue={formatCurrency(totals.totalDebt)}
+                    />
+                    <View style={{ flex: 1, gap: 8 }}>
+                      {debtByType.map((d) => {
+                        const pct =
+                          totals.totalDebt > 0
+                            ? (d.value / totals.totalDebt) * 100
+                            : 0;
+                        return (
+                          <View key={d.label} style={styles.legendRow}>
+                            <View
+                              style={[styles.legendDot, { backgroundColor: d.color }]}
+                            />
+                            <Text style={styles.legendLabel}>{d.label}</Text>
+                            <Text style={styles.legendValue}>
+                              {pct.toFixed(0)}%
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                </Card>
+              )}
+
+              {expenseByCategory.length > 0 && (
+                <Card testID="chart-expense-breakdown">
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 10,
+                    }}
+                  >
+                    <Text style={styles.chartLabel}>PENGELUARAN BULAN INI</Text>
+                    <Text
+                      style={{ ...typography.h4, color: colors.textPrimary, fontWeight: '800' }}
+                    >
+                      {formatCurrency(monthlyExpenseTotal)}
+                    </Text>
+                  </View>
+                  <HorizontalBars data={expenseByCategory} />
+                </Card>
+              )}
+
+              {/* Income vs Obligation comparison */}
+              {(totals.totalIncome > 0 || totals.monthlyObligation > 0) && (
+                <Card testID="chart-cashflow">
+                  <Text style={[styles.chartLabel, { marginBottom: 10 }]}>
+                    PEMASUKAN VS KEWAJIBAN BULANAN
+                  </Text>
+                  <HorizontalBars
+                    data={[
+                      {
+                        label: 'Pemasukan',
+                        value: totals.totalIncome,
+                        color: colors.primary,
+                      },
+                      {
+                        label: 'Cicilan',
+                        value: totals.monthlyObligation,
+                        color: colors.secondary,
+                      },
+                      {
+                        label: 'Pengeluaran Hari',
+                        value: monthlyExpenseTotal,
+                        color: colors.warning,
+                      },
+                    ]}
+                  />
+                </Card>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Daily Expenses Section */}
+        <View style={{ marginTop: spacing.lg }}>
+          <SectionTitle
+            title="Pengeluaran Terbaru"
+            action={{
+              label: '+ Catat',
+              onPress: () => setShowDailyExp(true),
+              testID: 'add-expense-link',
+            }}
+          />
+          {recentExpenses.length === 0 ? (
+            <Card>
+              <Empty
+                icon="receipt-outline"
+                title="Belum ada pengeluaran tercatat"
+                subtitle="Catat pengeluaran harian agar tahu kemana uangmu mengalir"
+                cta={{
+                  label: 'Catat Sekarang',
+                  onPress: () => setShowDailyExp(true),
+                  testID: 'empty-add-expense',
+                }}
+              />
+            </Card>
+          ) : (
+            <View style={{ gap: 10 }}>
+              {recentExpenses.map((e) => (
+                <Card key={e.id} style={styles.itemCard} testID={`expense-item-${e.id}`}>
+                  <View style={styles.itemRow}>
+                    <View style={[styles.itemIcon, { backgroundColor: colors.warningBg }]}>
+                      <Ionicons name="receipt-outline" size={18} color={colors.warning} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.itemTitle}>{e.title}</Text>
+                      <Text style={styles.itemSub}>
+                        {e.category} · {e.date === todayKey ? 'Hari ini' : e.date}
+                      </Text>
+                    </View>
+                    <Text style={[styles.itemValue, { color: colors.warning }]}>
+                      {formatCurrency(e.amount)}
+                    </Text>
+                  </View>
+                </Card>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Hutang Section */}
@@ -386,6 +627,19 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.fabActionText}>Input Penghasilan</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.fabAction}
+            onPress={() => {
+              setFabOpen(false);
+              setShowDailyExp(true);
+            }}
+            testID="fab-action-expense"
+          >
+            <View style={[styles.fabActionIcon, { backgroundColor: colors.warning }]}>
+              <Ionicons name="receipt-outline" size={18} color={colors.surface} />
+            </View>
+            <Text style={styles.fabActionText}>Catat Pengeluaran</Text>
+          </TouchableOpacity>
         </View>
       )}
       <TouchableOpacity
@@ -399,6 +653,7 @@ export default function HomeScreen() {
 
       <InputHutangSheet visible={showHutang} onClose={() => setShowHutang(false)} />
       <InputPenghasilanSheet visible={showPenghasilan} onClose={() => setShowPenghasilan(false)} />
+      <InputDailyExpenseSheet visible={showDailyExp} onClose={() => setShowDailyExp(false)} />
     </SafeAreaView>
   );
 }
@@ -456,6 +711,37 @@ const styles = StyleSheet.create({
   },
   quickTitle: { ...typography.bodyLg, fontWeight: '700', color: colors.textPrimary },
   quickSub: { ...typography.bodySm, color: colors.textSecondary },
+  chartLabel: {
+    ...typography.overline,
+    color: colors.textSecondary,
+    marginBottom: 10,
+  },
+  chartRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+  },
+  legendLabel: {
+    ...typography.bodySm,
+    color: colors.textPrimary,
+    fontWeight: '600',
+    flex: 1,
+  },
+  legendValue: {
+    ...typography.bodySm,
+    color: colors.textSecondary,
+    fontWeight: '700',
+  },
   itemCard: { padding: spacing.md },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   itemIcon: {

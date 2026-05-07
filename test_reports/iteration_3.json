@@ -1,0 +1,56 @@
+{
+  "summary": "Iteration 3 PASSED. All requested NEW features (AI Insight Card, Charts section, Daily Expenses widget) work end-to-end on the Expo web build at viewport 414x800 logged-in as user@paydone.id / user (u2). Local-fallback insight is correctly used because backend /api/ai/analyze returns 402 for u2; refresh button shows the expected 'AI Premium 🔒 — Upgrade untuk insight personal' error row. Donut, expense-breakdown (conditional), and cashflow charts render with correct totals/legends. Daily-expense bottom sheet opens, all 6 category chips exist, both validation messages fire via window.confirm fallback, successful save persists the new expense (TestExp-<ts>) and reveals chart-expense-breakdown afterwards. FAB speed dial now exposes the 3 new actions. Regression on bottom-tab navigation (Home/Strategi/Action Plan/Profile) still works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/ai/analyze", "issue": "Returns 402 (Payment Required) for test user u2 — expected per problem statement. Frontend correctly falls back to local heuristic insight. No fix needed on frontend."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Hero card / DSR ring", "issues": ["Test user u2 currently has total cicilan Rp 26.8jt vs monthly Pemasukan Rp 5jt → DSR = 537% which the ring renders as '537%'. The math is correct (it's seed data) but the ring visual was designed for 0-100% — value gets clamped to 100% fill but the numeric label 537% can look broken. Optional: cap displayed text at e.g. '>100%' or re-render with a different layout when value > 100. Cosmetic only."]},
+      {"screen": "Console", "issues": ["Non-blocking RN-web warnings: 'shadow*' style props deprecated, 'props.pointerEvents' deprecated, 'TouchableWithoutFeedback' deprecated, 'useNativeDriver not supported on web' (BottomSheet animations fall back to JS). All are RN-web noise, not functional issues."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(OPTIONAL/COSMETIC) DSR ring visual when value > 100% — show '>100%' or scale stroke differently so it doesn't look like a parsing bug.",
+    "(LOW) Carry-over from iteration 2: bottom tabs still have no data-testid; navigation tested via URL (/strategi, /action-plan, /profile, /). Adding data-testid='tab-home|tab-strategi|tab-action-plan|tab-profile' to /app/frontend/app/(tabs)/_layout.tsx would simplify automation."
+  ],
+  "critical_code_review_comments": [
+    "AIInsightCard.tsx: useEffect dep array is intentionally empty with eslint-disable — this is fine for once-on-mount auto-generation but means metric changes won't re-trigger AI. Consider depending on user.id only or document this. Currently working as designed.",
+    "InputDailyExpenseSheet.tsx: `parseNumeric` is called twice on every keystroke (in onChangeText and again to format) — works but slightly wasteful. Functional, no bug.",
+    "index.tsx (Home) is now ~660 lines and handles 4 sheets + 3 charts + 3 sections — consider splitting Charts block + DSRRing into separate files for maintainability (still under the 700-line guideline but trending up).",
+    "callAI() in services/ai.ts treats 402 AND 403 as AILimitError — that is correct for upgrade-required, but a true 403 (forbidden, e.g. expired session) is also swallowed as 'limit'. Minor — could differentiate auth vs quota.",
+    "AIInsightCard auto-fires generate() on mount even when localInsight is sufficient — every Home mount = 1 backend POST that 402's for u2. Consider gating auto-fire behind `aiText === null && !aiError && hasQuota` flag in storage to avoid hammering /api/ai/analyze on every render."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (external prod API)", "frontend": "100% — 12/12 explicit acceptance items passed"},
+  "test_credentials": "user@paydone.id / user (pre-filled, prod api.cosger.com)",
+  "seed_data_creation": "Created 1 daily expense on prod for u2: title 'TestExp-1778154376', amount Rp 25.000, category Food, today's date. NOT cleaned up (no delete UI for daily expenses yet — verify with main agent if cleanup tooling is needed).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://54d8c3ef-ff58-4718-898d-fbc6e6991dcc.preview.emergentagent.com. Login is pre-filled — single click on 'Masuk' text. Backend /api/ai/analyze returns 402 for u2 → AI card always falls back to local insight; the title 'INSIGHT FINANSIAL' (vs 'AI ANALYST · GEMINI') indicates fallback was used. window.confirm/window.alert is the cross-platform pattern (registered via page.on('dialog')). chart-expense-breakdown is conditionally rendered (only when monthlyExpenses > 0). Donut center has `Rp <total>` text + 'Total' subtitle. After saving an expense via dailyexp-sheet, the new card has testid `expense-item-de-<timestamp>` and the breakdown chart appears.",
+  "verified_flows": {
+    "ai_insight_card_renders": "PASS",
+    "ai_insight_local_fallback_text": "PASS ('INSIGHT FINANSIAL' label, contextual DSR-based body)",
+    "ai_insight_refresh_shows_premium_error": "PASS",
+    "chart_debt_distribution_renders": "PASS (donut + legend KPR 87% / KKB 13%, Rp 873.6jt center)",
+    "chart_expense_breakdown_initially_hidden": "PASS (no expenses yet)",
+    "chart_cashflow_renders": "PASS (Pemasukan/Cicilan/Pengeluaran bars)",
+    "quick_input_hutang": "PASS",
+    "quick_input_income": "PASS",
+    "quick_input_expense_with_today_subtitle": "PASS ('Hari ini: Rp 0')",
+    "dailyexp_sheet_opens": "PASS",
+    "dailyexp_6_category_chips": "PASS (Food/Transport/Shopping/Utilities/Entertainment/Others)",
+    "dailyexp_validation_empty_title": "PASS ('Nama pengeluaran wajib diisi')",
+    "dailyexp_validation_empty_amount": "PASS ('Jumlah harus > 0')",
+    "dailyexp_successful_save": "PASS (TestExp-1778154376 / Rp 25.000 / Food saved, sheet closes, item appears)",
+    "chart_expense_breakdown_appears_after_save": "PASS",
+    "fab_3_actions": "PASS (fab-action-hutang/income/expense)",
+    "regression_bottom_tabs_navigation": "PASS (Home/Strategi/Action Plan/Profile)"
+  },
+  "rca of the issue": "No bugs found this iteration. Local-fallback path is the intended behavior for u2 (quota-exhausted account); backend 402 is propagated as AILimitError which the UI surfaces in the error row exactly as specified."
+}

@@ -6,7 +6,6 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +14,7 @@ import { Card } from '../../src/components/UI';
 import { colors, spacing, radius, typography, shadows } from '../../src/theme';
 import { formatCurrencyFull, formatCurrency } from '../../src/utils/format';
 import { API_BASE_URL } from '../../src/services/api';
+import { confirmAsync } from '../../src/utils/confirm';
 import { useRouter } from 'expo-router';
 
 export default function ProfileScreen() {
@@ -43,18 +43,14 @@ export default function ProfileScreen() {
     return { totalAvailable, pct };
   }, [data, target]);
 
-  const handleLogout = () => {
-    Alert.alert('Keluar', 'Yakin keluar dari akun?', [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Keluar',
-        style: 'destructive',
-        onPress: async () => {
-          await signOut();
-          router.replace('/login');
-        },
-      },
-    ]);
+  const handleLogout = async () => {
+    const ok = await confirmAsync('Keluar', 'Yakin keluar dari akun?', {
+      confirmLabel: 'Keluar',
+      destructive: true,
+    });
+    if (!ok) return;
+    await signOut();
+    router.replace('/login');
   };
 
   const menuItems = [

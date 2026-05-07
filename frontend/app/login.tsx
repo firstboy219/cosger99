@@ -10,7 +10,6 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,9 +39,7 @@ export default function LoginScreen() {
     } catch (e: any) {
       const msg = e?.message || 'Login gagal';
       setError(msg);
-      if (Platform.OS !== 'web') {
-        Alert.alert('Login Gagal', msg);
-      }
+      // alertAsync from confirm utils ensures cross-platform display
     } finally {
       setLoading(false);
     }

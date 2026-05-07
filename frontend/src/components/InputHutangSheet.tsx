@@ -6,7 +6,6 @@ import {
   View,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +15,7 @@ import { colors, spacing, radius, typography } from '../theme';
 import { createItem } from '../services/api';
 import { useApp } from '../contexts/AppContext';
 import { formatNumberInput, parseNumeric } from '../utils/format';
+import { alertAsync } from '../utils/confirm';
 
 const LOAN_TYPES: { id: string; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'KPR', label: 'KPR', icon: 'home-outline' },
@@ -58,7 +58,7 @@ export const InputHutangSheet: React.FC<Props> = ({ visible, onClose }) => {
   const handleSave = async () => {
     if (!user) return;
     if (!name.trim()) {
-      Alert.alert('Validasi', 'Nama hutang wajib diisi');
+      alertAsync('Validasi', 'Nama hutang wajib diisi');
       return;
     }
     const principalNum = parseNumeric(principal);
@@ -68,15 +68,15 @@ export const InputHutangSheet: React.FC<Props> = ({ visible, onClose }) => {
     const dueDateNum = parseInt(dueDate || '5', 10);
 
     if (principalNum <= 0) {
-      Alert.alert('Validasi', 'Pokok pinjaman harus lebih dari 0');
+      alertAsync('Validasi', 'Pokok pinjaman harus lebih dari 0');
       return;
     }
     if (monthlyNum <= 0) {
-      Alert.alert('Validasi', 'Cicilan bulanan harus lebih dari 0');
+      alertAsync('Validasi', 'Cicilan bulanan harus lebih dari 0');
       return;
     }
     if (tenorNum <= 0) {
-      Alert.alert('Validasi', 'Tenor (bulan) harus lebih dari 0');
+      alertAsync('Validasi', 'Tenor (bulan) harus lebih dari 0');
       return;
     }
 
@@ -112,7 +112,7 @@ export const InputHutangSheet: React.FC<Props> = ({ visible, onClose }) => {
       reset();
       onClose();
     } catch (e: any) {
-      Alert.alert('Gagal Simpan', e?.message || 'Terjadi kesalahan saat menyimpan hutang');
+      alertAsync('Gagal Simpan', e?.message || 'Terjadi kesalahan saat menyimpan hutang');
     } finally {
       setLoading(false);
     }

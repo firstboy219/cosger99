@@ -7,7 +7,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   RefreshControl,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +15,7 @@ import { Card, SectionTitle, Empty, Field, Input, PrimaryButton } from '../../sr
 import { BottomSheet } from '../../src/components/BottomSheet';
 import { colors, spacing, radius, typography, shadows } from '../../src/theme';
 import { formatCurrency, formatCurrencyFull, formatNumberInput, parseNumeric, monthKey, formatDate } from '../../src/utils/format';
+import { confirmAsync, alertAsync } from '../../src/utils/confirm';
 import { createItem, updateItem, deleteItem } from '../../src/services/api';
 
 type TabKey = 'extra' | 'sinking' | 'pos';
@@ -65,7 +65,7 @@ export default function StrategiScreen() {
     if (!extraSheetDebt) return;
     const num = parseNumeric(extraAmount);
     if (num <= 0) {
-      Alert.alert('Validasi', 'Jumlah extra payment harus > 0');
+      alertAsync('Validasi', 'Jumlah extra payment harus > 0');
       return;
     }
     setExtraSaving(true);
@@ -82,7 +82,7 @@ export default function StrategiScreen() {
       setExtraSheetDebt(null);
       setExtraAmount('');
     } catch (e: any) {
-      Alert.alert('Gagal', e?.message || 'Update gagal');
+      alertAsync('Gagal', e?.message || 'Update gagal');
     } finally {
       setExtraSaving(false);
     }
@@ -92,12 +92,12 @@ export default function StrategiScreen() {
   const handleSaveSf = async () => {
     if (!user) return;
     if (!sfName.trim()) {
-      Alert.alert('Validasi', 'Nama dana wajib diisi');
+      alertAsync('Validasi', 'Nama dana wajib diisi');
       return;
     }
     const num = parseNumeric(sfTarget);
     if (num <= 0) {
-      Alert.alert('Validasi', 'Target nominal harus > 0');
+      alertAsync('Validasi', 'Target nominal harus > 0');
       return;
     }
     const deadline = sfDeadline.trim() || (() => {
@@ -128,40 +128,36 @@ export default function StrategiScreen() {
       setSfTarget('');
       setSfDeadline('');
     } catch (e: any) {
-      Alert.alert('Gagal', e?.message || 'Simpan gagal');
+      alertAsync('Gagal', e?.message || 'Simpan gagal');
     } finally {
       setSfSaving(false);
     }
   };
 
-  const handleDeleteSf = (sf: any) => {
-    Alert.alert('Hapus Sinking Fund', `Yakin hapus "${sf.name}"?`, [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Hapus',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteItem('sinkingFunds', sf.id);
-            patchData('sinkingFunds', sf, 'delete');
-          } catch (e: any) {
-            Alert.alert('Gagal', e?.message || 'Hapus gagal');
-          }
-        },
-      },
-    ]);
+  const handleDeleteSf = async (sf: any) => {
+    const ok = await confirmAsync('Hapus Sinking Fund', `Yakin hapus "${sf.name}"?`, {
+      confirmLabel: 'Hapus',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteItem('sinkingFunds', sf.id);
+      patchData('sinkingFunds', sf, 'delete');
+    } catch (e: any) {
+      await alertAsync('Gagal', e?.message || 'Hapus gagal');
+    }
   };
 
   // ─── Pos Allocation Handlers ────────────────────────────────────────
   const handleSavePos = async () => {
     if (!user) return;
     if (!posName.trim()) {
-      Alert.alert('Validasi', 'Nama pos wajib diisi');
+      alertAsync('Validasi', 'Nama pos wajib diisi');
       return;
     }
     const num = parseNumeric(posAmount);
     if (num <= 0) {
-      Alert.alert('Validasi', 'Jumlah harus > 0');
+      alertAsync('Validasi', 'Jumlah harus > 0');
       return;
     }
     const item: any = {
@@ -186,28 +182,24 @@ export default function StrategiScreen() {
       setPosName('');
       setPosAmount('');
     } catch (e: any) {
-      Alert.alert('Gagal', e?.message || 'Simpan gagal');
+      alertAsync('Gagal', e?.message || 'Simpan gagal');
     } finally {
       setPosSaving(false);
     }
   };
 
-  const handleDeletePos = (item: any) => {
-    Alert.alert('Hapus Pos', `Yakin hapus "${item.name}"?`, [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Hapus',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteItem('allocations', item.id);
-            patchData('allocations', item, 'delete');
-          } catch (e: any) {
-            Alert.alert('Gagal', e?.message || 'Hapus gagal');
-          }
-        },
-      },
-    ]);
+  const handleDeletePos = async (item: any) => {
+    const ok = await confirmAsync('Hapus Pos', `Yakin hapus "${item.name}"?`, {
+      confirmLabel: 'Hapus',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteItem('allocations', item.id);
+      patchData('allocations', item, 'delete');
+    } catch (e: any) {
+      await alertAsync('Gagal', e?.message || 'Hapus gagal');
+    }
   };
 
   // Pos summary

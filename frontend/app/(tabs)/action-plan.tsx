@@ -7,7 +7,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   RefreshControl,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +15,7 @@ import { Card, SectionTitle, Empty, Field, Input, PrimaryButton } from '../../sr
 import { BottomSheet } from '../../src/components/BottomSheet';
 import { colors, spacing, radius, typography, shadows } from '../../src/theme';
 import { formatDate } from '../../src/utils/format';
+import { confirmAsync, alertAsync } from '../../src/utils/confirm';
 import { createItem, updateItem, deleteItem } from '../../src/services/api';
 
 type FilterKey = 'all' | 'pending' | 'completed';
@@ -53,7 +53,7 @@ export default function ActionPlanScreen() {
   const handleSave = async () => {
     if (!user) return;
     if (!title.trim()) {
-      Alert.alert('Validasi', 'Judul tugas wajib diisi');
+      alertAsync('Validasi', 'Judul tugas wajib diisi');
       return;
     }
     const item: any = {
@@ -76,7 +76,7 @@ export default function ActionPlanScreen() {
       setDueDate('');
       setCategory('Payment');
     } catch (e: any) {
-      Alert.alert('Gagal', e?.message || 'Simpan gagal');
+      alertAsync('Gagal', e?.message || 'Simpan gagal');
     } finally {
       setSaving(false);
     }
@@ -91,26 +91,22 @@ export default function ActionPlanScreen() {
     } catch (e: any) {
       // rollback
       patchData('tasks', task, 'update');
-      Alert.alert('Gagal', e?.message || 'Update gagal');
+      alertAsync('Gagal', e?.message || 'Update gagal');
     }
   };
 
-  const handleDelete = (task: any) => {
-    Alert.alert('Hapus Tugas', `Yakin hapus "${task.title}"?`, [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Hapus',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteItem('tasks', task.id);
-            patchData('tasks', task, 'delete');
-          } catch (e: any) {
-            Alert.alert('Gagal', e?.message || 'Hapus gagal');
-          }
-        },
-      },
-    ]);
+  const handleDelete = async (task: any) => {
+    const ok = await confirmAsync('Hapus Tugas', `Yakin hapus "${task.title}"?`, {
+      confirmLabel: 'Hapus',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteItem('tasks', task.id);
+      patchData('tasks', task, 'delete');
+    } catch (e: any) {
+      await alertAsync('Gagal', e?.message || 'Hapus gagal');
+    }
   };
 
   const catColor = (cat: string) => {

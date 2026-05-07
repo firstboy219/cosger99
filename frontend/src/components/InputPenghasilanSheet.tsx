@@ -6,7 +6,6 @@ import {
   View,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +15,7 @@ import { colors, spacing, radius, typography } from '../theme';
 import { createItem } from '../services/api';
 import { useApp } from '../contexts/AppContext';
 import { formatNumberInput, parseNumeric } from '../utils/format';
+import { alertAsync } from '../utils/confirm';
 
 const TYPES = [
   { id: 'active', label: 'Aktif', desc: 'Gaji, freelance', icon: 'briefcase-outline' as const },
@@ -53,12 +53,12 @@ export const InputPenghasilanSheet: React.FC<Props> = ({ visible, onClose }) => 
   const handleSave = async () => {
     if (!user) return;
     if (!source.trim()) {
-      Alert.alert('Validasi', 'Sumber penghasilan wajib diisi');
+      alertAsync('Validasi', 'Sumber penghasilan wajib diisi');
       return;
     }
     const amountNum = parseNumeric(amount);
     if (amountNum <= 0) {
-      Alert.alert('Validasi', 'Jumlah harus lebih dari 0');
+      alertAsync('Validasi', 'Jumlah harus lebih dari 0');
       return;
     }
     const today = new Date();
@@ -86,7 +86,7 @@ export const InputPenghasilanSheet: React.FC<Props> = ({ visible, onClose }) => 
       reset();
       onClose();
     } catch (e: any) {
-      Alert.alert('Gagal Simpan', e?.message || 'Terjadi kesalahan saat menyimpan penghasilan');
+      alertAsync('Gagal Simpan', e?.message || 'Terjadi kesalahan saat menyimpan penghasilan');
     } finally {
       setLoading(false);
     }

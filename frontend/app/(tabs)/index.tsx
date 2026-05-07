@@ -7,7 +7,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   RefreshControl,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +17,7 @@ import { InputHutangSheet } from '../../src/components/InputHutangSheet';
 import { InputPenghasilanSheet } from '../../src/components/InputPenghasilanSheet';
 import { colors, spacing, radius, typography, shadows } from '../../src/theme';
 import { formatCurrency, formatCurrencyFull, monthKey } from '../../src/utils/format';
+import { confirmAsync, alertAsync } from '../../src/utils/confirm';
 import { deleteItem } from '../../src/services/api';
 
 const DSRRing: React.FC<{ value: number; size?: number }> = ({ value, size = 96 }) => {
@@ -99,40 +99,32 @@ export default function HomeScreen() {
   const recentDebts = data.debts.filter((d) => !d._deleted).slice(0, 4);
   const recentIncomes = data.incomes.filter((i) => !i._deleted).slice(0, 4);
 
-  const handleDeleteDebt = (debt: any) => {
-    Alert.alert('Hapus Hutang', `Yakin hapus "${debt.name}"?`, [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Hapus',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteItem('debts', debt.id);
-            patchData('debts', debt, 'delete');
-          } catch (e: any) {
-            Alert.alert('Gagal', e?.message || 'Hapus gagal');
-          }
-        },
-      },
-    ]);
+  const handleDeleteDebt = async (debt: any) => {
+    const ok = await confirmAsync('Hapus Hutang', `Yakin hapus "${debt.name}"?`, {
+      confirmLabel: 'Hapus',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteItem('debts', debt.id);
+      patchData('debts', debt, 'delete');
+    } catch (e: any) {
+      await alertAsync('Gagal', e?.message || 'Hapus gagal');
+    }
   };
 
-  const handleDeleteIncome = (inc: any) => {
-    Alert.alert('Hapus Penghasilan', `Yakin hapus "${inc.source}"?`, [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Hapus',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteItem('incomes', inc.id);
-            patchData('incomes', inc, 'delete');
-          } catch (e: any) {
-            Alert.alert('Gagal', e?.message || 'Hapus gagal');
-          }
-        },
-      },
-    ]);
+  const handleDeleteIncome = async (inc: any) => {
+    const ok = await confirmAsync('Hapus Penghasilan', `Yakin hapus "${inc.source}"?`, {
+      confirmLabel: 'Hapus',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteItem('incomes', inc.id);
+      patchData('incomes', inc, 'delete');
+    } catch (e: any) {
+      await alertAsync('Gagal', e?.message || 'Hapus gagal');
+    }
   };
 
   return (

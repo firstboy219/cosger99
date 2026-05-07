@@ -1,0 +1,161 @@
+{
+  "theme": "Light",
+  "archetype": "Organic & Earthy",
+  "rationale": "For an Indonesian debt management & financial freedom app, the design must evoke calm, trust, and growth, avoiding the anxiety often associated with debt. Rejecting generic fintech blues, we embrace grounding earth tones. Soft greens (sage) represent growth and income, warm terracotta signifies debts/obligations without the harshness of traffic-light red. The UI relies on organic padding, soft cards, and bottom-sheet architectures for exceptional mobile thumb-reachability.",
+  "colors": {
+    "background": {
+      "base": "#F7F5F0",
+      "surface": "#FFFFFF",
+      "surface_elevated": "#FCFAF8"
+    },
+    "brand": {
+      "primary": "#7D8F69",
+      "primary_active": "#667655",
+      "primary_light": "#E8ECE3",
+      "secondary": "#CD7D5C",
+      "secondary_light": "#F8EFEA"
+    },
+    "text": {
+      "primary": "#2D312A",
+      "secondary": "#757971",
+      "disabled": "#A6A9A2",
+      "inverse": "#FFFFFF"
+    },
+    "border": {
+      "light": "#EAE6DF",
+      "focus": "#7D8F69"
+    },
+    "status": {
+      "success": "#7D8F69",
+      "warning": "#E8AA42",
+      "danger": "#CD7D5C"
+    }
+  },
+  "typography": {
+    "family": {
+      "heading": "Outfit, sans-serif",
+      "body": "Plus Jakarta Sans, sans-serif"
+    },
+    "sizes": {
+      "h1": { "fontSize": 36, "lineHeight": 44, "letterSpacing": -0.5, "weight": "700" },
+      "h2": { "fontSize": 28, "lineHeight": 36, "letterSpacing": -0.5, "weight": "700" },
+      "h3": { "fontSize": 22, "lineHeight": 28, "letterSpacing": -0.3, "weight": "600" },
+      "h4": { "fontSize": 18, "lineHeight": 24, "letterSpacing": -0.2, "weight": "600" },
+      "body_lg": { "fontSize": 16, "lineHeight": 24, "letterSpacing": 0, "weight": "400" },
+      "body_md": { "fontSize": 14, "lineHeight": 20, "letterSpacing": 0, "weight": "400" },
+      "body_sm": { "fontSize": 12, "lineHeight": 16, "letterSpacing": 0.2, "weight": "500" },
+      "overline": { "fontSize": 11, "lineHeight": 14, "letterSpacing": 1.2, "weight": "700", "textTransform": "uppercase" }
+    }
+  },
+  "spacing_and_radius": {
+    "spacing": {
+      "xs": 4,
+      "sm": 8,
+      "md": 16,
+      "lg": 24,
+      "xl": 32,
+      "2xl": 48,
+      "screen_edge": 24
+    },
+    "radius": {
+      "sm": 8,
+      "md": 12,
+      "lg": 16,
+      "xl": 24,
+      "2xl": 32,
+      "pill": 9999
+    }
+  },
+  "shadows": {
+    "card": "0px 8px 24px rgba(45, 49, 42, 0.04)",
+    "floating": "0px 12px 32px rgba(45, 49, 42, 0.08)",
+    "inner": "inset 0px 0px 0px 1px rgba(234, 230, 223, 1)"
+  },
+  "component_patterns": {
+    "cards": {
+      "style": "Surface background (#FFFFFF), rounded-xl (24px), card shadow, inner border for crispness. Internal padding of 20px or 24px minimum.",
+      "usage": "Dashboard summaries, List items for Debt/Income."
+    },
+    "buttons": {
+      "primary": "Solid primary background (#7D8F69), inverse text, rounded-pill, h-56px for generous tap area.",
+      "secondary": "Transparent background, primary inner border, primary text, rounded-pill.",
+      "tertiary": "Surface background, soft shadow, dark text. Used for filter chips."
+    },
+    "fab": {
+      "style": "Large 64x64px circular button, deep drop shadow, floating bottom-right. Primary color. Icon: Plus/Add.",
+      "usage": "Trigger bottom sheets for Input Hutang & Input Penghasilan."
+    },
+    "bottom_tabs": {
+      "style": "Elevated white surface, minimal icons, active icon uses primary color with a subtle dot or background pill indicator. Hidden labels on inactive tabs to reduce clutter."
+    },
+    "modals_bottom_sheets": {
+      "style": "Swipeable from bottom, rounded-t-2xl (32px), backdrop blur or #2D312A at 40% opacity. Contains forms for input.",
+      "usage": "Input Hutang, Input Penghasilan, specific task actions."
+    },
+    "inputs": {
+      "text_field": "Background surface elevated (#FCFAF8), rounded-lg (16px), border-light. On focus, 1px border changes to primary (#7D8F69). Floating or clear external labels (Overline style)."
+    },
+    "charts": {
+      "dsr_indicator": "Circular progress ring. If DSR > 35%, use warning/secondary colors (Terracotta). If < 35%, use primary (Sage). Clean, thick stroke width."
+    }
+  },
+  "screen_layouts": {
+    "Login": {
+      "layout": "Vertical stack, generous top spacing (40vh). Hero typography (App Name/Logo). Inputs stacked. Full-width primary button.",
+      "vibe": "Calm entry, minimal distraction. Solid background base."
+    },
+    "Home": {
+      "layout": "Header: Greeting + Avatar. Scrollable View. \n1. Total Balance/Overview Card (Spans full width). Contains DSR Ratio Circular Chart.\n2. Horizontal scroll for Quick Stats (Total Debt, Total Income).\n3. Recent Activity list.\nFAB floating bottom right.",
+      "features": "Dashboard summary cards, quick action FAB."
+    },
+    "Strategi": {
+      "layout": "Top Tab Navigator (3 tabs: Extra Payment, Sinking Fund, Pos Allocation).\n- Extra Payment: List of active debts with 'Add Extra' button on each.\n- Sinking Fund: Grid layout (2 columns) of visual savings jars/cards with progress bars.\n- Pos Allocation: Vertical list of budgeting categories (Needs 50%, Wants 30%, Debt 20%) with visual spend bars."
+    },
+    "Action_Plan": {
+      "layout": "Header with title. Horizontal scrollable filter chips (All, Admin, Payment, Nego, Investment). Vertical FlatList of task cards. Task cards have a circular checkbox (left), title/category (center), priority dot (right)."
+    },
+    "Profile": {
+      "layout": "Large Avatar centered, Name, 'Financial Freedom Target' highlighted in a prominent primary-light colored card. List of menu options (Preferences, Security, Logout) grouped in a white surface card with inner borders."
+    },
+    "Input_Hutang_Penghasilan": {
+      "layout": "Bottom Sheet architecture. \n1. Segmented control to pick type (e.g., KPR vs KKB vs KTA).\n2. Massive typography for Amount Input (looks like a native calculator/numpad style).\n3. Additional fields (tenor, interest) follow. Fixed bottom CTA 'Save'."
+    }
+  },
+  "micro_interactions": {
+    "haptics": "Light haptic feedback on tab changes. Medium haptic on checking off an Action Plan task. Success haptic on submitting Input Hutang/Penghasilan.",
+    "animations": "Morphing cards when expanding a Sinking fund. Smooth 60fps bottom sheet slide-ups. Number tickers animating from 0 to total balance on Home screen load."
+  },
+  "accessibility": {
+    "contrast": "Text colors exceed WCAG AA requirements on light backgrounds. Avoid pure white text on light primary buttons.",
+    "touch_targets": "Minimum 48x48px for all interactive elements (buttons, checkboxes, tab icons).",
+    "motion": "Respect 'prefers-reduced-motion' by turning off card morphing and scaling down number tickers to simple fades if requested."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "url": "https://images.unsplash.com/photo-1606305924293-788fc9e454c9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwzfHxwZXJzb24lMjB3cml0aW5nJTIwaW4lMjBub3RlYm9vayUyMGNvZmZlZXxlbnwwfHx8fDE3NzgxNTEyOTd8MA&ixlib=rb-4.1.0&q=85",
+        "category": "background_texture",
+        "description": "Person writing on white paper (relatable planning aesthetic for Action Plan empty states)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1759365894374-84d679c9e41c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwxfHxwZXJzb24lMjB3cml0aW5nJTIwaW4lMjBub3RlYm9vayUyMGNvZmZlZXxlbnwwfHx8fDE3NzgxNTEyOTd8MA&ixlib=rb-4.1.0&q=85",
+        "category": "onboarding_illustration",
+        "description": "Man reading notebook at outdoor table (lifestyle, financial planning)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1579621970588-a35d0e7ab9b6?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85",
+        "category": "finance_abstract",
+        "description": "Money plant or minimalist finance element for Profile or Target success modals"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "This is a React Native (Expo) app. Map these design guidelines to StyleSheet or your preferred styling library.",
+    "Do NOT use HTML elements (div, span). Use React Native primitives (View, Text, TouchableOpacity, ScrollView).",
+    "Implement bottom sheets using a robust library like @gorhom/bottom-sheet.",
+    "For the FAB, ensure absolute positioning over the Home screen View.",
+    "Use react-native-svg for icons (Phosphor Icons or Lucide recommended).",
+    "Implement 'Outfit' and 'Plus Jakarta Sans' using expo-font.",
+    "Adhere strictly to the 'Organic & Earthy' color palette. No purple, no stark default blues."
+  ]
+}
